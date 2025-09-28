@@ -83,6 +83,11 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		i.req.ParallelToolCalls = openai.Bool(false)
 	}
 
+	// Force responses to only have one choice.
+	// It's unnecessary to generate multiple responses, and would complicate our stream processing logic if
+	// multiple choices were returned.
+	i.req.N = openai.Int(1)
+
 	prompt, err := i.req.LastUserPrompt()
 	if err != nil {
 		logger.Warn(ctx, "failed to retrieve last user prompt", slog.Error(err))
@@ -92,80 +97,72 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		stream          *ssestream.Stream[openai.ChatCompletionChunk]
 		lastErr         error
 		interceptionErr error
-		lastUsage       openai.CompletionUsage
-		cumulativeUsage openai.CompletionUsage
 	)
 	for {
-		var pendingToolCalls []openai.FinishedChatCompletionToolCall
-
 		stream = client.Chat.Completions.NewStreaming(streamCtx, i.req.ChatCompletionNewParams)
-		var acc openai.ChatCompletionAccumulator
+		processor := newStreamProcessor(streamCtx, i.logger.Named("stream-processor"), i.isToolInjected)
+
+		var lastToolCall *openai.FinishedChatCompletionToolCall
+
 		for stream.Next() {
 			chunk := stream.Current()
-			acc.AddChunk(chunk)
 
-			shouldRelayChunk := true
-			if toolCall, ok := acc.JustFinishedToolCall(); ok {
-				if i.mcpProxy != nil && i.mcpProxy.GetTool(toolCall.Name) != nil {
-					pendingToolCalls = append(pendingToolCalls, toolCall)
-					// Don't relay this chunk back; we'll handle it transparently.
-					shouldRelayChunk = false
-				} else {
-					// Don't intercept and handle builtin tools.
-					_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
-						InterceptionID: i.ID().String(),
-						MsgID:          chunk.ID,
-						Tool:           toolCall.Name,
-						Args:           i.unmarshalArgs(toolCall.Arguments),
-						Injected:       false,
-					})
-				}
+			canRelay := processor.ingest(chunk)
+			if lastToolCall == nil {
+				lastToolCall = processor.getToolCall()
 			}
 
-			if len(pendingToolCalls) > 0 {
-				// Any chunks following a tool call invocation should not be relayed.
-				shouldRelayChunk = false
+			if !canRelay {
+				continue
 			}
 
-			lastUsage = chunk.Usage
-			cumulativeUsage = sumUsage(cumulativeUsage, chunk.Usage)
-
-			if shouldRelayChunk {
-				// If usage information is available, relay the cumulative usage once all tool invocations have completed.
-				if chunk.Usage.CompletionTokens > 0 {
-					chunk.Usage = cumulativeUsage
-				}
-
-				// Overwrite response identifier since proxy obscures injected tool call invocations.
-				chunk.ID = i.ID().String()
-				payload, err := i.marshal(chunk)
-				if err != nil {
-					logger.Warn(ctx, "failed to marshal chunk", slog.Error(err), chunk.RawJSON())
-					lastErr = fmt.Errorf("marshal chunk: %w", err)
-					break
-				}
-				if err := events.Send(streamCtx, payload); err != nil {
-					logger.Warn(ctx, "failed to relay chunk", slog.Error(err))
-					lastErr = fmt.Errorf("relay chunk: %w", err)
-					break
-				}
+			// If usage information is available, relay the cumulative usage once all tool invocations have completed.
+			if chunk.Usage.CompletionTokens > 0 {
+				chunk.Usage = processor.getCumulativeUsage()
 			}
+
+			// Overwrite response identifier since proxy obscures injected tool call invocations.
+			chunk.ID = i.ID().String()
+
+			// Marshal and relay chunk to client.
+			payload, err := i.marshal(chunk)
+			if err != nil {
+				logger.Warn(ctx, "failed to marshal chunk", slog.Error(err), chunk.RawJSON())
+				lastErr = fmt.Errorf("marshal chunk: %w", err)
+				break
+			}
+			if err := events.Send(ctx, payload); err != nil {
+				logger.Warn(ctx, "failed to relay chunk", slog.Error(err))
+				lastErr = fmt.Errorf("relay chunk: %w", err)
+				break
+			}
+		}
+
+		// Builtin tools are not intercepted.
+		if lastToolCall != nil && !i.isToolInjected(lastToolCall.Name) {
+			_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
+				InterceptionID: i.ID().String(),
+				MsgID:          processor.getMsgID(),
+				Tool:           lastToolCall.Name,
+				Args:           i.unmarshalArgs(lastToolCall.Arguments),
+				Injected:       false,
+			})
 		}
 
 		if prompt != nil {
 			_ = i.recorder.RecordPromptUsage(streamCtx, &PromptUsageRecord{
 				InterceptionID: i.ID().String(),
-				MsgID:          acc.ID,
+				MsgID:          processor.getMsgID(),
 				Prompt:         *prompt,
 			})
 		}
 
-		if lastUsage.CompletionTokens > 0 {
+		if lastUsage := processor.getLastUsage(); lastUsage.CompletionTokens > 0 {
 			// If the usage information is set, track it.
 			// The API will send usage information when the response terminates, which will happen if a tool call is invoked.
 			_ = i.recorder.RecordTokenUsage(streamCtx, &TokenUsageRecord{
 				InterceptionID: i.ID().String(),
-				MsgID:          acc.ID,
+				MsgID:          processor.getMsgID(),
 				Input:          lastUsage.PromptTokens,
 				Output:         lastUsage.CompletionTokens,
 				Metadata: Metadata{
@@ -210,61 +207,61 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 			}
 		}
 
-		if len(pendingToolCalls) == 0 {
+		// No tool call, nothing more to do.
+		if lastToolCall == nil {
 			break
 		}
 
-		appendedPrevMsg := false
-		for _, tc := range pendingToolCalls {
-			if i.mcpProxy == nil {
-				continue
+		// No MCP proxy, no way to call tools; this should not be possible since the way we detect if
+		// a tool is injected is by querying the MCP proxy.
+		if i.mcpProxy == nil {
+			if lastToolCall != nil {
+				i.logger.Warn(ctx, "unexpected attempt to invoke tool call without MCP proxy", slog.F("tool", lastToolCall.Name))
+				break
 			}
-
-			tool := i.mcpProxy.GetTool(tc.Name)
-			if tool == nil {
-				// Not a known tool, don't do anything.
-				logger.Warn(streamCtx, "pending tool call for non-managed tool, skipping", slog.F("tool", tc.Name))
-				continue
-			}
-
-			// Only do this once.
-			if !appendedPrevMsg {
-				// Append the whole message from this stream as context since we'll be sending a new request with the tool results.
-				i.req.Messages = append(i.req.Messages, acc.Choices[len(acc.Choices)-1].Message.ToParam())
-				appendedPrevMsg = true
-			}
-
-			args := i.unmarshalArgs(tc.Arguments)
-			res, err := tool.Call(streamCtx, args)
-
-			_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
-				InterceptionID:  i.ID().String(),
-				MsgID:           acc.ID,
-				ServerURL:       &tool.ServerURL,
-				Tool:            tool.Name,
-				Args:            args,
-				Injected:        true,
-				InvocationError: err,
-			})
-
-			if err != nil {
-				// Always provide a tool_result even if the tool call failed.
-				errorJSON, _ := json.Marshal(i.newErrorResponse(err))
-				i.req.Messages = append(i.req.Messages, openai.ToolMessage(string(errorJSON), tc.ID))
-				continue
-			}
-
-			var out strings.Builder
-			if err := json.NewEncoder(&out).Encode(res); err != nil {
-				logger.Warn(ctx, "failed to encode tool response", slog.Error(err))
-				// Always provide a tool_result even if encoding failed.
-				errorJSON, _ := json.Marshal(i.newErrorResponse(err))
-				i.req.Messages = append(i.req.Messages, openai.ToolMessage(string(errorJSON), tc.ID))
-				continue
-			}
-
-			i.req.Messages = append(i.req.Messages, openai.ToolMessage(out.String(), tc.ID))
 		}
+
+		tool := i.mcpProxy.GetTool(lastToolCall.Name)
+		if tool == nil {
+			// Not a known tool, don't do anything.
+			logger.Warn(streamCtx, "pending tool call for non-injected tool, this is unexpected", slog.F("tool", lastToolCall.Name))
+			break
+		}
+
+		// Invoke the injected tool, and use the tool result to make a subsequent request to the upstream.
+		// Append the completion from this stream as context.
+		i.req.Messages = append(i.req.Messages, processor.getLastCompletion().ToParam())
+
+		args := i.unmarshalArgs(lastToolCall.Arguments)
+		res, err := tool.Call(streamCtx, args)
+
+		_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
+			InterceptionID:  i.ID().String(),
+			MsgID:           processor.getMsgID(),
+			ServerURL:       &tool.ServerURL,
+			Tool:            tool.Name,
+			Args:            args,
+			Injected:        true,
+			InvocationError: err,
+		})
+
+		if err != nil {
+			// Always provide a tool_result even if the tool call failed.
+			errorJSON, _ := json.Marshal(i.newErrorResponse(err))
+			i.req.Messages = append(i.req.Messages, openai.ToolMessage(string(errorJSON), lastToolCall.ID))
+			continue
+		}
+
+		var out strings.Builder
+		if err := json.NewEncoder(&out).Encode(res); err != nil {
+			logger.Warn(ctx, "failed to encode tool response", slog.Error(err))
+			// Always provide a tool_result even if encoding failed.
+			errorJSON, _ := json.Marshal(i.newErrorResponse(err))
+			i.req.Messages = append(i.req.Messages, openai.ToolMessage(string(errorJSON), lastToolCall.ID))
+			continue
+		}
+
+		i.req.Messages = append(i.req.Messages, openai.ToolMessage(out.String(), lastToolCall.ID))
 	}
 
 	// Send termination marker.
@@ -288,6 +285,10 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	return interceptionErr
 }
 
+func (i *OpenAIStreamingChatInterception) isToolInjected(name string) bool {
+	return i.mcpProxy != nil && i.mcpProxy.GetTool(name) != nil
+}
+
 func (i *OpenAIStreamingChatInterception) marshal(payload any) ([]byte, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
@@ -303,4 +304,139 @@ func (i *OpenAIStreamingChatInterception) encodeForStream(payload []byte) []byte
 	buf.Write(payload)
 	buf.WriteString("\n\n")
 	return buf.Bytes()
+}
+
+type streamProcessor struct {
+	ctx    context.Context
+	logger slog.Logger
+
+	acc openai.ChatCompletionAccumulator
+
+	// Tool handling.
+	pendingToolCall    bool
+	isToolInjectedFunc func(string) bool
+
+	// Token handling.
+	lastUsage       openai.CompletionUsage
+	cumulativeUsage openai.CompletionUsage
+
+	streamErr error
+}
+
+func newStreamProcessor(ctx context.Context, logger slog.Logger, isToolInjectedFunc func(string) bool) *streamProcessor {
+	return &streamProcessor{
+		ctx:    ctx,
+		logger: logger,
+
+		isToolInjectedFunc: isToolInjectedFunc,
+	}
+}
+
+// ingest receives a completion chunk and returns a bool indicating whether it should be
+// relayed to the client.
+func (s *streamProcessor) ingest(chunk openai.ChatCompletionChunk) bool {
+	if !s.acc.AddChunk(chunk) {
+		s.logger.Debug(s.ctx, "failed to accumulate chunk", slog.F("chunk", chunk.RawJSON()))
+		// Not critical, move along...
+	}
+
+	// Accumulate token usage.
+	s.lastUsage = chunk.Usage
+	s.cumulativeUsage = sumUsage(s.cumulativeUsage, chunk.Usage)
+
+	// If the stream has reached a terminal state (i.e. call a tool), and this tool is injected,
+	// then it must not be relayed.
+	if _, ok := s.acc.JustFinishedToolCall(); ok && s.pendingToolCall {
+		return false
+	}
+
+	if len(chunk.Choices) == 0 {
+		// Odd, should not occur, relay it on in case.
+		// Nothing more to be done.
+		return true
+	}
+
+	// We explicitly set n=1, so this shouldn't happen.
+	if count := len(chunk.Choices); count > 1 {
+		s.logger.Warn(s.ctx, "multiple choices returned, only handling first", slog.F("count", count))
+	}
+
+	// Check if we have a tool call in progress.
+	//
+	// The API will send partial tool call events like this:
+	//
+	// data: ... delta":{"tool_calls":[{"index":0,"id":"call_0TxntkwDB66KH8z4RwNqeWrZ","type":"function","function":{"name":"bmcp_coder_coder_list_workspaces","arguments":""}}]}...
+	// data: ... delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\""}}]}...
+	// data: ... delta":{"tool_calls":[{"index":0,"function":{"arguments":"owner"}}]}...
+	// data: ... delta":{"tool_calls":[{"index":0,"function":{"arguments":"\":\""}}]}...
+	// data: ... delta":{"tool_calls":[{"index":0,"function":{"arguments":"admin"}}]}...
+	// data: ... delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"}"}}]}...
+	//
+	// So we need to ensure that we don't canRelay any of the partial events to the client in the case of
+	// an injected tool.
+	//
+	// The first partial will tell us the tool name, and we can then decide how to proceed.
+
+	choice := chunk.Choices[0]
+	if len(choice.Delta.ToolCalls) == 0 {
+		// No tool calls, no special handling required.
+		return true
+	}
+
+	// If we have a pending injected tool call in progress, do not relay any subsequent partial chunks.
+	if s.pendingToolCall {
+		return false
+	}
+
+	// This shouldn't happen since we have parallel tool calls disabled currently.
+	if count := len(choice.Delta.ToolCalls); count > 1 {
+		s.logger.Warn(context.Background(), "unexpected tool call count", slog.F("count", count))
+		// We'll continue and just examine the first tool.
+	}
+
+	toolCall := choice.Delta.ToolCalls[0]
+	if s.isInjected(toolCall) {
+		// Mark tool as pending until tool call is finished.
+		s.pendingToolCall = true
+		return false
+	}
+
+	// There is a tool call, but it's not injected.
+	return true
+}
+
+// getMsgID returns the ID given by the API for this (accumulated) message.
+func (s *streamProcessor) getMsgID() string {
+	return s.acc.ID
+}
+
+func (s *streamProcessor) isInjected(toolCall openai.ChatCompletionChunkChoiceDeltaToolCall) bool {
+	name := strings.TrimSpace(toolCall.Function.Name)
+	// Check if this tool is injected.
+	return name != "" && s.isToolInjectedFunc(name)
+}
+
+func (s *streamProcessor) getToolCall() *openai.FinishedChatCompletionToolCall {
+	tc, ok := s.acc.JustFinishedToolCall()
+	if !ok {
+		return nil
+	}
+
+	return &tc
+}
+
+func (s *streamProcessor) getLastCompletion() *openai.ChatCompletionMessage {
+	if len(s.acc.Choices) == 0 {
+		return nil
+	}
+
+	return &s.acc.Choices[0].Message
+}
+
+func (s *streamProcessor) getLastUsage() openai.CompletionUsage {
+	return s.lastUsage
+}
+
+func (s *streamProcessor) getCumulativeUsage() openai.CompletionUsage {
+	return s.cumulativeUsage
 }
