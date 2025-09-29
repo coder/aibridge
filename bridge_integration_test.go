@@ -693,22 +693,26 @@ func TestOpenAIInjectedTools(t *testing.T) {
 					chunk := stream.Current()
 					acc.AddChunk(chunk)
 
-					if len(chunk.Choices) > 0 {
-						for _, c := range chunk.Choices {
-							if len(c.Delta.ToolCalls) > 0 {
-								for _, t := range c.Delta.ToolCalls {
-									if t.Function.Name == "" {
-										continue
-									}
+					if len(chunk.Choices) == 0 {
+						continue
+					}
 
-									detectedToolCalls[t.Function.Name] = struct{}{}
-								}
+					for _, c := range chunk.Choices {
+						if len(c.Delta.ToolCalls) == 0 {
+							continue
+						}
+
+						for _, t := range c.Delta.ToolCalls {
+							if t.Function.Name == "" {
+								continue
 							}
+
+							detectedToolCalls[t.Function.Name] = struct{}{}
 						}
 					}
 				}
 
-				// Verify that no injected tools were sent to the client.
+				// Verify that no injected tool call events (or partials thereof) were sent to the client.
 				require.Len(t, detectedToolCalls, 0)
 
 				message = acc.ChatCompletion
