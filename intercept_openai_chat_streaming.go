@@ -227,7 +227,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 
 		id := toolCall.ID
 		args := i.unmarshalArgs(toolCall.Arguments)
-		res, err := tool.Call(streamCtx, args)
+		toolRes, toolErr := tool.Call(streamCtx, args)
 
 		_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 			InterceptionID:  i.ID().String(),
@@ -236,21 +236,21 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 			Tool:            tool.Name,
 			Args:            args,
 			Injected:        true,
-			InvocationError: err,
+			InvocationError: toolErr,
 		})
 
 		// Reset.
 		toolCall = nil
 
-		if err != nil {
+		if toolErr != nil {
 			// Always provide a tool_result even if the tool call failed.
-			errorJSON, _ := json.Marshal(i.newErrorResponse(err))
+			errorJSON, _ := json.Marshal(i.newErrorResponse(toolErr))
 			i.req.Messages = append(i.req.Messages, openai.ToolMessage(string(errorJSON), id))
 			continue
 		}
 
 		var out strings.Builder
-		if err := json.NewEncoder(&out).Encode(res); err != nil {
+		if err := json.NewEncoder(&out).Encode(toolRes); err != nil {
 			logger.Warn(ctx, "failed to encode tool response", slog.Error(err))
 			// Always provide a tool_result even if encoding failed.
 			errorJSON, _ := json.Marshal(i.newErrorResponse(err))
@@ -307,7 +307,7 @@ func (i *OpenAIStreamingChatInterception) encodeForStream(payload []byte) []byte
 	return buf.Bytes()
 }
 
-type streamProcessor struct {
+type openAIStreamProcessor struct {
 	ctx    context.Context
 	logger slog.Logger
 
@@ -322,8 +322,8 @@ type streamProcessor struct {
 	cumulativeUsage openai.CompletionUsage
 }
 
-func newStreamProcessor(ctx context.Context, logger slog.Logger, isToolInjectedFunc func(string) *mcp.Tool) *streamProcessor {
-	return &streamProcessor{
+func newStreamProcessor(ctx context.Context, logger slog.Logger, isToolInjectedFunc func(string) *mcp.Tool) *openAIStreamProcessor {
+	return &openAIStreamProcessor{
 		ctx:    ctx,
 		logger: logger,
 
@@ -333,7 +333,7 @@ func newStreamProcessor(ctx context.Context, logger slog.Logger, isToolInjectedF
 
 // process receives a completion chunk and returns a bool indicating whether it should be
 // relayed to the client.
-func (s *streamProcessor) process(chunk openai.ChatCompletionChunk) bool {
+func (s *openAIStreamProcessor) process(chunk openai.ChatCompletionChunk) bool {
 	if !s.acc.AddChunk(chunk) {
 		s.logger.Debug(s.ctx, "failed to accumulate chunk", slog.F("chunk", chunk.RawJSON()))
 		// Potentially not fatal, move along in best effort...
@@ -405,15 +405,15 @@ func (s *streamProcessor) process(chunk openai.ChatCompletionChunk) bool {
 }
 
 // getMsgID returns the ID given by the API for this (accumulated) message.
-func (s *streamProcessor) getMsgID() string {
+func (s *openAIStreamProcessor) getMsgID() string {
 	return s.acc.ID
 }
 
-func (s *streamProcessor) isInjected(toolCall openai.ChatCompletionChunkChoiceDeltaToolCall) bool {
+func (s *openAIStreamProcessor) isInjected(toolCall openai.ChatCompletionChunkChoiceDeltaToolCall) bool {
 	return s.getInjectedToolFunc(strings.TrimSpace(toolCall.Function.Name)) != nil
 }
 
-func (s *streamProcessor) getToolCall() *openai.FinishedChatCompletionToolCall {
+func (s *openAIStreamProcessor) getToolCall() *openai.FinishedChatCompletionToolCall {
 	tc, ok := s.acc.JustFinishedToolCall()
 	if !ok {
 		return nil
@@ -422,7 +422,7 @@ func (s *streamProcessor) getToolCall() *openai.FinishedChatCompletionToolCall {
 	return &tc
 }
 
-func (s *streamProcessor) getLastCompletion() *openai.ChatCompletionMessage {
+func (s *openAIStreamProcessor) getLastCompletion() *openai.ChatCompletionMessage {
 	if len(s.acc.Choices) == 0 {
 		return nil
 	}
@@ -430,10 +430,10 @@ func (s *streamProcessor) getLastCompletion() *openai.ChatCompletionMessage {
 	return &s.acc.Choices[0].Message
 }
 
-func (s *streamProcessor) getLastUsage() openai.CompletionUsage {
+func (s *openAIStreamProcessor) getLastUsage() openai.CompletionUsage {
 	return s.lastUsage
 }
 
-func (s *streamProcessor) getCumulativeUsage() openai.CompletionUsage {
+func (s *openAIStreamProcessor) getCumulativeUsage() openai.CompletionUsage {
 	return s.cumulativeUsage
 }
