@@ -688,10 +688,32 @@ func TestOpenAIInjectedTools(t *testing.T) {
 				decoder := oaissestream.NewDecoder(resp)
 				stream := oaissestream.NewStream[openai.ChatCompletionChunk](decoder, nil)
 				var acc openai.ChatCompletionAccumulator
+				detectedToolCalls := make(map[string]struct{})
 				for stream.Next() {
 					chunk := stream.Current()
 					acc.AddChunk(chunk)
+
+					if len(chunk.Choices) == 0 {
+						continue
+					}
+
+					for _, c := range chunk.Choices {
+						if len(c.Delta.ToolCalls) == 0 {
+							continue
+						}
+
+						for _, t := range c.Delta.ToolCalls {
+							if t.Function.Name == "" {
+								continue
+							}
+
+							detectedToolCalls[t.Function.Name] = struct{}{}
+						}
+					}
 				}
+
+				// Verify that no injected tool call events (or partials thereof) were sent to the client.
+				require.Len(t, detectedToolCalls, 0)
 
 				message = acc.ChatCompletion
 				require.NoError(t, stream.Err(), "stream error")
@@ -700,6 +722,10 @@ func TestOpenAIInjectedTools(t *testing.T) {
 				body, err := io.ReadAll(resp.Body)
 				require.NoError(t, err, "read response body")
 				require.NoError(t, json.Unmarshal(body, &message), "unmarshal response")
+
+				// Verify that no injected tools were sent to the client.
+				require.GreaterOrEqual(t, len(message.Choices), 1)
+				require.Len(t, message.Choices[0].Message.ToolCalls, 0)
 			}
 
 			require.GreaterOrEqual(t, len(message.Choices), 1)
@@ -796,7 +822,7 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 	// We must ALWAYS have 2 calls to the bridge for injected tool tests.
 	require.Eventually(t, func() bool {
 		return mockSrv.callCount.Load() == 2
-	}, time.Second*25, time.Millisecond*50)
+	}, time.Second*10, time.Millisecond*50)
 
 	return recorderClient, resp
 }
