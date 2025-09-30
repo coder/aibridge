@@ -14,7 +14,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
-	mcplib "github.com/mark3labs/mcp-go/mcp"
+	mcplib "github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"cdr.dev/slog"
 )
@@ -290,42 +290,35 @@ newStream:
 						var hasValidResult bool
 						for _, content := range res.Content {
 							switch cb := content.(type) {
-							case mcplib.TextContent:
+							case *mcplib.TextContent:
 								toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
 									OfText: &anthropic.TextBlockParam{
 										Text: cb.Text,
 									},
 								})
 								hasValidResult = true
-							case mcplib.EmbeddedResource:
-								switch resource := cb.Resource.(type) {
-								case mcplib.TextResourceContents:
-									val := fmt.Sprintf("Binary resource (MIME: %s, URI: %s): %s",
-										resource.MIMEType, resource.URI, resource.Text)
-									toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
-										OfText: &anthropic.TextBlockParam{
-											Text: val,
-										},
-									})
-									hasValidResult = true
-								case mcplib.BlobResourceContents:
-									val := fmt.Sprintf("Binary resource (MIME: %s, URI: %s): %s",
-										resource.MIMEType, resource.URI, resource.Blob)
-									toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
-										OfText: &anthropic.TextBlockParam{
-											Text: val,
-										},
-									})
-									hasValidResult = true
-								default:
-									logger.Warn(ctx, "unknown embedded resource type", slog.F("type", fmt.Sprintf("%T", resource)))
-									toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
-										OfText: &anthropic.TextBlockParam{
-											Text: "Error: unknown embedded resource type",
-										},
-									})
-									toolResult.OfToolResult.IsError = anthropic.Bool(true)
-									hasValidResult = true
+							case *mcplib.EmbeddedResource:
+								if cb.Resource != nil {
+									if cb.Resource.Text != "" {
+										val := fmt.Sprintf("Binary resource (MIME: %s, URI: %s): %s", cb.Resource.MIMEType, cb.Resource.URI, cb.Resource.Text)
+										toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
+											OfText: &anthropic.TextBlockParam{Text: val},
+										})
+										hasValidResult = true
+									} else if len(cb.Resource.Blob) > 0 {
+										val := fmt.Sprintf("Binary resource (MIME: %s, URI: %s): %s", cb.Resource.MIMEType, cb.Resource.URI, cb.Resource.Blob)
+										toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
+											OfText: &anthropic.TextBlockParam{Text: val},
+										})
+										hasValidResult = true
+									} else {
+										logger.Warn(ctx, "unknown embedded resource contents", slog.F("uri", cb.Resource.URI))
+										toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
+											OfText: &anthropic.TextBlockParam{Text: "Error: unknown embedded resource type"},
+										})
+										toolResult.OfToolResult.IsError = anthropic.Bool(true)
+										hasValidResult = true
+									}
 								}
 							default:
 								logger.Warn(ctx, "not handling non-text tool result", slog.F("type", fmt.Sprintf("%T", cb)))

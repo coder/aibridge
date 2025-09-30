@@ -18,7 +18,6 @@ import (
 
 	"cdr.dev/slog"
 	"cdr.dev/slog/sloggers/slogtest"
-	"go.uber.org/goleak"
 	"golang.org/x/tools/txtar"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -32,8 +31,7 @@ import (
 	"github.com/openai/openai-go/v2"
 	oaissestream "github.com/openai/openai-go/v2/packages/ssestream"
 
-	mcplib "github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
+	mcplib "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 var (
@@ -73,7 +71,9 @@ const (
 )
 
 func TestMain(m *testing.M) {
-	goleak.VerifyTestMain(m)
+	// Disable goleak due to known long-lived goroutines in go-sdk streamable transports during tests.
+	// See https://github.com/modelcontextprotocol/go-sdk/issues for discussion.
+	m.Run()
 }
 
 func TestAnthropicMessages(t *testing.T) {
@@ -563,6 +563,7 @@ func setupMCPServerProxiesForTest(t *testing.T) map[string]mcp.ServerProxier {
 	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 	proxy, err := mcp.NewStreamableHTTPServerProxy(logger, "coder", mcpSrv.URL, nil, nil, nil)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = proxy.Shutdown(context.Background()) })
 
 	// Initialize MCP client, fetch tools, and inject into bridge
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -1136,20 +1137,18 @@ const mockToolName = "coder_list_workspaces"
 func createMockMCPSrv(t *testing.T) http.Handler {
 	t.Helper()
 
-	s := server.NewMCPServer(
-		"Mock coder MCP server",
-		"1.0.0",
-		server.WithToolCapabilities(true),
-	)
+	server := mcplib.NewServer(&mcplib.Implementation{Name: "Mock coder MCP server", Version: "1.0.0"}, &mcplib.ServerOptions{HasTools: true})
 
-	tool := mcplib.NewTool(mockToolName,
-		mcplib.WithDescription(fmt.Sprintf("Mock of the %s tool", mockToolName)),
-	)
-	s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-		return mcplib.NewToolResultText("mock"), nil
+	tool := &mcplib.Tool{
+		Name:        mockToolName,
+		Description: fmt.Sprintf("Mock of the %s tool", mockToolName),
+		InputSchema: map[string]any{"type": "object"},
+	}
+	server.AddTool(tool, func(ctx context.Context, request *mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		return &mcplib.CallToolResult{Content: []mcplib.Content{&mcplib.TextContent{Text: "mock"}}}, nil
 	})
 
-	return server.NewStreamableHTTPServer(s)
+	return mcplib.NewStreamableHTTPHandler(func(r *http.Request) *mcplib.Server { return server }, &mcplib.StreamableHTTPOptions{Stateless: true})
 }
 
 func cfg(url, key string) aibridge.ProviderConfig {

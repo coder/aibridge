@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"cdr.dev/slog"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 const (
@@ -17,9 +17,9 @@ const (
 
 // ToolCaller is the narrowest interface which describes the behaviour required from [mcp.Client],
 // which will normally be passed into [Tool] for interaction with an MCP server.
-// TODO: don't expose github.com/mark3labs/mcp-go outside this package.
+// TODO: don't expose github.com/modelcontextprotocol/go-sdk outside this package.
 type ToolCaller interface {
-	CallTool(ctx context.Context, request mcp.CallToolRequest) (*mcp.CallToolResult, error)
+	CallTool(ctx context.Context, params *mcp.CallToolParams) (*mcp.CallToolResult, error)
 }
 
 type Tool struct {
@@ -42,11 +42,9 @@ func (t *Tool) Call(ctx context.Context, input any) (*mcp.CallToolResult, error)
 		return nil, errors.New("nil client!")
 	}
 
-	return t.Client.CallTool(ctx, mcp.CallToolRequest{
-		Params: mcp.CallToolParams{
-			Name:      t.Name,
-			Arguments: input,
-		},
+	return t.Client.CallTool(ctx, &mcp.CallToolParams{
+		Name:      t.Name,
+		Arguments: input,
 	})
 }
 

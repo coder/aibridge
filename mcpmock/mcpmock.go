@@ -14,7 +14,7 @@ import (
 	reflect "reflect"
 
 	mcp "github.com/coder/aibridge/mcp"
-	mcp0 "github.com/mark3labs/mcp-go/mcp"
+	mcp0 "github.com/modelcontextprotocol/go-sdk/mcp"
 	gomock "go.uber.org/mock/gomock"
 )
 

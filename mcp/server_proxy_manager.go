@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/coder/aibridge/utils"
-	"github.com/mark3labs/mcp-go/mcp"
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 var _ ServerProxier = &ServerProxyManager{}
