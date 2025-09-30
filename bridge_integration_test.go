@@ -871,10 +871,25 @@ func TestErrorHandling(t *testing.T) {
 				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(cfg(addr, apiKey))}, logger, client, srvProxyMgr)
 			},
 			responseHandlerFn: func(streaming bool, resp *http.Response) {
-				body, err := io.ReadAll(resp.Body)
-				require.NoError(t, err)
+				if streaming {
+					// Server responds first with 200 OK then starts streaming.
+					require.Equal(t, http.StatusOK, resp.StatusCode)
 
-				t.Log(body)
+					sp := aibridge.NewSSEParser()
+					require.NoError(t, sp.Parse(resp.Body))
+					// OpenAI sends all events under the same type.
+					messageEvents := sp.MessageEvents()
+					require.NotEmpty(t, messageEvents)
+
+					errEvent := sp.MessageEvents()[len(sp.MessageEvents())-2] // Last event is termination marker ("[DONE]").
+					require.NotEmpty(t, errEvent)
+					require.Contains(t, errEvent.Data, "The server had an error while processing your request. Sorry about that!")
+				} else {
+					require.Equal(t, resp.StatusCode, http.StatusInternalServerError)
+					body, err := io.ReadAll(resp.Body)
+					require.NoError(t, err)
+					require.Contains(t, string(body), "The server had an error while processing your request. Sorry about that")
+				}
 			},
 		},
 	}
