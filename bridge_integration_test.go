@@ -651,6 +651,9 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			// Ensure tokens used during injected tool invocation are accounted for.
 			assert.EqualValues(t, 15308, calculateTotalInputTokens(recorderClient.tokenUsages))
 			assert.EqualValues(t, 204, calculateTotalOutputTokens(recorderClient.tokenUsages))
+
+			// Ensure we received exactly one prompt.
+			require.Len(t, recorderClient.userPrompts, 1)
 		})
 	}
 }
@@ -744,6 +747,9 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			// Ensure tokens used during injected tool invocation are accounted for.
 			require.EqualValues(t, 5047, calculateTotalInputTokens(recorderClient.tokenUsages))
 			require.EqualValues(t, 105, calculateTotalOutputTokens(recorderClient.tokenUsages))
+
+			// Ensure we received exactly one prompt.
+			require.Len(t, recorderClient.userPrompts, 1)
 		})
 	}
 }
