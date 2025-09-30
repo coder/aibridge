@@ -157,6 +157,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 				MsgID:          processor.getMsgID(),
 				Prompt:         *prompt,
 			})
+			prompt = nil
 		}
 
 		if lastUsage := processor.getLastUsage(); lastUsage.CompletionTokens > 0 {

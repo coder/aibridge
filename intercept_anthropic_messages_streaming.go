@@ -405,6 +405,7 @@ newStream:
 				MsgID:          message.ID,
 				Prompt:         *prompt,
 			})
+			prompt = nil
 		}
 
 		// Check if the stream encountered any errors.

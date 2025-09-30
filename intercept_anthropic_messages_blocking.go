@@ -91,6 +91,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 				MsgID:          resp.ID,
 				Prompt:         *prompt,
 			})
+			prompt = nil
 		}
 
 		_ = i.recorder.RecordTokenUsage(ctx, &TokenUsageRecord{

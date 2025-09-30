@@ -73,6 +73,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 				MsgID:          completion.ID,
 				Prompt:         *prompt,
 			})
+			prompt = nil
 		}
 
 		lastUsage := completion.Usage
