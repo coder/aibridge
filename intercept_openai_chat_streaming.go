@@ -185,7 +185,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 				// We can't reflect an error back if there's a connection error or the request context was canceled.
 			} else if oaiErr := getOpenAIErrorResponse(streamErr); oaiErr != nil {
 				logger.Warn(ctx, "openai stream error", slog.Error(streamErr))
-				interceptionErr = fmt.Errorf("stream error: %w", oaiErr)
+				interceptionErr = oaiErr
 			} else {
 				logger.Warn(ctx, "unknown error", slog.Error(streamErr))
 				// Unfortunately, the OpenAI SDK does not support parsing errors received in the stream
