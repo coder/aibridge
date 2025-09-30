@@ -736,11 +736,13 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			require.Contains(t, content.Message.Content, "dd711d5c-83c6-4c08-a0af-b73055906e8c") // The ID of the workspace to be returned.
 
 			// Check the token usage from the client's perspective.
-			assert.EqualValues(t, 9911, message.Usage.PromptTokens)
+			// This *should* work but the openai SDK doesn't accumulate the prompt token details :(.
+			// See https://github.com/openai/openai-go/blob/v2.7.0/streamaccumulator.go#L145-L147.
+			// assert.EqualValues(t, 5047, message.Usage.PromptTokens-message.Usage.PromptTokensDetails.CachedTokens)
 			assert.EqualValues(t, 105, message.Usage.CompletionTokens)
 
 			// Ensure tokens used during injected tool invocation are accounted for.
-			require.EqualValues(t, 9911, calculateTotalInputTokens(recorderClient.tokenUsages))
+			require.EqualValues(t, 5047, calculateTotalInputTokens(recorderClient.tokenUsages))
 			require.EqualValues(t, 105, calculateTotalOutputTokens(recorderClient.tokenUsages))
 		})
 	}

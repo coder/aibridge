@@ -165,7 +165,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 			_ = i.recorder.RecordTokenUsage(streamCtx, &TokenUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          processor.getMsgID(),
-				Input:          lastUsage.PromptTokens,
+				Input:          calculateActualInputTokenUsage(lastUsage),
 				Output:         lastUsage.CompletionTokens,
 				Metadata: Metadata{
 					"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,

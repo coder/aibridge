@@ -81,7 +81,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		_ = i.recorder.RecordTokenUsage(ctx, &TokenUsageRecord{
 			InterceptionID: i.ID().String(),
 			MsgID:          completion.ID,
-			Input:          lastUsage.PromptTokens,
+			Input:          calculateActualInputTokenUsage(lastUsage),
 			Output:         lastUsage.CompletionTokens,
 			Metadata: Metadata{
 				"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,
