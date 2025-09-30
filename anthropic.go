@@ -3,7 +3,6 @@ package aibridge
 import (
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
@@ -51,22 +50,23 @@ func (b *MessageNewParamsWrapper) LastUserPrompt() (*string, error) {
 		return nil, errors.New("no messages")
 	}
 
-	var userMessage string
-	for i := len(b.Messages) - 1; i >= 0; i-- {
-		m := b.Messages[i]
-		if m.Role != anthropic.MessageParamRoleUser {
-			continue
-		}
-		if len(m.Content) == 0 {
-			continue
-		}
+	// We only care if the last message was issued by a user.
+	msg := b.Messages[len(b.Messages)-1]
+	if msg.Role != anthropic.MessageParamRoleUser {
+		return nil, nil
+	}
 
-		for j := len(m.Content) - 1; j >= 0; j-- {
-			if textContent := m.Content[j].GetText(); textContent != nil {
-				userMessage = *textContent
-			}
+	if len(msg.Content) == 0 {
+		return nil, nil
+	}
 
-			return utils.PtrTo(strings.TrimSpace(userMessage)), nil
+	// Walk backwards on "user"-initiated message content. Clients often inject
+	// content ahead of the actual prompt to provide context to the model,
+	// so the last item in the slice is most likely the user's prompt.
+	for i := len(msg.Content) - 1; i >= 0; i-- {
+		// Only text content is supported currently.
+		if textContent := msg.Content[i].GetText(); textContent != nil {
+			return textContent, nil
 		}
 	}
 

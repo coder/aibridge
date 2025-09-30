@@ -426,7 +426,7 @@ func TestSimple(t *testing.T) {
 
 					// Then: I expect the prompt to have been tracked.
 					require.NotEmpty(t, recorderClient.userPrompts, "no prompts tracked")
-					assert.Equal(t, "how many angels can dance on the head of a pin", recorderClient.userPrompts[0].Prompt)
+					assert.Contains(t, recorderClient.userPrompts[0].Prompt, "how many angels can dance on the head of a pin")
 
 					// Validate that responses have their IDs overridden with a interception ID rather than the original ID from the upstream provider.
 					// The reason for this is that Bridge may make multiple upstream requests (i.e. to invoke injected tools), and clients will not be expecting

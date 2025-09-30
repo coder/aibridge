@@ -3,7 +3,6 @@ package aibridge
 import (
 	"encoding/json"
 	"errors"
-	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go/shared"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
@@ -56,22 +55,27 @@ func (c *ChatCompletionNewParamsWrapper) LastUserPrompt() (*string, error) {
 		return nil, errors.New("no messages")
 	}
 
-	var msg *openai.ChatCompletionUserMessageParam
-	for i := len(c.Messages) - 1; i >= 0; i-- {
-		m := c.Messages[i]
-		if m.OfUser != nil {
-			msg = m.OfUser
-			break
-		}
-	}
-
-	if msg == nil {
+	// We only care if the last message was issued by a user.
+	msg := c.Messages[len(c.Messages)-1]
+	if msg.OfUser == nil {
 		return nil, nil
 	}
 
-	return utils.PtrTo(strings.TrimSpace(
-		msg.Content.OfString.String(),
-	)), nil
+	if msg.OfUser.Content.OfString.String() != "" {
+		return utils.PtrTo(msg.OfUser.Content.OfString.String()), nil
+	}
+
+	// Walk backwards on "user"-initiated message content. Clients often inject
+	// content ahead of the actual prompt to provide context to the model,
+	// so the last item in the slice is most likely the user's prompt.
+	for i := len(msg.OfUser.Content.OfArrayOfContentParts) - 1; i >= 0; i-- {
+		// Only text content is supported currently.
+		if textContent := msg.OfUser.Content.OfArrayOfContentParts[i].OfText; textContent != nil {
+			return &textContent.Text, nil
+		}
+	}
+
+	return nil, nil
 }
 
 func sumUsage(ref, in openai.CompletionUsage) openai.CompletionUsage {
