@@ -14,6 +14,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/packages/ssestream"
+	"github.com/tidwall/sjson"
 
 	"cdr.dev/slog"
 )
@@ -126,7 +127,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 			chunk.ID = i.ID().String()
 
 			// Marshal and relay chunk to client.
-			payload, err := i.marshal(chunk)
+			payload, err := i.marshalChunk(chunk)
 			if err != nil {
 				logger.Warn(ctx, "failed to marshal chunk", slog.Error(err), chunk.RawJSON())
 				lastErr = fmt.Errorf("marshal chunk: %w", err)
@@ -202,7 +203,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		}
 
 		if interceptionErr != nil {
-			payload, err := i.marshal(interceptionErr)
+			payload, err := i.marshalErr(interceptionErr)
 			if err != nil {
 				logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", slog.F("%+v", interceptionErr)))
 			} else if err := events.Send(streamCtx, payload); err != nil {
@@ -291,8 +292,24 @@ func (i *OpenAIStreamingChatInterception) getInjectedToolByName(name string) *mc
 	return i.mcpProxy.GetTool(name)
 }
 
-func (i *OpenAIStreamingChatInterception) marshal(payload any) ([]byte, error) {
-	data, err := json.Marshal(payload)
+func (i *OpenAIStreamingChatInterception) marshalChunk(chunk openai.ChatCompletionChunk) ([]byte, error) {
+	sj, err := sjson.Set(chunk.RawJSON(), "id", chunk.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if chunk.JSON.Usage.Valid() {
+		sj, err = sjson.Set(sj, "usage", chunk.Usage)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	return i.encodeForStream([]byte(sj)), nil
+}
+
+func (i *OpenAIStreamingChatInterception) marshalErr(err error) ([]byte, error) {
+	data, err := json.Marshal(err)
 	if err != nil {
 		return nil, fmt.Errorf("marshal payload: %w", err)
 	}
