@@ -5,9 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
-	"net/http/httputil"
 	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -21,7 +19,7 @@ var _ Provider = &AnthropicProvider{}
 
 // AnthropicProvider allows for interactions with the Anthropic API.
 type AnthropicProvider struct {
-	cfg ProviderConfig
+	cfg *ProviderConfig
 }
 
 const (
@@ -30,7 +28,7 @@ const (
 	routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
 )
 
-func NewAnthropicProvider(cfg ProviderConfig) *AnthropicProvider {
+func NewAnthropicProvider(cfg *ProviderConfig) *AnthropicProvider {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.anthropic.com/"
 	}
@@ -100,37 +98,13 @@ func (p *AnthropicProvider) InjectAuthHeader(headers *http.Header) {
 	headers.Set(p.AuthHeader(), p.cfg.Key)
 }
 
-func newAnthropicClient(cfg ProviderConfig, id string, opts ...option.RequestOption) anthropic.Client {
+func newAnthropicClient(cfg *ProviderConfig, id, model string, opts ...option.RequestOption) anthropic.Client {
 	opts = append(opts, option.WithAPIKey(cfg.Key))
 	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 
-	if cfg.EnableUpstreamLogging {
-		reqLogFile, err := os.OpenFile("/tmp/anthropic-req.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		if err == nil {
-			reqLogger := log.New(reqLogFile, "", log.LstdFlags)
-
-			resLogFile, err := os.OpenFile("/tmp/anthropic-res.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-			if err == nil {
-				resLogger := log.New(resLogFile, "", log.LstdFlags)
-
-				opts = append(opts, option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
-					if reqDump, err := httputil.DumpRequest(req, true); err == nil {
-						reqLogger.Printf("[req] [%s] %s", id, reqDump)
-					}
-
-					resp, err := next(req)
-					if err != nil {
-						resLogger.Printf("[res] [%s] Error: %v", id, err)
-						return resp, err
-					}
-
-					if respDump, err := httputil.DumpResponse(resp, true); err == nil {
-						resLogger.Printf("[res] [%s] %s", id, respDump)
-					}
-
-					return resp, err
-				}))
-			}
+	if cfg.EnableUpstreamLogging() {
+		if middleware := createLoggingMiddleware("anthropic", id, model); middleware != nil {
+			opts = append(opts, option.WithMiddleware(middleware))
 		}
 	}
 

@@ -17,7 +17,7 @@ type OpenAIChatInterceptionBase struct {
 	id  uuid.UUID
 	req *ChatCompletionNewParamsWrapper
 
-	cfg    ProviderConfig
+	cfg    *ProviderConfig
 	logger slog.Logger
 
 	recorder Recorder

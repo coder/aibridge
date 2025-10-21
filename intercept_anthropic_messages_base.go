@@ -14,7 +14,7 @@ type AnthropicMessagesInterceptionBase struct {
 	id  uuid.UUID
 	req *MessageNewParamsWrapper
 
-	cfg    ProviderConfig
+	cfg    *ProviderConfig
 	logger slog.Logger
 
 	recorder Recorder
