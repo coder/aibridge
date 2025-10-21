@@ -1,6 +1,6 @@
 # AI Bridge
 
-AI Bridge is a smart proxy for AI. It acts as a man-in-the-middle between your users' coding agents / IDEs and providers like OpenAI and Anthropic. By intercepting all the AI traffic between these clients and the upstream APIs, Bridge can record user prompts, token usage, and tool invocations. AI Bridge is bundled as part of [Coder](https://github.com/coder/coder)
+AI Bridge is a smart proxy for AI. It acts as a man-in-the-middle between your users' coding agents / IDEs and providers like OpenAI and Anthropic. By intercepting all the AI traffic between these clients and the upstream APIs, AI Bridge can record user prompts, token usage, and tool invocations. AI Bridge is bundled as part of [Coder](https://github.com/coder/coder).
 
 It solves 3 key problems:
 
