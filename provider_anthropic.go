@@ -54,6 +54,7 @@ func (p *AnthropicProvider) PassthroughRoutes() []string {
 	return []string{
 		"/v1/models",
 		"/v1/models/", // See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux.
+		"/v1/messages/count_tokens",
 	}
 }
 
