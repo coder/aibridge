@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/http/httputil"
 	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -19,7 +21,7 @@ var _ Provider = &AnthropicProvider{}
 
 // AnthropicProvider allows for interactions with the Anthropic API.
 type AnthropicProvider struct {
-	baseURL, key string
+	cfg ProviderConfig
 }
 
 const (
@@ -37,8 +39,7 @@ func NewAnthropicProvider(cfg ProviderConfig) *AnthropicProvider {
 	}
 
 	return &AnthropicProvider{
-		baseURL: cfg.BaseURL,
-		key:     cfg.Key,
+		cfg: cfg,
 	}
 }
 
@@ -74,17 +75,17 @@ func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Req
 		}
 
 		if req.Stream {
-			return NewAnthropicMessagesStreamingInterception(id, &req, p.baseURL, p.key), nil
+			return NewAnthropicMessagesStreamingInterception(id, &req, p.cfg), nil
 		}
 
-		return NewAnthropicMessagesBlockingInterception(id, &req, p.baseURL, p.key), nil
+		return NewAnthropicMessagesBlockingInterception(id, &req, p.cfg), nil
 	}
 
 	return nil, UnknownRoute
 }
 
 func (p *AnthropicProvider) BaseURL() string {
-	return p.baseURL
+	return p.cfg.BaseURL
 }
 
 func (p *AnthropicProvider) AuthHeader() string {
@@ -96,12 +97,42 @@ func (p *AnthropicProvider) InjectAuthHeader(headers *http.Header) {
 		headers = &http.Header{}
 	}
 
-	headers.Set(p.AuthHeader(), p.key)
+	headers.Set(p.AuthHeader(), p.cfg.Key)
 }
 
-func newAnthropicClient(baseURL, key string, opts ...option.RequestOption) anthropic.Client {
-	opts = append(opts, option.WithAPIKey(key))
-	opts = append(opts, option.WithBaseURL(baseURL))
+func newAnthropicClient(cfg ProviderConfig, id string, opts ...option.RequestOption) anthropic.Client {
+	opts = append(opts, option.WithAPIKey(cfg.Key))
+	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+
+	if cfg.EnableUpstreamLogging {
+		reqLogFile, err := os.OpenFile("/tmp/anthropic-req.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err == nil {
+			reqLogger := log.New(reqLogFile, "", log.LstdFlags)
+
+			resLogFile, err := os.OpenFile("/tmp/anthropic-res.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err == nil {
+				resLogger := log.New(resLogFile, "", log.LstdFlags)
+
+				opts = append(opts, option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+					if reqDump, err := httputil.DumpRequest(req, true); err == nil {
+						reqLogger.Printf("[req] [%s] %s", id, reqDump)
+					}
+
+					resp, err := next(req)
+					if err != nil {
+						resLogger.Printf("[res] [%s] Error: %v", id, err)
+						return resp, err
+					}
+
+					if respDump, err := httputil.DumpResponse(resp, true); err == nil {
+						resLogger.Printf("[res] [%s] %s", id, respDump)
+					}
+
+					return resp, err
+				}))
+			}
+		}
+	}
 
 	return anthropic.NewClient(opts...)
 }

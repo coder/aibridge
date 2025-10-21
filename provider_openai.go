@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"net/http/httputil"
 	"os"
 
 	"github.com/google/uuid"
@@ -16,7 +18,7 @@ var _ Provider = &OpenAIProvider{}
 
 // OpenAIProvider allows for interactions with the OpenAI API.
 type OpenAIProvider struct {
-	baseURL, key string
+	cfg ProviderConfig
 }
 
 const (
@@ -35,8 +37,7 @@ func NewOpenAIProvider(cfg ProviderConfig) *OpenAIProvider {
 	}
 
 	return &OpenAIProvider{
-		baseURL: cfg.BaseURL,
-		key:     cfg.Key,
+		cfg: cfg,
 	}
 }
 
@@ -76,9 +77,9 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 		}
 
 		if req.Stream {
-			return NewOpenAIStreamingChatInterception(id, &req, p.baseURL, p.key), nil
+			return NewOpenAIStreamingChatInterception(id, &req, p.cfg), nil
 		} else {
-			return NewOpenAIBlockingChatInterception(id, &req, p.baseURL, p.key), nil
+			return NewOpenAIBlockingChatInterception(id, &req, p.cfg), nil
 		}
 	}
 
@@ -86,7 +87,7 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 }
 
 func (p *OpenAIProvider) BaseURL() string {
-	return p.baseURL
+	return p.cfg.BaseURL
 }
 
 func (p *OpenAIProvider) AuthHeader() string {
@@ -98,13 +99,43 @@ func (p *OpenAIProvider) InjectAuthHeader(headers *http.Header) {
 		headers = &http.Header{}
 	}
 
-	headers.Set(p.AuthHeader(), "Bearer "+p.key)
+	headers.Set(p.AuthHeader(), "Bearer "+p.cfg.Key)
 }
 
-func newOpenAIClient(baseURL, key string) openai.Client {
+func newOpenAIClient(cfg ProviderConfig, id string) openai.Client {
 	var opts []option.RequestOption
-	opts = append(opts, option.WithAPIKey(key))
-	opts = append(opts, option.WithBaseURL(baseURL))
+	opts = append(opts, option.WithAPIKey(cfg.Key))
+	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+
+	if cfg.EnableUpstreamLogging {
+		reqLogFile, err := os.OpenFile("/tmp/openai-req.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+		if err == nil {
+			reqLogger := log.New(reqLogFile, "", log.LstdFlags)
+
+			resLogFile, err := os.OpenFile("/tmp/openai-res.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+			if err == nil {
+				resLogger := log.New(resLogFile, "", log.LstdFlags)
+
+				opts = append(opts, option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+					if reqDump, err := httputil.DumpRequest(req, true); err == nil {
+						reqLogger.Printf("[req] [%s] %s", id, reqDump)
+					}
+
+					resp, err := next(req)
+					if err != nil {
+						resLogger.Printf("[res] [%s] Error: %v", id, err)
+						return resp, err
+					}
+
+					if respDump, err := httputil.DumpResponse(resp, true); err == nil {
+						resLogger.Printf("[res] [%s] %s", id, respDump)
+					}
+
+					return resp, err
+				}))
+			}
+		}
+	}
 
 	return openai.NewClient(opts...)
 }

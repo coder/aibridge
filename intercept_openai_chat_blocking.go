@@ -23,12 +23,11 @@ type OpenAIBlockingChatInterception struct {
 	OpenAIChatInterceptionBase
 }
 
-func NewOpenAIBlockingChatInterception(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string) *OpenAIBlockingChatInterception {
+func NewOpenAIBlockingChatInterception(id uuid.UUID, req *ChatCompletionNewParamsWrapper, cfg ProviderConfig) *OpenAIBlockingChatInterception {
 	return &OpenAIBlockingChatInterception{OpenAIChatInterceptionBase: OpenAIChatInterceptionBase{
-		id:      id,
-		req:     req,
-		baseURL: baseURL,
-		key:     key,
+		id:  id,
+		req: req,
+		cfg: cfg,
 	}}
 }
 
@@ -42,7 +41,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	}
 
 	ctx := r.Context()
-	client := newOpenAIClient(i.baseURL, i.key)
+	client := newOpenAIClient(i.cfg, i.id.String())
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	var (

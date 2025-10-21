@@ -17,8 +17,8 @@ type OpenAIChatInterceptionBase struct {
 	id  uuid.UUID
 	req *ChatCompletionNewParamsWrapper
 
-	baseURL, key string
-	logger       slog.Logger
+	cfg    ProviderConfig
+	logger slog.Logger
 
 	recorder Recorder
 	mcpProxy mcp.ServerProxier

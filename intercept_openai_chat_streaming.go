@@ -25,12 +25,11 @@ type OpenAIStreamingChatInterception struct {
 	OpenAIChatInterceptionBase
 }
 
-func NewOpenAIStreamingChatInterception(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string) *OpenAIStreamingChatInterception {
+func NewOpenAIStreamingChatInterception(id uuid.UUID, req *ChatCompletionNewParamsWrapper, cfg ProviderConfig) *OpenAIStreamingChatInterception {
 	return &OpenAIStreamingChatInterception{OpenAIChatInterceptionBase: OpenAIChatInterceptionBase{
-		id:      id,
-		req:     req,
-		baseURL: baseURL,
-		key:     key,
+		id:  id,
+		req: req,
+		cfg: cfg,
 	}}
 }
 
@@ -65,7 +64,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
-	client := newOpenAIClient(i.baseURL, i.key)
+	client := newOpenAIClient(i.cfg, i.id.String())
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	streamCtx, streamCancel := context.WithCancelCause(ctx)

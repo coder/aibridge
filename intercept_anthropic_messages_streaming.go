@@ -25,12 +25,11 @@ type AnthropicMessagesStreamingInterception struct {
 	AnthropicMessagesInterceptionBase
 }
 
-func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, baseURL, key string) *AnthropicMessagesStreamingInterception {
+func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg ProviderConfig) *AnthropicMessagesStreamingInterception {
 	return &AnthropicMessagesStreamingInterception{AnthropicMessagesInterceptionBase: AnthropicMessagesInterceptionBase{
-		id:      id,
-		req:     req,
-		baseURL: baseURL,
-		key:     key,
+		id:  id,
+		req: req,
+		cfg: cfg,
 	}}
 }
 
@@ -95,7 +94,7 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
 
-	client := newAnthropicClient(i.baseURL, i.key)
+	client := newAnthropicClient(i.cfg, i.id.String())
 	messages := i.req.MessageNewParams
 
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
