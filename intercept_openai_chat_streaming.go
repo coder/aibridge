@@ -118,16 +118,8 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 				continue
 			}
 
-			// If usage information is available, relay the cumulative usage once all tool invocations have completed.
-			if chunk.Usage.CompletionTokens > 0 {
-				chunk.Usage = processor.getCumulativeUsage()
-			}
-
-			// Overwrite response identifier since proxy obscures injected tool call invocations.
-			chunk.ID = i.ID().String()
-
 			// Marshal and relay chunk to client.
-			payload, err := i.marshalChunk(chunk)
+			payload, err := i.marshalChunk(&chunk, i.ID(), processor)
 			if err != nil {
 				logger.Warn(ctx, "failed to marshal chunk", slog.Error(err), chunk.RawJSON())
 				lastErr = fmt.Errorf("marshal chunk: %w", err)
@@ -292,14 +284,23 @@ func (i *OpenAIStreamingChatInterception) getInjectedToolByName(name string) *mc
 	return i.mcpProxy.GetTool(name)
 }
 
-func (i *OpenAIStreamingChatInterception) marshalChunk(chunk openai.ChatCompletionChunk) ([]byte, error) {
-	sj, err := sjson.Set(chunk.RawJSON(), "id", chunk.ID)
+// Mashals received stream chunk.
+// Overrides id (since proxy obscures injected tool call invocations).
+// If usage field was set in original chunk overrides it to culminative usage.
+//
+// sjson is used instead of normal struct marshaling so forwarded data
+// is as close to the original as possible. Structs from openai library lack
+// `ommitzero/ommitempty` annotations which adds additional empty fields
+// when marshaling structs. Those additional empty fields can break Codex client.
+func (i *OpenAIStreamingChatInterception) marshalChunk(chunk *openai.ChatCompletionChunk, id uuid.UUID, prc *openAIStreamProcessor) ([]byte, error) {
+	sj, err := sjson.Set(chunk.RawJSON(), "id", id.String())
 	if err != nil {
 		return nil, err
 	}
 
 	if chunk.JSON.Usage.Valid() {
-		sj, err = sjson.Set(sj, "usage", chunk.Usage)
+		u := prc.getCumulativeUsage()
+		sj, err = sjson.Set(sj, "usage", u)
 		if err != nil {
 			return nil, err
 		}
