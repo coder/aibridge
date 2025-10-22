@@ -290,19 +290,20 @@ func (i *OpenAIStreamingChatInterception) getInjectedToolByName(name string) *mc
 //
 // sjson is used instead of normal struct marshaling so forwarded data
 // is as close to the original as possible. Structs from openai library lack
-// `ommitzero/ommitempty` annotations which adds additional empty fields
+// `omitzero/omitempty` annotations which adds additional empty fields
 // when marshaling structs. Those additional empty fields can break Codex client.
 func (i *OpenAIStreamingChatInterception) marshalChunk(chunk *openai.ChatCompletionChunk, id uuid.UUID, prc *openAIStreamProcessor) ([]byte, error) {
 	sj, err := sjson.Set(chunk.RawJSON(), "id", id.String())
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("marshal chunk id failed: %w", err)
 	}
 
+	// If usage information is available, relay the cumulative usage once all tool invocations have completed.
 	if chunk.JSON.Usage.Valid() {
 		u := prc.getCumulativeUsage()
 		sj, err = sjson.Set(sj, "usage", u)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("marshal chunk usage failed: %w", err)
 		}
 	}
 
@@ -312,7 +313,7 @@ func (i *OpenAIStreamingChatInterception) marshalChunk(chunk *openai.ChatComplet
 func (i *OpenAIStreamingChatInterception) marshalErr(err error) ([]byte, error) {
 	data, err := json.Marshal(err)
 	if err != nil {
-		return nil, fmt.Errorf("marshal payload: %w", err)
+		return nil, fmt.Errorf("marshal error failed: %w", err)
 	}
 
 	return i.encodeForStream(data), nil
