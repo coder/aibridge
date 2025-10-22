@@ -94,7 +94,7 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
 
-	client := newAnthropicClient(i.cfg, i.id.String(), i.Model())
+	client := newAnthropicClient(i.logger, i.cfg, i.id.String(), i.Model())
 	messages := i.req.MessageNewParams
 
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).

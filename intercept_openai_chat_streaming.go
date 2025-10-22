@@ -64,7 +64,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
-	client := newOpenAIClient(i.cfg, i.id.String(), i.Model())
+	client := newOpenAIClient(i.logger, i.cfg, i.id.String(), i.Model())
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	streamCtx, streamCancel := context.WithCancelCause(ctx)

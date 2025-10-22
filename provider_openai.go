@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"cdr.dev/slog"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
@@ -100,13 +101,13 @@ func (p *OpenAIProvider) InjectAuthHeader(headers *http.Header) {
 	headers.Set(p.AuthHeader(), "Bearer "+p.cfg.Key)
 }
 
-func newOpenAIClient(cfg *ProviderConfig, id, model string) openai.Client {
+func newOpenAIClient(logger slog.Logger, cfg *ProviderConfig, id, model string) openai.Client {
 	var opts []option.RequestOption
 	opts = append(opts, option.WithAPIKey(cfg.Key))
 	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 
 	if cfg.EnableUpstreamLogging() {
-		if middleware := createLoggingMiddleware("openai", id, model); middleware != nil {
+		if middleware := createLoggingMiddleware(logger, "openai", id, model); middleware != nil {
 			opts = append(opts, option.WithMiddleware(middleware))
 		}
 	}

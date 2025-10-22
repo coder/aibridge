@@ -57,7 +57,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 
 	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 60)} // TODO: configurable timeout
 
-	client := newAnthropicClient(i.cfg, i.id.String(), i.Model(), opts...)
+	client := newAnthropicClient(i.logger, i.cfg, i.id.String(), i.Model(), opts...)
 	messages := i.req.MessageNewParams
 	logger := i.logger.With(slog.F("model", i.req.Model))
 

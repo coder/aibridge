@@ -41,7 +41,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	}
 
 	ctx := r.Context()
-	client := newOpenAIClient(i.cfg, i.id.String(), i.Model())
+	client := newOpenAIClient(i.logger, i.cfg, i.id.String(), i.Model())
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	var (

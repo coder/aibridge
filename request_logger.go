@@ -1,11 +1,34 @@
 package aibridge
 
 import (
+	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"path/filepath"
+	"strings"
+
+	"cdr.dev/slog"
 )
+
+// sanitizeModelName makes a model name safe for use as a directory name.
+// Replaces filesystem-unsafe characters with underscores.
+func sanitizeModelName(model string) string {
+	replacer := strings.NewReplacer(
+		"/", "_",
+		"\\", "_",
+		":", "_",
+		"*", "_",
+		"?", "_",
+		"\"", "_",
+		"<", "_",
+		">", "_",
+		"|", "_",
+	)
+	return replacer.Replace(model)
+}
 
 // logUpstreamRequest logs an HTTP request with the given ID and model name.
 // The prefix format is: [req] [id] [model]
@@ -42,16 +65,32 @@ func logUpstreamError(logger *log.Logger, id, model string, err error) {
 }
 
 // createLoggingMiddleware creates a middleware function that logs requests and responses.
-// Returns nil if logging setup fails.
-func createLoggingMiddleware(provider, id, model string) func(*http.Request, func(*http.Request) (*http.Response, error)) (*http.Response, error) {
-	reqLogFile, err := os.OpenFile("/tmp/"+provider+"-req.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-	if err != nil {
+// Logs are written to $TMPDIR/$provider/$model/$id.req.log and $TMPDIR/$provider/$model/$id.res.log
+// Returns nil if logging setup fails, logging errors via the provided logger.
+func createLoggingMiddleware(logger slog.Logger, provider, id, model string) func(*http.Request, func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+	ctx := context.Background()
+	safeModel := sanitizeModelName(model)
+	logDir := filepath.Join(os.TempDir(), provider, safeModel)
+
+	// Create the directory structure if it doesn't exist
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		logger.Warn(ctx, "failed to create log directory", slog.Error(err), slog.F("dir", logDir))
 		return nil
 	}
 
-	resLogFile, err := os.OpenFile("/tmp/"+provider+"-res.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	reqLogPath := filepath.Join(logDir, fmt.Sprintf("%s.req.log", id))
+	resLogPath := filepath.Join(logDir, fmt.Sprintf("%s.res.log", id))
+
+	reqLogFile, err := os.OpenFile(reqLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		logger.Warn(ctx, "failed to open request log file", slog.Error(err), slog.F("path", reqLogPath))
+		return nil
+	}
+
+	resLogFile, err := os.OpenFile(resLogPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		reqLogFile.Close()
+		logger.Warn(ctx, "failed to open response log file", slog.Error(err), slog.F("path", resLogPath))
 		return nil
 	}
 

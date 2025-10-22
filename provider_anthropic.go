@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"cdr.dev/slog"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/shared"
@@ -98,12 +99,12 @@ func (p *AnthropicProvider) InjectAuthHeader(headers *http.Header) {
 	headers.Set(p.AuthHeader(), p.cfg.Key)
 }
 
-func newAnthropicClient(cfg *ProviderConfig, id, model string, opts ...option.RequestOption) anthropic.Client {
+func newAnthropicClient(logger slog.Logger, cfg *ProviderConfig, id, model string, opts ...option.RequestOption) anthropic.Client {
 	opts = append(opts, option.WithAPIKey(cfg.Key))
 	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 
 	if cfg.EnableUpstreamLogging() {
-		if middleware := createLoggingMiddleware("anthropic", id, model); middleware != nil {
+		if middleware := createLoggingMiddleware(logger, "anthropic", id, model); middleware != nil {
 			opts = append(opts, option.WithMiddleware(middleware))
 		}
 	}
