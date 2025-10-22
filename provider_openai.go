@@ -107,7 +107,7 @@ func newOpenAIClient(logger slog.Logger, cfg *ProviderConfig, id, model string) 
 	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 
 	if cfg.EnableUpstreamLogging() {
-		if middleware := createLoggingMiddleware(logger, "openai", id, model); middleware != nil {
+		if middleware := createLoggingMiddleware(logger, cfg, ProviderOpenAI, id, model); middleware != nil {
 			opts = append(opts, option.WithMiddleware(middleware))
 		}
 	}

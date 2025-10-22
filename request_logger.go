@@ -13,19 +13,20 @@ import (
 	"cdr.dev/slog"
 )
 
-// sanitizeModelName makes a model name safe for use as a directory name.
+// SanitizeModelName makes a model name safe for use as a directory name.
 // Replaces filesystem-unsafe characters with underscores.
-func sanitizeModelName(model string) string {
+func SanitizeModelName(model string) string {
+	repl := "_"
 	replacer := strings.NewReplacer(
-		"/", "_",
-		"\\", "_",
-		":", "_",
-		"*", "_",
-		"?", "_",
-		"\"", "_",
-		"<", "_",
-		">", "_",
-		"|", "_",
+		"/", repl,
+		"\\", repl,
+		":", repl,
+		"*", repl,
+		"?", repl,
+		"\"", repl,
+		"<", repl,
+		">", repl,
+		"|", repl,
 	)
 	return replacer.Replace(model)
 }
@@ -65,12 +66,19 @@ func logUpstreamError(logger *log.Logger, id, model string, err error) {
 }
 
 // createLoggingMiddleware creates a middleware function that logs requests and responses.
-// Logs are written to $TMPDIR/$provider/$model/$id.req.log and $TMPDIR/$provider/$model/$id.res.log
+// Logs are written to $baseDir/$provider/$model/$id.req.log and $baseDir/$provider/$model/$id.res.log
+// where baseDir is from cfg.UpstreamLoggingDir or os.TempDir() if not specified.
 // Returns nil if logging setup fails, logging errors via the provided logger.
-func createLoggingMiddleware(logger slog.Logger, provider, id, model string) func(*http.Request, func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+func createLoggingMiddleware(logger slog.Logger, cfg *ProviderConfig, provider, id, model string) func(*http.Request, func(*http.Request) (*http.Response, error)) (*http.Response, error) {
 	ctx := context.Background()
-	safeModel := sanitizeModelName(model)
-	logDir := filepath.Join(os.TempDir(), provider, safeModel)
+	safeModel := SanitizeModelName(model)
+
+	baseDir := cfg.UpstreamLoggingDir
+	if baseDir == "" {
+		baseDir = os.TempDir()
+	}
+
+	logDir := filepath.Join(baseDir, provider, safeModel)
 
 	// Create the directory structure if it doesn't exist
 	if err := os.MkdirAll(logDir, 0755); err != nil {

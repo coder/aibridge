@@ -1152,8 +1152,8 @@ func createMockMCPSrv(t *testing.T) http.Handler {
 	return server.NewStreamableHTTPServer(s)
 }
 
-func cfg(url, key string) aibridge.ProviderConfig {
-	return aibridge.ProviderConfig{
+func cfg(url, key string) *aibridge.ProviderConfig {
+	return &aibridge.ProviderConfig{
 		BaseURL: url,
 		Key:     key,
 	}

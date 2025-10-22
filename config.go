@@ -4,7 +4,11 @@ import "sync/atomic"
 
 type ProviderConfig struct {
 	BaseURL, Key string
-	// EnableUpstreamLogging enables logging of upstream API requests and responses to /tmp/$provider.log
+	// UpstreamLoggingDir specifies the base directory for upstream logging.
+	// If empty, os.TempDir() will be used.
+	// Logs are written to $UpstreamLoggingDir/$provider/$model/$id.{req,res}.log
+	UpstreamLoggingDir string
+	// enableUpstreamLogging enables logging of upstream API requests and responses.
 	enableUpstreamLogging atomic.Bool
 }
 

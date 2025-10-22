@@ -104,7 +104,7 @@ func newAnthropicClient(logger slog.Logger, cfg *ProviderConfig, id, model strin
 	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
 
 	if cfg.EnableUpstreamLogging() {
-		if middleware := createLoggingMiddleware(logger, "anthropic", id, model); middleware != nil {
+		if middleware := createLoggingMiddleware(logger, cfg, ProviderAnthropic, id, model); middleware != nil {
 			opts = append(opts, option.WithMiddleware(middleware))
 		}
 	}
