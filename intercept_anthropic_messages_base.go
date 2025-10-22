@@ -1,9 +1,13 @@
 package aibridge
 
 import (
+	"fmt"
+	"net/http"
+	"net/http/httputil"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
 
@@ -44,6 +48,16 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 		return
 	}
 
+	// Any existing tool definitions.
+	for _, tool := range i.req.Tools {
+		if tool.OfTool == nil {
+			continue
+		}
+
+		// Explicitly unset all cache control settings, we'll set one at the end.
+		tool.OfTool.CacheControl = anthropic.CacheControlEphemeralParam{}
+	}
+
 	// Inject tools.
 	for _, tool := range i.mcpProxy.ListTools() {
 		i.req.Tools = append(i.req.Tools, anthropic.ToolUnionParam{
@@ -55,8 +69,16 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 				Name:        tool.ID,
 				Description: anthropic.String(tool.Description),
 				Type:        anthropic.ToolTypeCustom,
+				// Explicitly unset all cache control settings, we'll set one at the end.
+				CacheControl: anthropic.CacheControlEphemeralParam{},
 			},
 		})
+	}
+
+	// See https://docs.claude.com/en/docs/build-with-claude/prompt-caching.
+	// "The cache_control parameter on the last tool definition caches all tool definitions."
+	if count := len(i.req.Tools); count > 0 {
+		i.req.Tools[count-1].OfTool.CacheControl = anthropic.NewCacheControlEphemeralParam()
 	}
 
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
