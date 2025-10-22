@@ -26,18 +26,22 @@ const (
 	routeChatCompletions = "/openai/v1/chat/completions" // https://platform.openai.com/docs/api-reference/chat
 )
 
-func NewOpenAIProvider(cfg *ProviderConfig) *OpenAIProvider {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = "https://api.openai.com/v1/"
+func NewOpenAIProvider(cfg *ProviderConfig) (*OpenAIProvider, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("ProviderConfig cannot be nil")
 	}
 
-	if cfg.Key == "" {
-		cfg.Key = os.Getenv("OPENAI_API_KEY")
+	if cfg.BaseURL() == "" {
+		cfg.SetBaseURL("https://api.openai.com/v1/")
+	}
+
+	if cfg.Key() == "" {
+		cfg.SetKey(os.Getenv("OPENAI_API_KEY"))
 	}
 
 	return &OpenAIProvider{
 		cfg: cfg,
-	}
+	}, nil
 }
 
 func (p *OpenAIProvider) Name() string {
@@ -86,7 +90,7 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 }
 
 func (p *OpenAIProvider) BaseURL() string {
-	return p.cfg.BaseURL
+	return p.cfg.BaseURL()
 }
 
 func (p *OpenAIProvider) AuthHeader() string {
@@ -98,15 +102,15 @@ func (p *OpenAIProvider) InjectAuthHeader(headers *http.Header) {
 		headers = &http.Header{}
 	}
 
-	headers.Set(p.AuthHeader(), "Bearer "+p.cfg.Key)
+	headers.Set(p.AuthHeader(), "Bearer "+p.cfg.Key())
 }
 
 func newOpenAIClient(logger slog.Logger, cfg *ProviderConfig, id, model string) openai.Client {
 	var opts []option.RequestOption
-	opts = append(opts, option.WithAPIKey(cfg.Key))
-	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+	opts = append(opts, option.WithAPIKey(cfg.Key()))
+	opts = append(opts, option.WithBaseURL(cfg.BaseURL()))
 
-	if cfg.EnableUpstreamLogging() {
+	if cfg.IsUpstreamLoggingEnabled() {
 		if middleware := createLoggingMiddleware(logger, cfg, ProviderOpenAI, id, model); middleware != nil {
 			opts = append(opts, option.WithMiddleware(middleware))
 		}

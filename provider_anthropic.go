@@ -29,17 +29,21 @@ const (
 	routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
 )
 
-func NewAnthropicProvider(cfg *ProviderConfig) *AnthropicProvider {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = "https://api.anthropic.com/"
+func NewAnthropicProvider(cfg *ProviderConfig) (*AnthropicProvider, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("ProviderConfig cannot be nil")
 	}
-	if cfg.Key == "" {
-		cfg.Key = os.Getenv("ANTHROPIC_API_KEY")
+
+	if cfg.BaseURL() == "" {
+		cfg.SetBaseURL("https://api.anthropic.com/")
+	}
+	if cfg.Key() == "" {
+		cfg.SetKey(os.Getenv("ANTHROPIC_API_KEY"))
 	}
 
 	return &AnthropicProvider{
 		cfg: cfg,
-	}
+	}, nil
 }
 
 func (p *AnthropicProvider) Name() string {
@@ -84,7 +88,7 @@ func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Req
 }
 
 func (p *AnthropicProvider) BaseURL() string {
-	return p.cfg.BaseURL
+	return p.cfg.BaseURL()
 }
 
 func (p *AnthropicProvider) AuthHeader() string {
@@ -96,14 +100,14 @@ func (p *AnthropicProvider) InjectAuthHeader(headers *http.Header) {
 		headers = &http.Header{}
 	}
 
-	headers.Set(p.AuthHeader(), p.cfg.Key)
+	headers.Set(p.AuthHeader(), p.cfg.Key())
 }
 
 func newAnthropicClient(logger slog.Logger, cfg *ProviderConfig, id, model string, opts ...option.RequestOption) anthropic.Client {
-	opts = append(opts, option.WithAPIKey(cfg.Key))
-	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+	opts = append(opts, option.WithAPIKey(cfg.Key()))
+	opts = append(opts, option.WithBaseURL(cfg.BaseURL()))
 
-	if cfg.EnableUpstreamLogging() {
+	if cfg.IsUpstreamLoggingEnabled() {
 		if middleware := createLoggingMiddleware(logger, cfg, ProviderAnthropic, id, model); middleware != nil {
 			opts = append(opts, option.WithMiddleware(middleware))
 		}

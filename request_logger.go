@@ -73,7 +73,7 @@ func createLoggingMiddleware(logger slog.Logger, cfg *ProviderConfig, provider, 
 	ctx := context.Background()
 	safeModel := SanitizeModelName(model)
 
-	baseDir := cfg.UpstreamLoggingDir
+	baseDir := cfg.UpstreamLoggingDir()
 	if baseDir == "" {
 		baseDir = os.TempDir()
 	}

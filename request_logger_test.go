@@ -25,13 +25,13 @@ func TestRequestLogging(t *testing.T) {
 		provider       string
 		fixture        []byte
 		route          string
-		createProvider func(*aibridge.ProviderConfig) aibridge.Provider
+		createProvider func(*aibridge.ProviderConfig) (aibridge.Provider, error)
 	}{
 		{
 			provider: aibridge.ProviderAnthropic,
 			fixture:  antSimple,
 			route:    "/anthropic/v1/messages",
-			createProvider: func(cfg *aibridge.ProviderConfig) aibridge.Provider {
+			createProvider: func(cfg *aibridge.ProviderConfig) (aibridge.Provider, error) {
 				return aibridge.NewAnthropicProvider(cfg)
 			},
 		},
@@ -39,7 +39,7 @@ func TestRequestLogging(t *testing.T) {
 			provider: aibridge.ProviderOpenAI,
 			fixture:  oaiSimple,
 			route:    "/openai/v1/chat/completions",
-			createProvider: func(cfg *aibridge.ProviderConfig) aibridge.Provider {
+			createProvider: func(cfg *aibridge.ProviderConfig) (aibridge.Provider, error) {
 				return aibridge.NewOpenAIProvider(cfg)
 			},
 		},
@@ -68,14 +68,11 @@ func TestRequestLogging(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 
-			cfg := aibridge.ProviderConfig{
-				BaseURL:            srv.URL,
-				Key:                apiKey,
-				UpstreamLoggingDir: tmpDir,
-			}
+			cfg := aibridge.NewProviderConfig(srv.URL, apiKey, tmpDir)
 			cfg.SetEnableUpstreamLogging(true)
 
-			provider := tc.createProvider(&cfg)
+			provider, err := tc.createProvider(cfg)
+			require.NoError(t, err)
 			client := &mockRecorderClient{}
 			mcpProxy := mcp.NewServerProxyManager(nil)
 
