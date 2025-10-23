@@ -1,13 +1,9 @@
 package aibridge
 
 import (
-	"fmt"
-	"net/http"
-	"net/http/httputil"
 	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
 
