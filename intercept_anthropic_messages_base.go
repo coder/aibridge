@@ -86,6 +86,28 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 	}
 }
 
+// removeUnnecessaryCacheMarkers removes any cache control settings which are unnecessarily set by the client
+// and/or may interfere with the cache control we need to implement ourselves.
+func (i *AnthropicMessagesInterceptionBase) removeUnnecessaryCacheMarkers() {
+	if i.req == nil {
+		return
+	}
+
+	// Explicitly unset any cache control markers on "assistant" messages; these should never be set
+	// since it's more beneficial for us to cache tool definitions, and Anthropic only allows for 4
+	// cache markers...
+	// https://docs.claude.com/en/docs/build-with-claude/prompt-caching#when-to-use-multiple-breakpoints
+	for _, msg := range i.req.Messages {
+		if msg.Role == anthropic.MessageParamRoleAssistant {
+			for _, c := range msg.Content {
+				if c.OfText != nil {
+					c.OfText.CacheControl = anthropic.CacheControlEphemeralParam{}
+				}
+			}
+		}
+	}
+}
+
 // isSmallFastModel checks if the model is a small/fast model (Haiku 3.5).
 // These models are optimized for tasks like code autocomplete and other small, quick operations.
 // See `ANTHROPIC_SMALL_FAST_MODEL`: https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables

@@ -41,6 +41,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 
 	ctx := r.Context()
 
+	i.removeUnnecessaryCacheMarkers()
 	i.injectTools()
 
 	var (

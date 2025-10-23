@@ -61,20 +61,6 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	// Explicitly unset any cache control markers on "assistant" messages; these should never be set
-	// since it's more beneficial for us to cache tool definitions, and Anthropic only allows for 4
-	// cache markers...
-	// https://docs.claude.com/en/docs/build-with-claude/prompt-caching#when-to-use-multiple-breakpoints
-	for _, msg := range i.req.Messages {
-		if msg.Role == anthropic.MessageParamRoleAssistant {
-			for _, c := range msg.Content {
-				if c.OfText != nil {
-					c.OfText.CacheControl = anthropic.CacheControlEphemeralParam{}
-				}
-			}
-		}
-	}
-
 	// Allow us to interrupt watch via cancel.
 	ctx, cancel := context.WithCancel(r.Context())
 	defer cancel()
@@ -94,6 +80,7 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 			logger.Warn(ctx, "failed to determine last user prompt", slog.Error(err))
 		}
 
+		i.removeUnnecessaryCacheMarkers()
 		// Only inject tools into "actual" request.
 		i.injectTools()
 	}
