@@ -14,8 +14,10 @@ type AnthropicMessagesInterceptionBase struct {
 	id  uuid.UUID
 	req *MessageNewParamsWrapper
 
-	baseURL, key string
-	logger       slog.Logger
+	cfg        AnthropicConfig
+	bedrockCfg *AWSBedrockConfig
+
+	logger slog.Logger
 
 	recorder Recorder
 	mcpProxy mcp.ServerProxier

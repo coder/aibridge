@@ -25,12 +25,12 @@ type AnthropicMessagesStreamingInterception struct {
 	AnthropicMessagesInterceptionBase
 }
 
-func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, baseURL, key string) *AnthropicMessagesStreamingInterception {
+func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig) *AnthropicMessagesStreamingInterception {
 	return &AnthropicMessagesStreamingInterception{AnthropicMessagesInterceptionBase: AnthropicMessagesInterceptionBase{
-		id:      id,
-		req:     req,
-		baseURL: baseURL,
-		key:     key,
+		id:         id,
+		req:        req,
+		cfg:        cfg,
+		bedrockCfg: bedrockCfg,
 	}}
 }
 
@@ -95,8 +95,16 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
 
-	client := newAnthropicClient(i.baseURL, i.key)
+	client := newAnthropicClient(i.cfg, i.bedrockCfg)
 	messages := i.req.MessageNewParams
+
+	if i.bedrockCfg != nil {
+		model := anthropic.Model(i.bedrockCfg.Model)
+		if i.isSmallFastModel() {
+			model = anthropic.Model(i.bedrockCfg.SmallFastModel)
+		}
+		messages.Model = model
+	}
 
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
 	var cumulativeUsage anthropic.Usage

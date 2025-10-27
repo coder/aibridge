@@ -1,6 +1,7 @@
 package aibridge
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -9,9 +10,12 @@ import (
 	"os"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/shared"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/google/uuid"
 )
 
@@ -19,7 +23,8 @@ var _ Provider = &AnthropicProvider{}
 
 // AnthropicProvider allows for interactions with the Anthropic API.
 type AnthropicProvider struct {
-	baseURL, key string
+	cfg        AnthropicConfig
+	bedrockCfg *AWSBedrockConfig
 }
 
 const (
@@ -28,7 +33,7 @@ const (
 	routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
 )
 
-func NewAnthropicProvider(cfg ProviderConfig) *AnthropicProvider {
+func NewAnthropicProvider(cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig) *AnthropicProvider {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.anthropic.com/"
 	}
@@ -37,8 +42,8 @@ func NewAnthropicProvider(cfg ProviderConfig) *AnthropicProvider {
 	}
 
 	return &AnthropicProvider{
-		baseURL: cfg.BaseURL,
-		key:     cfg.Key,
+		cfg:        cfg,
+		bedrockCfg: bedrockCfg,
 	}
 }
 
@@ -74,17 +79,17 @@ func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Req
 		}
 
 		if req.Stream {
-			return NewAnthropicMessagesStreamingInterception(id, &req, p.baseURL, p.key), nil
+			return NewAnthropicMessagesStreamingInterception(id, &req, p.cfg, p.bedrockCfg), nil
 		}
 
-		return NewAnthropicMessagesBlockingInterception(id, &req, p.baseURL, p.key), nil
+		return NewAnthropicMessagesBlockingInterception(id, &req, p.cfg, p.bedrockCfg), nil
 	}
 
 	return nil, UnknownRoute
 }
 
 func (p *AnthropicProvider) BaseURL() string {
-	return p.baseURL
+	return p.cfg.BaseURL
 }
 
 func (p *AnthropicProvider) AuthHeader() string {
@@ -96,14 +101,33 @@ func (p *AnthropicProvider) InjectAuthHeader(headers *http.Header) {
 		headers = &http.Header{}
 	}
 
-	headers.Set(p.AuthHeader(), p.key)
+	headers.Set(p.AuthHeader(), p.cfg.Key)
 }
 
-func newAnthropicClient(baseURL, key string, opts ...option.RequestOption) anthropic.Client {
-	opts = append(opts, option.WithAPIKey(key))
-	opts = append(opts, option.WithBaseURL(baseURL))
+func newAnthropicClient(cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig, opts ...option.RequestOption) anthropic.Client {
+	opts = append(opts, option.WithAPIKey(cfg.Key))
+	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+
+	if bedrockCfg != nil {
+		// TODO: deadline.
+		opts = append(opts, withAWSBedrock(context.Background(), bedrockCfg))
+	}
 
 	return anthropic.NewClient(opts...)
+}
+
+func withAWSBedrock(ctx context.Context, cfg *AWSBedrockConfig) option.RequestOption {
+	return bedrock.WithLoadDefaultConfig(
+		ctx,
+		config.WithRegion(cfg.Region),
+		config.WithCredentialsProvider(
+			credentials.NewStaticCredentialsProvider(
+				cfg.AccessKey,
+				cfg.AccessKeySecret,
+				"",
+			),
+		),
+	)
 }
 
 func getAnthropicErrorResponse(err error) *AnthropicErrorResponse {

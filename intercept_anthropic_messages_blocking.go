@@ -22,12 +22,12 @@ type AnthropicMessagesBlockingInterception struct {
 	AnthropicMessagesInterceptionBase
 }
 
-func NewAnthropicMessagesBlockingInterception(id uuid.UUID, req *MessageNewParamsWrapper, baseURL, key string) *AnthropicMessagesBlockingInterception {
+func NewAnthropicMessagesBlockingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig) *AnthropicMessagesBlockingInterception {
 	return &AnthropicMessagesBlockingInterception{AnthropicMessagesInterceptionBase: AnthropicMessagesInterceptionBase{
-		id:      id,
-		req:     req,
-		baseURL: baseURL,
-		key:     key,
+		id:         id,
+		req:        req,
+		cfg:        cfg,
+		bedrockCfg: bedrockCfg,
 	}}
 }
 
@@ -58,7 +58,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 
 	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 60)} // TODO: configurable timeout
 
-	client := newAnthropicClient(i.baseURL, i.key, opts...)
+	client := newAnthropicClient(i.cfg, i.bedrockCfg, opts...)
 	messages := i.req.MessageNewParams
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
