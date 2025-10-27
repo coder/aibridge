@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -174,6 +175,8 @@ func TestAnthropicMessages(t *testing.T) {
 
 				require.Len(t, recorderClient.userPrompts, 1)
 				assert.Equal(t, "read the foo file", recorderClient.userPrompts[0].Prompt)
+
+				recorderClient.verifyAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -273,6 +276,8 @@ func TestOpenAIChatCompletions(t *testing.T) {
 
 				require.Len(t, recorderClient.userPrompts, 1)
 				assert.Equal(t, "how large is the README.md file in my current path", recorderClient.userPrompts[0].Prompt)
+
+				recorderClient.verifyAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -437,6 +442,8 @@ func TestSimple(t *testing.T) {
 
 					require.GreaterOrEqual(t, len(recorderClient.tokenUsages), 1)
 					require.Equal(t, recorderClient.tokenUsages[0].MsgID, tc.expectedMsgID)
+
+					recorderClient.verifyAllInterceptionsEnded(t)
 				})
 			}
 		})
@@ -574,8 +581,10 @@ func setupMCPServerProxiesForTest(t *testing.T) map[string]mcp.ServerProxier {
 	return map[string]mcp.ServerProxier{proxy.Name(): proxy}
 }
 
-type configureFunc func(string, aibridge.Recorder, *mcp.ServerProxyManager) (*aibridge.RequestBridge, error)
-type createRequestFunc func(*testing.T, string, []byte) *http.Request
+type (
+	configureFunc     func(string, aibridge.Recorder, *mcp.ServerProxyManager) (*aibridge.RequestBridge, error)
+	createRequestFunc func(*testing.T, string, []byte) *http.Request
+)
 
 func TestAnthropicInjectedTools(t *testing.T) {
 	t.Parallel()
@@ -953,6 +962,7 @@ func TestErrorHandling(t *testing.T) {
 					require.NoError(t, err)
 
 					tc.responseHandlerFn(streaming, resp)
+					recorderClient.verifyAllInterceptionsEnded(t)
 				})
 			}
 		})
@@ -1097,16 +1107,30 @@ var _ aibridge.Recorder = &mockRecorderClient{}
 type mockRecorderClient struct {
 	mu sync.Mutex
 
-	interceptions []*aibridge.InterceptionRecord
-	tokenUsages   []*aibridge.TokenUsageRecord
-	userPrompts   []*aibridge.PromptUsageRecord
-	toolUsages    []*aibridge.ToolUsageRecord
+	interceptions    []*aibridge.InterceptionRecord
+	tokenUsages      []*aibridge.TokenUsageRecord
+	userPrompts      []*aibridge.PromptUsageRecord
+	toolUsages       []*aibridge.ToolUsageRecord
+	interceptionsEnd map[string]time.Time
 }
 
 func (m *mockRecorderClient) RecordInterception(ctx context.Context, req *aibridge.InterceptionRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.interceptions = append(m.interceptions, req)
+	return nil
+}
+
+func (m *mockRecorderClient) RecordInterceptionEnded(ctx context.Context, req *aibridge.InterceptionRecordEnded) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.interceptionsEnd == nil {
+		m.interceptionsEnd = make(map[string]time.Time)
+	}
+	if !slices.ContainsFunc(m.interceptions, func(intc *aibridge.InterceptionRecord) bool { return intc.ID == req.ID }) {
+		return fmt.Errorf("id not found")
+	}
+	m.interceptionsEnd[req.ID] = req.EndedAt
 	return nil
 }
 
@@ -1129,6 +1153,18 @@ func (m *mockRecorderClient) RecordToolUsage(ctx context.Context, req *aibridge.
 	defer m.mu.Unlock()
 	m.toolUsages = append(m.toolUsages, req)
 	return nil
+}
+
+// verify all recorded interceptions has been marked as completed
+func (m *mockRecorderClient) verifyAllInterceptionsEnded(t *testing.T) {
+	t.Helper()
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	require.Equalf(t, len(m.interceptions), len(m.interceptionsEnd), "got %v interception ended calls, want: %v", len(m.interceptionsEnd), len(m.interceptions))
+	for _, intc := range m.interceptions {
+		require.Containsf(t, m.interceptionsEnd, intc.ID, "interception with id: %v has not been ended", intc.ID)
+	}
 }
 
 const mockToolName = "coder_list_workspaces"

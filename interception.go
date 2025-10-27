@@ -1,7 +1,6 @@
 package aibridge
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -67,10 +66,13 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 
 		log := logger.With(slog.F("route", r.URL.Path), slog.F("provider", p.Name()), slog.F("interception_id", interceptor.ID()))
 
-		log.Debug(context.Background(), "started interception")
+		log.Debug(r.Context(), "interception started")
 		if err := interceptor.ProcessRequest(w, r); err != nil {
 			log.Warn(r.Context(), "interception failed", slog.Error(err))
+		} else {
+			log.Debug(r.Context(), "interception ended")
 		}
+		asyncRecorder.RecordInterceptionEnded(r.Context(), &InterceptionRecordEnded{ID: interceptor.ID().String()})
 
 		// Ensure all recording have completed before completing request.
 		asyncRecorder.Wait()
