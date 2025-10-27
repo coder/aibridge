@@ -16,6 +16,11 @@ type InterceptionRecord struct {
 	StartedAt                    time.Time
 }
 
+type InterceptionRecordEnded struct {
+	ID      string
+	EndedAt time.Time
+}
+
 type TokenUsageRecord struct {
 	InterceptionID string
 	MsgID          string
@@ -48,6 +53,8 @@ type ToolUsageRecord struct {
 type Recorder interface {
 	// RecordInterception records metadata about an interception with an upstream AI provider.
 	RecordInterception(ctx context.Context, req *InterceptionRecord) error
+	// RecordInterceptionEnded records that given interception has completed.
+	RecordInterceptionEnded(ctx context.Context, req *InterceptionRecordEnded) error
 	// RecordTokenUsage records the tokens used in an interception with an upstream AI provider.
 	RecordTokenUsage(ctx context.Context, req *TokenUsageRecord) error
 	// RecordPromptUsage records the prompts used in an interception with an upstream AI provider.

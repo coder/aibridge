@@ -33,6 +33,21 @@ func (r *RecorderWrapper) RecordInterception(ctx context.Context, req *Intercept
 	return err
 }
 
+func (r *RecorderWrapper) RecordInterceptionEnded(ctx context.Context, req *InterceptionRecordEnded) error {
+	client, err := r.clientFn()
+	if err != nil {
+		return fmt.Errorf("acquire client: %w", err)
+	}
+
+	req.EndedAt = time.Now().UTC()
+	if err = client.RecordInterceptionEnded(ctx, req); err == nil {
+		return nil
+	}
+
+	r.logger.Warn(ctx, "failed to record that interception ended", slog.Error(err), slog.F("interception_id", req.ID))
+	return err
+}
+
 func (r *RecorderWrapper) RecordPromptUsage(ctx context.Context, req *PromptUsageRecord) error {
 	client, err := r.clientFn()
 	if err != nil {
@@ -101,6 +116,22 @@ func NewAsyncRecorder(logger slog.Logger, wrapped Recorder, timeout time.Duratio
 // If an interception cannot be recorded, the whole request should fail.
 func (a *AsyncRecorder) RecordInterception(ctx context.Context, req *InterceptionRecord) error {
 	panic("RecordInterception must not be called asynchronously")
+}
+
+func (a *AsyncRecorder) RecordInterceptionEnded(ctx context.Context, req *InterceptionRecordEnded) error {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		timedCtx, cancel := context.WithTimeout(context.Background(), a.timeout)
+		defer cancel()
+
+		err := a.wrapped.RecordInterceptionEnded(timedCtx, req)
+		if err != nil {
+			a.logger.Warn(timedCtx, "failed to record interception end", slog.F("type", "prompt"), slog.Error(err), slog.F("payload", req))
+		}
+	}()
+
+	return nil // Caller is not interested in error.
 }
 
 func (a *AsyncRecorder) RecordPromptUsage(_ context.Context, req *PromptUsageRecord) error {
