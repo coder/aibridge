@@ -183,117 +183,165 @@ func TestAnthropicMessages(t *testing.T) {
 	})
 }
 
-func TestBedrockMessages(t *testing.T) {
+func TestAWSBedrockIntegration(t *testing.T) {
 	t.Parallel()
 
-	for _, streaming := range []bool{true, false} {
-		t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), streaming), func(t *testing.T) {
-			t.Parallel()
+	t.Run("invalid config", func(t *testing.T) {
+		t.Parallel()
 
-			arc := txtar.Parse(antSingleBuiltinTool)
-			t.Logf("%s: %s", t.Name(), arc.Comment)
+		arc := txtar.Parse(antSingleBuiltinTool)
+		files := filesMap(arc)
+		reqBody := files[fixtureRequest]
 
-			files := filesMap(arc)
-			require.Len(t, files, 3)
-			require.Contains(t, files, fixtureRequest)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+		t.Cleanup(cancel)
 
-			reqBody := files[fixtureRequest]
+		// Invalid bedrock config - missing region
+		bedrockCfg := &aibridge.AWSBedrockConfig{
+			Region:          "",
+			AccessKey:       "test-key",
+			AccessKeySecret: "test-secret",
+			Model:           "test-model",
+			SmallFastModel:  "test-haiku",
+		}
 
-			newBody, err := setJSON(reqBody, "stream", streaming)
-			require.NoError(t, err)
-			reqBody = newBody
+		recorderClient := &mockRecorderClient{}
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+		b, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{
+			aibridge.NewAnthropicProvider(anthropicCfg("http://unused", apiKey), bedrockCfg),
+		}, logger, recorderClient, mcp.NewServerProxyManager(nil))
+		require.NoError(t, err)
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-			t.Cleanup(cancel)
+		mockSrv := httptest.NewUnstartedServer(b)
+		t.Cleanup(mockSrv.Close)
+		mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+			return aibridge.AsActor(ctx, userID, nil)
+		}
+		mockSrv.Start()
 
-			var receivedModelName string
-			var requestCount int
+		req := createAnthropicMessagesReq(t, mockSrv.URL, reqBody)
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		defer resp.Body.Close()
 
-			// Create a mock server that intercepts requests to capture model name and return fixtures.
-			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				requestCount++
-				t.Logf("Mock server received request #%d: %s %s (streaming=%v)", requestCount, r.Method, r.URL.Path, streaming)
-				t.Logf("Request headers: %v", r.Header)
+		require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.Contains(t, string(body), "create anthropic client")
+		require.Contains(t, string(body), "region required")
+	})
 
-				// AWS Bedrock encodes the model name in the URL path: /model/{model-id}/invoke or /model/{model-id}/invoke-with-response-stream.
-				// Extract the model name from the path.
-				pathParts := strings.Split(r.URL.Path, "/")
-				if len(pathParts) >= 3 && pathParts[1] == "model" {
-					receivedModelName = pathParts[2]
-					t.Logf("Extracted model name from path: %s", receivedModelName)
-				}
+	t.Run("/v1/messages", func(t *testing.T) {
+		for _, streaming := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), streaming), func(t *testing.T) {
+				t.Parallel()
 
-				// Return appropriate fixture response.
-				var respBody []byte
-				if streaming {
-					respBody = files[fixtureStreamingResponse]
-					w.Header().Set("Content-Type", "text/event-stream")
-					w.Header().Set("Cache-Control", "no-cache")
-					w.Header().Set("Connection", "keep-alive")
-				} else {
-					respBody = files[fixtureNonStreamingResponse]
-					w.Header().Set("Content-Type", "application/json")
-				}
+				arc := txtar.Parse(antSingleBuiltinTool)
+				t.Logf("%s: %s", t.Name(), arc.Comment)
 
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write(respBody)
-			}))
+				files := filesMap(arc)
+				require.Len(t, files, 3)
+				require.Contains(t, files, fixtureRequest)
 
-			srv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return ctx
-			}
-			srv.Start()
-			t.Cleanup(srv.Close)
+				reqBody := files[fixtureRequest]
 
-			// Configure Bedrock with test credentials and model names.
-			// The EndpointOverride will make requests go to the mock server instead of real AWS endpoints.
-			bedrockCfg := &aibridge.AWSBedrockConfig{
-				Region:           "us-west-2",
-				AccessKey:        "test-access-key",
-				AccessKeySecret:  "test-secret-key",
-				Model:            "danthropic", // This model should override the request's given one.
-				EndpointOverride: srv.URL,
-			}
-
-			recorderClient := &mockRecorderClient{}
-
-			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
-			b, err := aibridge.NewRequestBridge(
-				ctx, []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(srv.URL, apiKey), bedrockCfg)},
-				logger, recorderClient, mcp.NewServerProxyManager(nil))
-			require.NoError(t, err)
-
-			mockBridgeSrv := httptest.NewUnstartedServer(b)
-			t.Cleanup(mockBridgeSrv.Close)
-			mockBridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibridge.AsActor(ctx, userID, nil)
-			}
-			mockBridgeSrv.Start()
-
-			// Make API call to aibridge for Anthropic /v1/messages, which will be routed via AWS Bedrock.
-			// We override the AWS Bedrock client to route requests through our mock server.
-			req := createAnthropicMessagesReq(t, mockBridgeSrv.URL, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
-
-			// For streaming responses, consume the body to allow the stream to complete.
-			if streaming {
-				// Read the streaming response.
-				_, err = io.ReadAll(resp.Body)
+				newBody, err := setJSON(reqBody, "stream", streaming)
 				require.NoError(t, err)
-			}
+				reqBody = newBody
 
-			// Verify that Bedrock-specific model name was used in the request to the mock server
-			// and the interception data.
-			require.Equal(t, requestCount, 1)
-			require.Equal(t, bedrockCfg.Model, receivedModelName)
-			require.Len(t, recorderClient.interceptions, 1)
-			require.Equal(t, recorderClient.interceptions[0].Model, bedrockCfg.Model)
-			recorderClient.verifyAllInterceptionsEnded(t)
-		})
-	}
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				t.Cleanup(cancel)
+
+				var receivedModelName string
+				var requestCount int
+
+				// Create a mock server that intercepts requests to capture model name and return fixtures.
+				srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					requestCount++
+					t.Logf("Mock server received request #%d: %s %s (streaming=%v)", requestCount, r.Method, r.URL.Path, streaming)
+					t.Logf("Request headers: %v", r.Header)
+
+					// AWS Bedrock encodes the model name in the URL path: /model/{model-id}/invoke or /model/{model-id}/invoke-with-response-stream.
+					// Extract the model name from the path.
+					pathParts := strings.Split(r.URL.Path, "/")
+					if len(pathParts) >= 3 && pathParts[1] == "model" {
+						receivedModelName = pathParts[2]
+						t.Logf("Extracted model name from path: %s", receivedModelName)
+					}
+
+					// Return appropriate fixture response.
+					var respBody []byte
+					if streaming {
+						respBody = files[fixtureStreamingResponse]
+						w.Header().Set("Content-Type", "text/event-stream")
+						w.Header().Set("Cache-Control", "no-cache")
+						w.Header().Set("Connection", "keep-alive")
+					} else {
+						respBody = files[fixtureNonStreamingResponse]
+						w.Header().Set("Content-Type", "application/json")
+					}
+
+					w.WriteHeader(http.StatusOK)
+					_, _ = w.Write(respBody)
+				}))
+
+				srv.Config.BaseContext = func(_ net.Listener) context.Context {
+					return ctx
+				}
+				srv.Start()
+				t.Cleanup(srv.Close)
+
+				// Configure Bedrock with test credentials and model names.
+				// The EndpointOverride will make requests go to the mock server instead of real AWS endpoints.
+				bedrockCfg := &aibridge.AWSBedrockConfig{
+					Region:           "us-west-2",
+					AccessKey:        "test-access-key",
+					AccessKeySecret:  "test-secret-key",
+					Model:            "danthropic",      // This model should override the request's given one.
+					SmallFastModel:   "danthropic-mini", // Unused but needed for validation.
+					EndpointOverride: srv.URL,
+				}
+
+				recorderClient := &mockRecorderClient{}
+
+				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+				b, err := aibridge.NewRequestBridge(
+					ctx, []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(srv.URL, apiKey), bedrockCfg)},
+					logger, recorderClient, mcp.NewServerProxyManager(nil))
+				require.NoError(t, err)
+
+				mockBridgeSrv := httptest.NewUnstartedServer(b)
+				t.Cleanup(mockBridgeSrv.Close)
+				mockBridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+					return aibridge.AsActor(ctx, userID, nil)
+				}
+				mockBridgeSrv.Start()
+
+				// Make API call to aibridge for Anthropic /v1/messages, which will be routed via AWS Bedrock.
+				// We override the AWS Bedrock client to route requests through our mock server.
+				req := createAnthropicMessagesReq(t, mockBridgeSrv.URL, reqBody)
+				client := &http.Client{}
+				resp, err := client.Do(req)
+				require.NoError(t, err)
+				defer resp.Body.Close()
+
+				// For streaming responses, consume the body to allow the stream to complete.
+				if streaming {
+					// Read the streaming response.
+					_, err = io.ReadAll(resp.Body)
+					require.NoError(t, err)
+				}
+
+				// Verify that Bedrock-specific model name was used in the request to the mock server
+				// and the interception data.
+				require.Equal(t, requestCount, 1)
+				require.Equal(t, bedrockCfg.Model, receivedModelName)
+				require.Len(t, recorderClient.interceptions, 1)
+				require.Equal(t, recorderClient.interceptions[0].Model, bedrockCfg.Model)
+				recorderClient.verifyAllInterceptionsEnded(t)
+			})
+		}
+	})
 }
 
 func TestOpenAIChatCompletions(t *testing.T) {

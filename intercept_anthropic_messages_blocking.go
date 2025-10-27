@@ -58,7 +58,13 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 
 	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 60)} // TODO: configurable timeout
 
-	client := i.newAnthropicClient(i.cfg, i.bedrockCfg, opts...)
+	client, err := i.newAnthropicClient(ctx, opts...)
+	if err != nil {
+		err = fmt.Errorf("create anthropic client: %w", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return err
+	}
+
 	messages := i.req.MessageNewParams
 	logger := i.logger.With(slog.F("model", i.req.Model))
 

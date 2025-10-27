@@ -2,9 +2,11 @@ package aibridge
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
@@ -93,13 +95,18 @@ func (i *AnthropicMessagesInterceptionBase) isSmallFastModel() bool {
 	return strings.Contains(string(i.req.Model), "haiku")
 }
 
-func (i *AnthropicMessagesInterceptionBase) newAnthropicClient(cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig, opts ...option.RequestOption) anthropic.Client {
-	opts = append(opts, option.WithAPIKey(cfg.Key))
-	opts = append(opts, option.WithBaseURL(cfg.BaseURL))
+func (i *AnthropicMessagesInterceptionBase) newAnthropicClient(ctx context.Context, opts ...option.RequestOption) (anthropic.Client, error) {
+	opts = append(opts, option.WithAPIKey(i.cfg.Key))
+	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
 
 	if i.bedrockCfg != nil {
-		// TODO: deadline.
-		opts = append(opts, i.withAWSBedrock(context.Background(), i.bedrockCfg))
+		ctx, cancel := context.WithTimeout(ctx, time.Second*30)
+		defer cancel()
+		bedrockOpt, err := i.withAWSBedrock(ctx, i.bedrockCfg)
+		if err != nil {
+			return anthropic.Client{}, err
+		}
+		opts = append(opts, bedrockOpt)
 		i.augmentRequestForBedrock()
 
 		// If an endpoint override is set (for testing), add a custom HTTP client AFTER the bedrock config
@@ -114,10 +121,29 @@ func (i *AnthropicMessagesInterceptionBase) newAnthropicClient(cfg AnthropicConf
 		}
 	}
 
-	return anthropic.NewClient(opts...)
+	return anthropic.NewClient(opts...), nil
 }
 
-func (i *AnthropicMessagesInterceptionBase) withAWSBedrock(ctx context.Context, cfg *AWSBedrockConfig) option.RequestOption {
+func (i *AnthropicMessagesInterceptionBase) withAWSBedrock(ctx context.Context, cfg *AWSBedrockConfig) (option.RequestOption, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("nil config given")
+	}
+	if cfg.Region == "" {
+		return nil, fmt.Errorf("region required")
+	}
+	if cfg.AccessKey == "" {
+		return nil, fmt.Errorf("access key required")
+	}
+	if cfg.AccessKeySecret == "" {
+		return nil, fmt.Errorf("access key secret required")
+	}
+	if cfg.Model == "" {
+		return nil, fmt.Errorf("model required")
+	}
+	if cfg.SmallFastModel == "" {
+		return nil, fmt.Errorf("small fast model required")
+	}
+
 	opts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
 		config.WithCredentialsProvider(
@@ -129,15 +155,12 @@ func (i *AnthropicMessagesInterceptionBase) withAWSBedrock(ctx context.Context, 
 		),
 	}
 
-	// Load the AWS config with our options, then pass it to bedrock.WithConfig
-	// This is the recommended approach when you have custom config settings
 	awsCfg, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
-		// If config loading fails, fall back to WithLoadDefaultConfig with options
-		return bedrock.WithLoadDefaultConfig(ctx, opts...)
+		return nil, fmt.Errorf("failed to load AWS Bedrock config: %w", err)
 	}
 
-	return bedrock.WithConfig(awsCfg)
+	return bedrock.WithConfig(awsCfg), nil
 }
 
 // augmentRequestForBedrock will change the model used for the request since AWS Bedrock doesn't support
