@@ -127,7 +127,9 @@ func TestAnthropicMessages(t *testing.T) {
 				recorderClient := &mockRecorderClient{}
 
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-				b, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{aibridge.NewAnthropicProvider(cfg(srv.URL, apiKey))}, logger, recorderClient, mcp.NewServerProxyManager(nil))
+				provider, err := aibridge.NewAnthropicProvider(cfg(srv.URL, apiKey))
+				require.NoError(t, err)
+				b, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, logger, recorderClient, mcp.NewServerProxyManager(nil))
 				require.NoError(t, err)
 
 				mockSrv := httptest.NewUnstartedServer(b)
@@ -232,7 +234,9 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				recorderClient := &mockRecorderClient{}
 
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				b, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(cfg(srv.URL, apiKey))}, logger, recorderClient, mcp.NewServerProxyManager(nil))
+				provider, err := aibridge.NewOpenAIProvider(cfg(srv.URL, apiKey))
+				require.NoError(t, err)
+				b, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, recorderClient, mcp.NewServerProxyManager(nil))
 				require.NoError(t, err)
 
 				mockSrv := httptest.NewUnstartedServer(b)
@@ -299,7 +303,11 @@ func TestSimple(t *testing.T) {
 			fixture: antSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewAnthropicProvider(cfg(addr, apiKey))}, logger, client, mcp.NewServerProxyManager(nil))
+				provider, err := aibridge.NewAnthropicProvider(cfg(addr, apiKey))
+				if err != nil {
+					return nil, err
+				}
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, client, mcp.NewServerProxyManager(nil))
 			},
 			getResponseIDFunc: func(streaming bool, resp *http.Response) (string, error) {
 				if streaming {
@@ -337,7 +345,11 @@ func TestSimple(t *testing.T) {
 			fixture: oaiSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(cfg(addr, apiKey))}, logger, client, mcp.NewServerProxyManager(nil))
+				provider, err := aibridge.NewOpenAIProvider(cfg(addr, apiKey))
+				if err != nil {
+					return nil, err
+				}
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, client, mcp.NewServerProxyManager(nil))
 			},
 			getResponseIDFunc: func(streaming bool, resp *http.Response) (string, error) {
 				if streaming {
@@ -477,7 +489,8 @@ func TestFallthrough(t *testing.T) {
 			fixture: antFallthrough,
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				provider := aibridge.NewAnthropicProvider(cfg(addr, apiKey))
+				provider, err := aibridge.NewAnthropicProvider(cfg(addr, apiKey))
+				require.NoError(t, err)
 				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, client, mcp.NewServerProxyManager(nil))
 				require.NoError(t, err)
 				return provider, bridge
@@ -488,7 +501,8 @@ func TestFallthrough(t *testing.T) {
 			fixture: oaiFallthrough,
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				provider := aibridge.NewOpenAIProvider(cfg(addr, apiKey))
+				provider, err := aibridge.NewOpenAIProvider(cfg(addr, apiKey))
+				require.NoError(t, err)
 				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, client, mcp.NewServerProxyManager(nil))
 				require.NoError(t, err)
 				return provider, bridge
@@ -595,7 +609,11 @@ func TestAnthropicInjectedTools(t *testing.T) {
 
 			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewAnthropicProvider(cfg(addr, apiKey))}, logger, client, srvProxyMgr)
+				provider, err := aibridge.NewAnthropicProvider(cfg(addr, apiKey))
+				if err != nil {
+					return nil, err
+				}
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, client, srvProxyMgr)
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
@@ -676,7 +694,11 @@ func TestOpenAIInjectedTools(t *testing.T) {
 
 			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(cfg(addr, apiKey))}, logger, client, srvProxyMgr)
+				provider, err := aibridge.NewOpenAIProvider(cfg(addr, apiKey))
+				if err != nil {
+					return nil, err
+				}
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, client, srvProxyMgr)
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
@@ -860,7 +882,11 @@ func TestErrorHandling(t *testing.T) {
 			createRequestFunc: createAnthropicMessagesReq,
 			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewAnthropicProvider(cfg(addr, apiKey))}, logger, client, srvProxyMgr)
+				provider, err := aibridge.NewAnthropicProvider(cfg(addr, apiKey))
+				if err != nil {
+					return nil, err
+				}
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, client, srvProxyMgr)
 			},
 			responseHandlerFn: func(streaming bool, resp *http.Response) {
 				if streaming {
@@ -885,7 +911,11 @@ func TestErrorHandling(t *testing.T) {
 			createRequestFunc: createOpenAIChatCompletionsReq,
 			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(cfg(addr, apiKey))}, logger, client, srvProxyMgr)
+				provider, err := aibridge.NewOpenAIProvider(cfg(addr, apiKey))
+				if err != nil {
+					return nil, err
+				}
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, client, srvProxyMgr)
 			},
 			responseHandlerFn: func(streaming bool, resp *http.Response) {
 				if streaming {
@@ -1188,9 +1218,6 @@ func createMockMCPSrv(t *testing.T) http.Handler {
 	return server.NewStreamableHTTPServer(s)
 }
 
-func cfg(url, key string) aibridge.ProviderConfig {
-	return aibridge.ProviderConfig{
-		BaseURL: url,
-		Key:     key,
-	}
+func cfg(url, key string) *aibridge.ProviderConfig {
+	return aibridge.NewProviderConfig(url, key, "")
 }

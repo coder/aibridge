@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 
+	"cdr.dev/slog"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/shared"
@@ -19,7 +20,7 @@ var _ Provider = &AnthropicProvider{}
 
 // AnthropicProvider allows for interactions with the Anthropic API.
 type AnthropicProvider struct {
-	baseURL, key string
+	cfg *ProviderConfig
 }
 
 const (
@@ -28,18 +29,21 @@ const (
 	routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
 )
 
-func NewAnthropicProvider(cfg ProviderConfig) *AnthropicProvider {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = "https://api.anthropic.com/"
+func NewAnthropicProvider(cfg *ProviderConfig) (*AnthropicProvider, error) {
+	if cfg == nil {
+		return nil, fmt.Errorf("ProviderConfig cannot be nil")
 	}
-	if cfg.Key == "" {
-		cfg.Key = os.Getenv("ANTHROPIC_API_KEY")
+
+	if cfg.BaseURL() == "" {
+		cfg.SetBaseURL("https://api.anthropic.com/")
+	}
+	if cfg.Key() == "" {
+		cfg.SetKey(os.Getenv("ANTHROPIC_API_KEY"))
 	}
 
 	return &AnthropicProvider{
-		baseURL: cfg.BaseURL,
-		key:     cfg.Key,
-	}
+		cfg: cfg,
+	}, nil
 }
 
 func (p *AnthropicProvider) Name() string {
@@ -74,17 +78,17 @@ func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Req
 		}
 
 		if req.Stream {
-			return NewAnthropicMessagesStreamingInterception(id, &req, p.baseURL, p.key), nil
+			return NewAnthropicMessagesStreamingInterception(id, &req, p.cfg), nil
 		}
 
-		return NewAnthropicMessagesBlockingInterception(id, &req, p.baseURL, p.key), nil
+		return NewAnthropicMessagesBlockingInterception(id, &req, p.cfg), nil
 	}
 
 	return nil, UnknownRoute
 }
 
 func (p *AnthropicProvider) BaseURL() string {
-	return p.baseURL
+	return p.cfg.BaseURL()
 }
 
 func (p *AnthropicProvider) AuthHeader() string {
@@ -96,12 +100,18 @@ func (p *AnthropicProvider) InjectAuthHeader(headers *http.Header) {
 		headers = &http.Header{}
 	}
 
-	headers.Set(p.AuthHeader(), p.key)
+	headers.Set(p.AuthHeader(), p.cfg.Key())
 }
 
-func newAnthropicClient(baseURL, key string, opts ...option.RequestOption) anthropic.Client {
-	opts = append(opts, option.WithAPIKey(key))
-	opts = append(opts, option.WithBaseURL(baseURL))
+func newAnthropicClient(logger slog.Logger, cfg *ProviderConfig, id, model string, opts ...option.RequestOption) anthropic.Client {
+	opts = append(opts, option.WithAPIKey(cfg.Key()))
+	opts = append(opts, option.WithBaseURL(cfg.BaseURL()))
+
+	if cfg.IsUpstreamLoggingEnabled() {
+		if middleware := createLoggingMiddleware(logger, cfg, ProviderAnthropic, id, model); middleware != nil {
+			opts = append(opts, option.WithMiddleware(middleware))
+		}
+	}
 
 	return anthropic.NewClient(opts...)
 }
