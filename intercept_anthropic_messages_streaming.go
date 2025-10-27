@@ -95,16 +95,8 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
 
-	client := newAnthropicClient(i.cfg, i.bedrockCfg)
+	client := i.newAnthropicClient(i.cfg, i.bedrockCfg)
 	messages := i.req.MessageNewParams
-
-	if i.bedrockCfg != nil {
-		model := anthropic.Model(i.bedrockCfg.Model)
-		if i.isSmallFastModel() {
-			model = anthropic.Model(i.bedrockCfg.SmallFastModel)
-		}
-		messages.Model = model
-	}
 
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
 	var cumulativeUsage anthropic.Usage
