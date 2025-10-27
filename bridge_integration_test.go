@@ -1155,16 +1155,15 @@ func (m *mockRecorderClient) RecordToolUsage(ctx context.Context, req *aibridge.
 	return nil
 }
 
-// verify all interceptions has been marked as completed
+// verify all recorded interceptions has been marked as completed
 func (m *mockRecorderClient) verifyAllInterceptionsEnded(t *testing.T) {
+	t.Helper()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	if len(m.interceptions) == 0 {
-		t.Errorf("HMMM")
-	}
-	require.Equal(t, len(m.interceptions), len(m.interceptionsEnd))
+	require.Equalf(t, len(m.interceptions), len(m.interceptionsEnd), "got %v interception ended calls, want: %v", len(m.interceptionsEnd), len(m.interceptions))
 	for _, intc := range m.interceptions {
-		require.Contains(t, m.interceptionsEnd, intc.ID)
+		require.Containsf(t, m.interceptionsEnd, intc.ID, "interception with id: %v has not been ended", intc.ID)
 	}
 }
 
