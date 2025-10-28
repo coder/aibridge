@@ -1,6 +1,7 @@
 package aibridge_test
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/coder/aibridge"
@@ -130,4 +131,63 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMaxCompletionTokens(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unmarshal max_completion_tokens from JSON", func(t *testing.T) {
+		jsonStr := `{
+			"model": "gpt-4o",
+			"messages": [{"role": "user", "content": "Hello"}],
+			"max_completion_tokens": 1024
+		}`
+
+		var wrapper aibridge.ChatCompletionNewParamsWrapper
+		err := json.Unmarshal([]byte(jsonStr), &wrapper)
+		require.NoError(t, err)
+		require.NotNil(t, wrapper.MaxCompletionTokens)
+		require.Equal(t, 1024, *wrapper.MaxCompletionTokens)
+	})
+
+	t.Run("marshal max_completion_tokens to JSON", func(t *testing.T) {
+		maxTokens := 2048
+		wrapper := aibridge.ChatCompletionNewParamsWrapper{
+			ChatCompletionNewParams: openai.ChatCompletionNewParams{
+				Model: openai.ChatModelGPT4o,
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage("Hello"),
+				},
+			},
+			MaxCompletionTokens: &maxTokens,
+		}
+
+		jsonBytes, err := json.Marshal(wrapper)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal(jsonBytes, &result)
+		require.NoError(t, err)
+		require.Equal(t, float64(2048), result["max_completion_tokens"])
+	})
+
+	t.Run("max_completion_tokens not set when nil", func(t *testing.T) {
+		wrapper := aibridge.ChatCompletionNewParamsWrapper{
+			ChatCompletionNewParams: openai.ChatCompletionNewParams{
+				Model: openai.ChatModelGPT4o,
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage("Hello"),
+				},
+			},
+		}
+
+		jsonBytes, err := json.Marshal(wrapper)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal(jsonBytes, &result)
+		require.NoError(t, err)
+		_, exists := result["max_completion_tokens"]
+		require.False(t, exists, "max_completion_tokens should not be present when nil")
+	})
 }

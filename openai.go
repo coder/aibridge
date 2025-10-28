@@ -15,13 +15,18 @@ import (
 type ChatCompletionNewParamsWrapper struct {
 	openai.ChatCompletionNewParams `json:""`
 	Stream                         bool `json:"stream,omitempty"`
+	MaxCompletionTokens            *int `json:"max_completion_tokens,omitempty"`
 }
 
 func (c ChatCompletionNewParamsWrapper) MarshalJSON() ([]byte, error) {
 	type shadow ChatCompletionNewParamsWrapper
-	return param.MarshalWithExtras(c, (*shadow)(&c), map[string]any{
+	extras := map[string]any{
 		"stream": c.Stream,
-	})
+	}
+	if c.MaxCompletionTokens != nil {
+		extras["max_completion_tokens"] = *c.MaxCompletionTokens
+	}
+	return param.MarshalWithExtras(c, (*shadow)(&c), extras)
 }
 
 func (c *ChatCompletionNewParamsWrapper) UnmarshalJSON(raw []byte) error {
@@ -41,6 +46,14 @@ func (c *ChatCompletionNewParamsWrapper) UnmarshalJSON(raw []byte) error {
 		}
 	} else {
 		c.ChatCompletionNewParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{}
+	}
+
+	// Extract max_completion_tokens if present
+	if maxCompletionTokens := utils.ExtractJSONField[float64](raw, "max_completion_tokens"); maxCompletionTokens > 0 {
+		tokens := int(maxCompletionTokens)
+		c.MaxCompletionTokens = &tokens
+		// Set it in the underlying params as well
+		c.ChatCompletionNewParams.MaxCompletionTokens = openai.Int(int64(tokens))
 	}
 
 	return nil
