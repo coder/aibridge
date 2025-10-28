@@ -150,6 +150,20 @@ func TestMaxCompletionTokens(t *testing.T) {
 		require.Equal(t, 1024, *wrapper.MaxCompletionTokens)
 	})
 
+	t.Run("unmarshal max_completion_tokens with zero value", func(t *testing.T) {
+		jsonStr := `{
+			"model": "gpt-4o",
+			"messages": [{"role": "user", "content": "Hello"}],
+			"max_completion_tokens": 0
+		}`
+
+		var wrapper aibridge.ChatCompletionNewParamsWrapper
+		err := json.Unmarshal([]byte(jsonStr), &wrapper)
+		require.NoError(t, err)
+		require.NotNil(t, wrapper.MaxCompletionTokens, "max_completion_tokens should be set even when 0")
+		require.Equal(t, 0, *wrapper.MaxCompletionTokens)
+	})
+
 	t.Run("marshal max_completion_tokens to JSON", func(t *testing.T) {
 		maxTokens := 2048
 		wrapper := aibridge.ChatCompletionNewParamsWrapper{
@@ -169,6 +183,27 @@ func TestMaxCompletionTokens(t *testing.T) {
 		err = json.Unmarshal(jsonBytes, &result)
 		require.NoError(t, err)
 		require.Equal(t, float64(2048), result["max_completion_tokens"])
+	})
+
+	t.Run("marshal max_completion_tokens with zero value", func(t *testing.T) {
+		maxTokens := 0
+		wrapper := aibridge.ChatCompletionNewParamsWrapper{
+			ChatCompletionNewParams: openai.ChatCompletionNewParams{
+				Model: openai.ChatModelGPT4o,
+				Messages: []openai.ChatCompletionMessageParamUnion{
+					openai.UserMessage("Hello"),
+				},
+			},
+			MaxCompletionTokens: &maxTokens,
+		}
+
+		jsonBytes, err := json.Marshal(wrapper)
+		require.NoError(t, err)
+
+		var result map[string]interface{}
+		err = json.Unmarshal(jsonBytes, &result)
+		require.NoError(t, err)
+		require.Equal(t, float64(0), result["max_completion_tokens"], "max_completion_tokens should be present even when 0")
 	})
 
 	t.Run("max_completion_tokens not set when nil", func(t *testing.T) {

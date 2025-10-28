@@ -49,11 +49,27 @@ func (c *ChatCompletionNewParamsWrapper) UnmarshalJSON(raw []byte) error {
 	}
 
 	// Extract max_completion_tokens if present
-	if maxCompletionTokens := utils.ExtractJSONField[float64](raw, "max_completion_tokens"); maxCompletionTokens > 0 {
-		tokens := int(maxCompletionTokens)
-		c.MaxCompletionTokens = &tokens
-		// Set it in the underlying params as well
-		c.ChatCompletionNewParams.MaxCompletionTokens = openai.Int(int64(tokens))
+	// We need to check if the field exists in the JSON to properly handle explicit 0 values
+	var data map[string]any
+	if err := json.Unmarshal(raw, &data); err == nil {
+		if val, exists := data["max_completion_tokens"]; exists {
+			// Field is explicitly set, convert to int
+			var tokens int
+			switch v := val.(type) {
+			case float64:
+				tokens = int(v)
+			case int:
+				tokens = v
+			case int64:
+				tokens = int(v)
+			default:
+				// Invalid type, skip
+				return nil
+			}
+			c.MaxCompletionTokens = &tokens
+			// Set it in the underlying params as well
+			c.ChatCompletionNewParams.MaxCompletionTokens = openai.Int(int64(tokens))
+		}
 	}
 
 	return nil
