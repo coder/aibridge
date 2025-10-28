@@ -32,7 +32,7 @@ const recordingTimeout = time.Second * 5
 
 // newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
 // using [Provider] p, recording all usage events using [Recorder] recorder.
-func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) http.HandlerFunc {
+func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier, metrics *Metrics) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		interceptor, err := p.CreateInterceptor(w, r)
 		if err != nil {
@@ -41,9 +41,12 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			return
 		}
 
-		// Record usage in the background to not block request flow.
-		asyncRecorder := NewAsyncRecorder(logger, recorder, recordingTimeout)
-		interceptor.Setup(logger, asyncRecorder, mcpProxy)
+		if metrics != nil {
+			start := time.Now()
+			defer func() {
+				metrics.InterceptionDuration.WithLabelValues(p.Name(), interceptor.Model()).Observe(time.Since(start).Seconds())
+			}()
+		}
 
 		actor := actorFromContext(r.Context())
 		if actor == nil {
@@ -51,6 +54,14 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			http.Error(w, "no actor found", http.StatusBadRequest)
 			return
 		}
+
+		// Record usage in the background to not block request flow.
+		asyncRecorder := NewAsyncRecorder(logger, recorder, recordingTimeout)
+		asyncRecorder.WithMetrics(metrics)
+		asyncRecorder.WithProvider(p.Name())
+		asyncRecorder.WithModel(interceptor.Model())
+		asyncRecorder.WithInitiatorID(actor.id)
+		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
 		if err := recorder.RecordInterception(r.Context(), &InterceptionRecord{
 			ID:          interceptor.ID().String(),
@@ -68,8 +79,10 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 
 		log.Debug(r.Context(), "interception started")
 		if err := interceptor.ProcessRequest(w, r); err != nil {
+			metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed).Add(1)
 			log.Warn(r.Context(), "interception failed", slog.Error(err))
 		} else {
+			metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted).Add(1)
 			log.Debug(r.Context(), "interception ended")
 		}
 		asyncRecorder.RecordInterceptionEnded(r.Context(), &InterceptionRecordEnded{ID: interceptor.ID().String()})

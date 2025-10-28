@@ -104,12 +104,31 @@ type AsyncRecorder struct {
 	logger  slog.Logger
 	wrapped Recorder
 	timeout time.Duration
+	metrics *Metrics
+
+	provider, model, initiatorID string
 
 	wg sync.WaitGroup
 }
 
 func NewAsyncRecorder(logger slog.Logger, wrapped Recorder, timeout time.Duration) *AsyncRecorder {
 	return &AsyncRecorder{logger: logger, wrapped: wrapped, timeout: timeout}
+}
+
+func (a *AsyncRecorder) WithMetrics(metrics *Metrics) {
+	a.metrics = metrics
+}
+
+func (a *AsyncRecorder) WithProvider(provider string) {
+	a.provider = provider
+}
+
+func (a *AsyncRecorder) WithModel(model string) {
+	a.model = model
+}
+
+func (a *AsyncRecorder) WithInitiatorID(initiatorID string) {
+	a.initiatorID = initiatorID
 }
 
 // RecordInterception must NOT be called asynchronously.
@@ -135,6 +154,14 @@ func (a *AsyncRecorder) RecordInterceptionEnded(ctx context.Context, req *Interc
 }
 
 func (a *AsyncRecorder) RecordPromptUsage(_ context.Context, req *PromptUsageRecord) error {
+	defer func() {
+		if a.metrics == nil {
+			return
+		}
+
+		a.metrics.PromptCount.WithLabelValues(a.provider, a.model, a.initiatorID).Add(1)
+	}()
+
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
