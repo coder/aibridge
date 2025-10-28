@@ -25,7 +25,7 @@ const (
 	routeChatCompletions = "/openai/v1/chat/completions" // https://platform.openai.com/docs/api-reference/chat
 )
 
-func NewOpenAIProvider(cfg ProviderConfig) *OpenAIProvider {
+func NewOpenAIProvider(cfg OpenAIConfig) *OpenAIProvider {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1/"
 	}

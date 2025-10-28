@@ -25,12 +25,12 @@ type AnthropicMessagesStreamingInterception struct {
 	AnthropicMessagesInterceptionBase
 }
 
-func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, baseURL, key string) *AnthropicMessagesStreamingInterception {
+func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig) *AnthropicMessagesStreamingInterception {
 	return &AnthropicMessagesStreamingInterception{AnthropicMessagesInterceptionBase: AnthropicMessagesInterceptionBase{
-		id:      id,
-		req:     req,
-		baseURL: baseURL,
-		key:     key,
+		id:         id,
+		req:        req,
+		cfg:        cfg,
+		bedrockCfg: bedrockCfg,
 	}}
 }
 
@@ -88,6 +88,13 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
 	defer streamCancel(errors.New("deferred"))
 
+	client, err := i.newAnthropicClient(streamCtx)
+	if err != nil {
+		err = fmt.Errorf("create anthropic client: %w", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return err
+	}
+
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
 	events := newEventStream(streamCtx, logger.Named("sse-sender"), i.pingPayload())
 	go events.run(w, r)
@@ -95,7 +102,6 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
 
-	client := newAnthropicClient(i.baseURL, i.key)
 	messages := i.req.MessageNewParams
 
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).

@@ -1,6 +1,7 @@
 package aibridge
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 
@@ -180,6 +181,114 @@ func TestShouldConvertContentField(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			result := shouldConvertContentField(tt.obj)
 			require.Equal(t, tt.expected, result)
+		})
+	}
+}
+
+func TestAWSBedrockValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		cfg         *AWSBedrockConfig
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid",
+			cfg: &AWSBedrockConfig{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+		},
+		{
+			name: "missing region",
+			cfg: &AWSBedrockConfig{
+				Region:          "",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+			expectError: true,
+			errorMsg:    "region required",
+		},
+		{
+			name: "missing access key",
+			cfg: &AWSBedrockConfig{
+				Region:          "us-east-1",
+				AccessKey:       "",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+			expectError: true,
+			errorMsg:    "access key required",
+		},
+		{
+			name: "missing access key secret",
+			cfg: &AWSBedrockConfig{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+			expectError: true,
+			errorMsg:    "access key secret required",
+		},
+		{
+			name: "missing model",
+			cfg: &AWSBedrockConfig{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "",
+				SmallFastModel:  "test-small-model",
+			},
+			expectError: true,
+			errorMsg:    "model required",
+		},
+		{
+			name: "missing small fast model",
+			cfg: &AWSBedrockConfig{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "",
+			},
+			expectError: true,
+			errorMsg:    "small fast model required",
+		},
+		{
+			name:        "all fields empty",
+			cfg:         &AWSBedrockConfig{},
+			expectError: true,
+			errorMsg:    "region required",
+		},
+		{
+			name:        "nil config",
+			cfg:         nil,
+			expectError: true,
+			errorMsg:    "nil config given",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := &AnthropicMessagesInterceptionBase{}
+			_, err := base.withAWSBedrock(context.Background(), tt.cfg)
+
+			if tt.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
 		})
 	}
 }
