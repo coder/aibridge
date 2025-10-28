@@ -133,7 +133,7 @@ func TestAnthropicMessages(t *testing.T) {
 				mockSrv := httptest.NewUnstartedServer(b)
 				t.Cleanup(mockSrv.Close)
 				mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-					return aibridge.AsActor(ctx, userID, nil)
+					return aibridge.AsActor(ctx, apiKey, userID, nil)
 				}
 				mockSrv.Start()
 
@@ -175,6 +175,12 @@ func TestAnthropicMessages(t *testing.T) {
 
 				require.Len(t, recorderClient.userPrompts, 1)
 				assert.Equal(t, "read the foo file", recorderClient.userPrompts[0].Prompt)
+
+				require.Len(t, recorderClient.interceptions, 1)
+				intc0 := recorderClient.interceptions[0]
+				require.Equal(t, apiKey, intc0.APIKeyID)
+				require.Equal(t, userID, intc0.InitiatorID)
+				require.Nil(t, intc0.Metadata)
 
 				recorderClient.verifyAllInterceptionsEnded(t)
 			})
@@ -238,7 +244,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				mockSrv := httptest.NewUnstartedServer(b)
 				t.Cleanup(mockSrv.Close)
 				mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-					return aibridge.AsActor(ctx, userID, nil)
+					return aibridge.AsActor(ctx, apiKey, userID, nil)
 				}
 				mockSrv.Start()
 				// Make API call to aibridge for OpenAI /v1/chat/completions
@@ -277,6 +283,12 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				require.Len(t, recorderClient.userPrompts, 1)
 				assert.Equal(t, "how large is the README.md file in my current path", recorderClient.userPrompts[0].Prompt)
 
+				require.Len(t, recorderClient.interceptions, 1)
+				intc0 := recorderClient.interceptions[0]
+				require.Equal(t, apiKey, intc0.APIKeyID)
+				require.Equal(t, userID, intc0.InitiatorID)
+				require.Nil(t, intc0.Metadata)
+
 				recorderClient.verifyAllInterceptionsEnded(t)
 			})
 		}
@@ -288,6 +300,9 @@ func TestSimple(t *testing.T) {
 
 	testCases := []struct {
 		name              string
+		reqApiKeyID       string
+		reqUserID         string
+		reqMetadata       aibridge.Metadata
 		fixture           []byte
 		configureFunc     func(string, aibridge.Recorder) (*aibridge.RequestBridge, error)
 		getResponseIDFunc func(bool, *http.Response) (string, error)
@@ -295,8 +310,11 @@ func TestSimple(t *testing.T) {
 		expectedMsgID     string
 	}{
 		{
-			name:    aibridge.ProviderAnthropic,
-			fixture: antSimple,
+			name:        aibridge.ProviderAnthropic,
+			reqApiKeyID: "api-key-anth-simple",
+			reqUserID:   "user-id-key-anth-simple",
+			reqMetadata: aibridge.Metadata{"anth": "simple"},
+			fixture:     antSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewAnthropicProvider(cfg(addr, apiKey))}, logger, client, mcp.NewServerProxyManager(nil))
@@ -333,8 +351,11 @@ func TestSimple(t *testing.T) {
 			expectedMsgID: "msg_01Pvyf26bY17RcjmWfJsXGBn",
 		},
 		{
-			name:    aibridge.ProviderOpenAI,
-			fixture: oaiSimple,
+			name:        aibridge.ProviderOpenAI,
+			reqApiKeyID: "api-key-openai-simple",
+			reqUserID:   "user-id-key-openai-simple",
+			reqMetadata: aibridge.Metadata{"openai": "simple"},
+			fixture:     oaiSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(cfg(addr, apiKey))}, logger, client, mcp.NewServerProxyManager(nil))
@@ -410,7 +431,7 @@ func TestSimple(t *testing.T) {
 					mockSrv := httptest.NewUnstartedServer(b)
 					t.Cleanup(mockSrv.Close)
 					mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-						return aibridge.AsActor(ctx, userID, nil)
+						return aibridge.AsActor(ctx, tc.reqApiKeyID, tc.reqUserID, tc.reqMetadata)
 					}
 					mockSrv.Start()
 					// When: calling the "API server" with the fixture's request body.
@@ -442,6 +463,12 @@ func TestSimple(t *testing.T) {
 
 					require.GreaterOrEqual(t, len(recorderClient.tokenUsages), 1)
 					require.Equal(t, recorderClient.tokenUsages[0].MsgID, tc.expectedMsgID)
+
+					require.Len(t, recorderClient.interceptions, 1)
+					intc0 := recorderClient.interceptions[0]
+					require.Equal(t, tc.reqApiKeyID, intc0.APIKeyID)
+					require.Equal(t, tc.reqUserID, intc0.InitiatorID)
+					require.Equal(t, tc.reqMetadata, intc0.Metadata)
 
 					recorderClient.verifyAllInterceptionsEnded(t)
 				})
@@ -528,7 +555,7 @@ func TestFallthrough(t *testing.T) {
 
 			bridgeSrv := httptest.NewUnstartedServer(bridge)
 			bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibridge.AsActor(t.Context(), userID, nil)
+				return aibridge.AsActor(t.Context(), apiKey, userID, nil)
 			}
 			bridgeSrv.Start()
 			t.Cleanup(bridgeSrv.Close)
@@ -765,7 +792,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 
 // setupInjectedToolTest abstracts the common aspects required for the Test*InjectedTools tests.
 // Kinda fugly right now, we can refactor this later.
-func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configureFn func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error), createRequestFn func(*testing.T, string, []byte) *http.Request) (*mockRecorderClient, *http.Response) {
+func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configureFn func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error), createRequestFn createRequestFunc) (*mockRecorderClient, *http.Response) {
 	t.Helper()
 
 	arc := txtar.Parse(fixture)
@@ -822,7 +849,7 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 	// Invoke request to mocked API via aibridge.
 	bridgeSrv := httptest.NewUnstartedServer(b)
 	bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibridge.AsActor(ctx, userID, nil)
+		return aibridge.AsActor(ctx, apiKey, userID, nil)
 	}
 	bridgeSrv.Start()
 	t.Cleanup(bridgeSrv.Close)
@@ -951,7 +978,7 @@ func TestErrorHandling(t *testing.T) {
 					// Invoke request to mocked API via aibridge.
 					bridgeSrv := httptest.NewUnstartedServer(b)
 					bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-						return aibridge.AsActor(ctx, userID, nil)
+						return aibridge.AsActor(ctx, apiKey, userID, nil)
 					}
 					bridgeSrv.Start()
 					t.Cleanup(bridgeSrv.Close)

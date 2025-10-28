@@ -1,16 +1,19 @@
 package aibridge
 
-import "context"
+import (
+	"context"
+)
 
 type actorContextKey struct{}
 
 type actor struct {
+	apiKeyID string
 	id       string
 	metadata Metadata
 }
 
-func AsActor(ctx context.Context, actorID string, metadata Metadata) context.Context {
-	return context.WithValue(ctx, actorContextKey{}, &actor{id: actorID, metadata: metadata})
+func AsActor(ctx context.Context, apiKeyID string, actorID string, metadata Metadata) context.Context {
+	return context.WithValue(ctx, actorContextKey{}, &actor{apiKeyID: apiKeyID, id: actorID, metadata: metadata})
 }
 
 func actorFromContext(ctx context.Context) *actor {

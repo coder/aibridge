@@ -54,6 +54,7 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 
 		if err := recorder.RecordInterception(r.Context(), &InterceptionRecord{
 			ID:          interceptor.ID().String(),
+			APIKeyID:    actor.apiKeyID,
 			Metadata:    actor.metadata,
 			InitiatorID: actor.id,
 			Provider:    p.Name(),
