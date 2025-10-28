@@ -48,8 +48,8 @@ func (c *ChatCompletionNewParamsWrapper) UnmarshalJSON(raw []byte) error {
 		c.ChatCompletionNewParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{}
 	}
 
-	// Extract max_completion_tokens if present
-	// We need to check if the field exists in the JSON to properly handle explicit 0 values
+	// Extract max_completion_tokens if present and positive
+	// OpenAI API requires positive integers for token limits
 	var data map[string]any
 	if err := json.Unmarshal(raw, &data); err == nil {
 		if val, exists := data["max_completion_tokens"]; exists {
@@ -66,9 +66,12 @@ func (c *ChatCompletionNewParamsWrapper) UnmarshalJSON(raw []byte) error {
 				// Invalid type, skip
 				return nil
 			}
-			c.MaxCompletionTokens = &tokens
-			// Set it in the underlying params as well
-			c.ChatCompletionNewParams.MaxCompletionTokens = openai.Int(int64(tokens))
+			// Only set if positive (0 and negative values are invalid)
+			if tokens > 0 {
+				c.MaxCompletionTokens = &tokens
+				// Set it in the underlying params as well
+				c.ChatCompletionNewParams.MaxCompletionTokens = openai.Int(int64(tokens))
+			}
 		}
 	}
 
