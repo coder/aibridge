@@ -99,6 +99,11 @@ func (i *AnthropicMessagesInterceptionBase) newAnthropicClient(ctx context.Conte
 	opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
 
+	// Inject custom headers if configured
+	for key, value := range i.cfg.CustomHeaders {
+		opts = append(opts, option.WithHeader(key, value))
+	}
+
 	if i.bedrockCfg != nil {
 		ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 		defer cancel()

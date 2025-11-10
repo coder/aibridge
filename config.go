@@ -4,10 +4,12 @@ type ProviderConfig struct {
 	BaseURL, Key string
 }
 
-type (
-	OpenAIConfig    ProviderConfig
-	AnthropicConfig ProviderConfig
-)
+type OpenAIConfig ProviderConfig
+
+type AnthropicConfig struct {
+	ProviderConfig
+	CustomHeaders map[string]string
+}
 
 type AWSBedrockConfig struct {
 	Region                     string

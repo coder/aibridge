@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared"
@@ -28,12 +29,54 @@ const (
 	routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
 )
 
+// parseCustomHeaders parses the ANTHROPIC_CUSTOM_HEADERS environment variable.
+// The format is "Name: Value" with one header per line.
+// Multiple lines can be separated by newlines (\n).
+func parseCustomHeaders(envValue string) map[string]string {
+	if envValue == "" {
+		return nil
+	}
+
+	headers := make(map[string]string)
+	lines := strings.Split(envValue, "\n")
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+
+		// Split on the first colon to handle values that contain colons (e.g., URLs)
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			// Skip malformed headers
+			continue
+		}
+
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+
+		if key != "" {
+			headers[key] = value
+		}
+	}
+
+	if len(headers) == 0 {
+		return nil
+	}
+
+	return headers
+}
+
 func NewAnthropicProvider(cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig) *AnthropicProvider {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.anthropic.com/"
 	}
 	if cfg.Key == "" {
 		cfg.Key = os.Getenv("ANTHROPIC_API_KEY")
+	}
+	if cfg.CustomHeaders == nil {
+		cfg.CustomHeaders = parseCustomHeaders(os.Getenv("ANTHROPIC_CUSTOM_HEADERS"))
 	}
 
 	return &AnthropicProvider{

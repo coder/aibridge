@@ -3,11 +3,234 @@ package aibridge
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"sync"
 	"testing"
 
+	"cdr.dev/slog"
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 )
+
+// noopRecorder is a no-op implementation of Recorder for testing
+type noopRecorder struct{}
+
+func (n *noopRecorder) RecordInterception(ctx context.Context, req *InterceptionRecord) error {
+	return nil
+}
+
+func (n *noopRecorder) RecordInterceptionEnded(ctx context.Context, req *InterceptionRecordEnded) error {
+	return nil
+}
+
+func (n *noopRecorder) RecordTokenUsage(ctx context.Context, req *TokenUsageRecord) error {
+	return nil
+}
+
+func (n *noopRecorder) RecordPromptUsage(ctx context.Context, req *PromptUsageRecord) error {
+	return nil
+}
+
+func (n *noopRecorder) RecordToolUsage(ctx context.Context, req *ToolUsageRecord) error {
+	return nil
+}
+
+func TestCustomHeadersIntegration(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name          string
+		customHeaders map[string]string
+		expectedInReq map[string]string
+	}{
+		{
+			name: "single custom header",
+			customHeaders: map[string]string{
+				"X-Custom-Header": "test-value",
+			},
+			expectedInReq: map[string]string{
+				"X-Custom-Header": "test-value",
+			},
+		},
+		{
+			name: "multiple custom headers",
+			customHeaders: map[string]string{
+				"X-Custom-Header-1": "value1",
+				"X-Custom-Header-2": "value2",
+			},
+			expectedInReq: map[string]string{
+				"X-Custom-Header-1": "value1",
+				"X-Custom-Header-2": "value2",
+			},
+		},
+		{
+			name:          "no custom headers",
+			customHeaders: nil,
+			expectedInReq: map[string]string{},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			// Track which headers were received
+			receivedHeaders := make(map[string]string)
+			var headerMu sync.Mutex
+
+			// Create a mock server that captures headers
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				headerMu.Lock()
+				defer headerMu.Unlock()
+
+				// Capture custom headers
+				for key := range tt.expectedInReq {
+					if val := r.Header.Get(key); val != "" {
+						receivedHeaders[key] = val
+					}
+				}
+
+				// Return a minimal valid response
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				// Return a simple JSON response that matches Anthropic's Message structure
+				_, _ = w.Write([]byte(`{
+					"id": "msg_123",
+					"type": "message",
+					"role": "assistant",
+					"content": [{"type": "text", "text": "test"}],
+					"model": "claude-3-5-sonnet-20241022",
+					"usage": {"input_tokens": 10, "output_tokens": 20}
+				}`))
+			}))
+			defer srv.Close()
+
+			// Create config with custom headers
+			cfg := AnthropicConfig{
+				ProviderConfig: ProviderConfig{
+					BaseURL: srv.URL,
+					Key:     "test-key",
+				},
+				CustomHeaders: tt.customHeaders,
+			}
+
+			// Create a simple message request
+			req := &MessageNewParamsWrapper{
+				MessageNewParams: anthropic.MessageNewParams{
+					Model:     "claude-3-5-sonnet-20241022",
+					MaxTokens: 100,
+					Messages: []anthropic.MessageParam{
+						{
+							Role: anthropic.MessageParamRoleUser,
+							Content: []anthropic.ContentBlockParamUnion{
+								anthropic.NewTextBlock("test"),
+							},
+						},
+					},
+				},
+			}
+
+			interception := NewAnthropicMessagesBlockingInterception(uuid.New(), req, cfg, nil)
+
+			// Make request
+			w := httptest.NewRecorder()
+			r := httptest.NewRequest("POST", "/anthropic/v1/messages", nil)
+
+			logger := slog.Make()
+			// Use a no-op recorder to avoid nil pointer issues
+			recorder := &noopRecorder{}
+			interception.Setup(logger, recorder, nil)
+
+			err := interception.ProcessRequest(w, r)
+			require.NoError(t, err)
+
+			// Verify headers were sent
+			headerMu.Lock()
+			defer headerMu.Unlock()
+			require.Equal(t, tt.expectedInReq, receivedHeaders)
+		})
+	}
+}
+
+func TestParseCustomHeaders(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    string
+		expected map[string]string
+	}{
+		{
+			name:     "empty string",
+			input:    "",
+			expected: nil,
+		},
+		{
+			name:     "single header",
+			input:    "X-Custom-Header: value123",
+			expected: map[string]string{"X-Custom-Header": "value123"},
+		},
+		{
+			name:     "multiple headers",
+			input:    "X-Custom-Header: value1\nX-Another-Header: value2",
+			expected: map[string]string{"X-Custom-Header": "value1", "X-Another-Header": "value2"},
+		},
+		{
+			name:     "header with URL value",
+			input:    "X-Callback-URL: https://example.com:8080/path",
+			expected: map[string]string{"X-Callback-URL": "https://example.com:8080/path"},
+		},
+		{
+			name:     "header with leading/trailing spaces",
+			input:    "  X-Custom-Header  :  value with spaces  ",
+			expected: map[string]string{"X-Custom-Header": "value with spaces"},
+		},
+		{
+			name:     "empty lines ignored",
+			input:    "X-Header-1: value1\n\n\nX-Header-2: value2\n",
+			expected: map[string]string{"X-Header-1": "value1", "X-Header-2": "value2"},
+		},
+		{
+			name:     "malformed header without colon",
+			input:    "InvalidHeader\nX-Valid-Header: value",
+			expected: map[string]string{"X-Valid-Header": "value"},
+		},
+		{
+			name:     "header with empty key ignored",
+			input:    ": value\nX-Valid-Header: value",
+			expected: map[string]string{"X-Valid-Header": "value"},
+		},
+		{
+			name:     "header with empty value allowed",
+			input:    "X-Empty-Header:",
+			expected: map[string]string{"X-Empty-Header": ""},
+		},
+		{
+			name:     "multiple colons in value",
+			input:    "X-JSON: {\"key\":\"value\"}",
+			expected: map[string]string{"X-JSON": "{\"key\":\"value\"}"},
+		},
+		{
+			name:     "all malformed headers returns nil",
+			input:    "NoColonHere\nAnotherInvalid",
+			expected: nil,
+		},
+		{
+			name:     "mixed valid and invalid headers",
+			input:    "X-Valid: value1\nInvalidLine\nX-Another: value2",
+			expected: map[string]string{"X-Valid": "value1", "X-Another": "value2"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := parseCustomHeaders(tt.input)
+			require.Equal(t, tt.expected, result)
+		})
+	}
+}
 
 func TestConvertStringContentToArray(t *testing.T) {
 	t.Parallel()
