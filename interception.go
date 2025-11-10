@@ -54,10 +54,11 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 
 		if err := recorder.RecordInterception(r.Context(), &InterceptionRecord{
 			ID:          interceptor.ID().String(),
-			Metadata:    actor.metadata,
 			InitiatorID: actor.id,
+			UserAgent:   r.UserAgent(), // TODO make this smarter
 			Provider:    p.Name(),
 			Model:       interceptor.Model(),
+			Metadata:    actor.metadata,
 		}); err != nil {
 			logger.Warn(r.Context(), "failed to record interception", slog.Error(err))
 			http.Error(w, "failed to record interception", http.StatusInternalServerError)
