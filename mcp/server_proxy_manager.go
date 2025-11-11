@@ -3,6 +3,8 @@ package mcp
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 
 	"github.com/coder/aibridge/utils"
@@ -82,6 +84,11 @@ func (s *ServerProxyManager) ListTools() []*Tool {
 	for _, tool := range s.tools {
 		out = append(out, tool)
 	}
+
+	slices.SortStableFunc(out, func(a, b *Tool) int {
+		return strings.Compare(a.Name, b.Name)
+	})
+
 	return out
 }
 
