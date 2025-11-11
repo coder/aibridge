@@ -86,7 +86,7 @@ func (s *ServerProxyManager) ListTools() []*Tool {
 	}
 
 	slices.SortStableFunc(out, func(a, b *Tool) int {
-		return strings.Compare(a.Name, b.Name)
+		return strings.Compare(a.ID, b.ID)
 	})
 
 	return out
