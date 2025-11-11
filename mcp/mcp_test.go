@@ -297,26 +297,38 @@ func TestFilterAllowedTools(t *testing.T) {
 func TestToolInjectionOrder(t *testing.T) {
 	t.Parallel()
 
-	// Setup Coder MCP integration
-	mcpSrv := httptest.NewServer(createMockMCPSrv(t))
-	t.Cleanup(mcpSrv.Close)
-
+	// Setup.
 	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-
-	proxy, err := mcp.NewStreamableHTTPServerProxy(logger, "coder", mcpSrv.URL, nil, nil, nil)
-	require.NoError(t, err)
-
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
-	require.NoError(t, proxy.Init(ctx))
-	validateToolOrder(t, proxy)
+	// Given: a MCP mock server offering a set of tools.
+	mcpSrv := httptest.NewServer(createMockMCPSrv(t))
+	t.Cleanup(mcpSrv.Close)
 
+	// When: creating two MCP server proxies, both listing the same tools by name but under different server namespaces.
+	proxy, err := mcp.NewStreamableHTTPServerProxy(logger, "coder", mcpSrv.URL, nil, nil, nil)
+	require.NoError(t, err)
+	proxy2, err := mcp.NewStreamableHTTPServerProxy(logger, "shmoder", mcpSrv.URL, nil, nil, nil)
+	require.NoError(t, err)
+
+	// Then: initialize both proxies.
+	require.NoError(t, proxy.Init(ctx))
+	require.NoError(t, proxy2.Init(ctx))
+
+	// Then: validate that their tools are separately sorted stably.
+	validateToolOrder(t, proxy)
+	validateToolOrder(t, proxy2)
+
+	// When: creating a manager which contains both MCP server proxies.
 	mgr := mcp.NewServerProxyManager(map[string]mcp.ServerProxier{
-		"mock": proxy,
+		"coder":   proxy,
+		"shmoder": proxy2,
 	})
 	require.NoError(t, mgr.Init(ctx))
-	validateToolOrder(t, proxy)
+
+	// Then: the tools from both servers should be collectively sorted stably.
+	validateToolOrder(t, mgr)
 }
 
 func validateToolOrder(t *testing.T, proxy mcp.ServerProxier) {
@@ -326,13 +338,13 @@ func validateToolOrder(t *testing.T, proxy mcp.ServerProxier) {
 	require.NotEmpty(t, tools)
 	require.Greater(t, len(tools), 1)
 
-	// Ensure tools are sorted by name; unstable order can bust the cache and lead to increased costs.
+	// Ensure tools are sorted by ID; unstable order can bust the cache and lead to increased costs.
 	sorted := slices.Clone(tools)
 	slices.SortFunc(sorted, func(a, b *mcp.Tool) int {
-		return strings.Compare(a.Name, b.Name)
+		return strings.Compare(a.ID, b.ID)
 	})
 	for i, tool := range tools {
-		require.Equal(t, tool.Name, sorted[i].Name, "tool order is not stable")
+		require.Equal(t, tool.ID, sorted[i].ID, "tool order is not stable")
 	}
 }
 
