@@ -28,7 +28,7 @@ type Interceptor interface {
 var UnknownRoute = errors.New("unknown route")
 
 // The duration after which an async recording will be aborted.
-const recordingTimeout = time.Second * 5
+const recordingTimeout = time.Second * 10
 
 // newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
 // using [Provider] p, recording all usage events using [Recorder] recorder.
