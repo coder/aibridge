@@ -1131,6 +1131,122 @@ func TestErrorHandling(t *testing.T) {
 	}
 }
 
+// TestStableRequestEncoding validates that a given intercepted request and a
+// given set of injected tools should result identical payloads.
+//
+// Should the payload vary, it may subvert any caching mechanisms the provider may have.
+func TestStableRequestEncoding(t *testing.T) {
+	t.Parallel()
+
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+
+	cases := []struct {
+		name              string
+		fixture           []byte
+		createRequestFunc createRequestFunc
+		configureFunc     configureFunc
+	}{
+		{
+			name:              aibridge.ProviderAnthropic,
+			fixture:           antSimple,
+			createRequestFunc: createAnthropicMessagesReq,
+			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), nil)}, logger, client, srvProxyMgr)
+			},
+		},
+		{
+			name:              aibridge.ProviderOpenAI,
+			fixture:           oaiSimple,
+			createRequestFunc: createOpenAIChatCompletionsReq,
+			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))}, logger, client, srvProxyMgr)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			// Setup MCP tools.
+			tools := setupMCPServerProxiesForTest(t)
+
+			// Configure the bridge with injected tools.
+			mcpMgr := mcp.NewServerProxyManager(tools)
+			require.NoError(t, mcpMgr.Init(ctx))
+
+			arc := txtar.Parse(tc.fixture)
+			t.Logf("%s: %s", t.Name(), arc.Comment)
+
+			files := filesMap(arc)
+			require.Contains(t, files, fixtureRequest)
+			require.Contains(t, files, fixtureNonStreamingResponse)
+
+			var (
+				reference []byte
+				reqCount  atomic.Int32
+			)
+
+			// Create a mock server that captures and compares request bodies.
+			mockSrv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				reqCount.Add(1)
+
+				// Capture the raw request body.
+				raw, err := io.ReadAll(r.Body)
+				defer r.Body.Close()
+				require.NoError(t, err)
+				require.NotEmpty(t, raw)
+
+				// Store the first instance as the reference value.
+				if reference == nil {
+					reference = raw
+				} else {
+					// Compare all subsequent requests to the reference.
+					assert.JSONEq(t, string(reference), string(raw))
+				}
+
+				// Return a valid API response.
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(files[fixtureNonStreamingResponse])
+			}))
+			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return ctx
+			}
+			mockSrv.Start()
+			t.Cleanup(mockSrv.Close)
+
+			recorder := &mockRecorderClient{}
+			bridge, err := tc.configureFunc(mockSrv.URL, recorder, mcpMgr)
+			require.NoError(t, err)
+
+			// Invoke request to mocked API via aibridge.
+			bridgeSrv := httptest.NewUnstartedServer(bridge)
+			bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return aibridge.AsActor(ctx, userID, nil)
+			}
+			bridgeSrv.Start()
+			t.Cleanup(bridgeSrv.Close)
+
+			// Make multiple requests and verify they all have identical payloads.
+			count := 10
+			for range count {
+				req := tc.createRequestFunc(t, bridgeSrv.URL, files[fixtureRequest])
+				client := &http.Client{}
+				resp, err := client.Do(req)
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, resp.StatusCode)
+				_ = resp.Body.Close()
+			}
+
+			require.EqualValues(t, count, reqCount.Load())
+		})
+	}
+}
+
 func calculateTotalInputTokens(in []*aibridge.TokenUsageRecord) int64 {
 	var total int64
 	for _, el := range in {
@@ -1340,12 +1456,14 @@ func createMockMCPSrv(t *testing.T) http.Handler {
 		server.WithToolCapabilities(true),
 	)
 
-	tool := mcplib.NewTool(mockToolName,
-		mcplib.WithDescription(fmt.Sprintf("Mock of the %s tool", mockToolName)),
-	)
-	s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-		return mcplib.NewToolResultText("mock"), nil
-	})
+	for _, name := range []string{mockToolName, "coder_list_templates", "coder_template_version_parameters", "coder_get_authenticated_user", "coder_create_workspace_build"} {
+		tool := mcplib.NewTool(name,
+			mcplib.WithDescription(fmt.Sprintf("Mock of the %s tool", name)),
+		)
+		s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+			return mcplib.NewToolResultText("mock"), nil
+		})
+	}
 
 	return server.NewStreamableHTTPServer(s)
 }
