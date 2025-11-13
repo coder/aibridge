@@ -63,6 +63,8 @@ var (
 	oaiFallthrough []byte
 	//go:embed fixtures/openai/stream_error.txtar
 	oaiMidStreamErr []byte
+	//go:embed fixtures/openai/non_stream_error.txtar
+	oaiNonStreamErr []byte
 )
 
 const (
@@ -1036,6 +1038,23 @@ func TestErrorHandling(t *testing.T) {
 					require.Equal(t, "error", gjson.GetBytes(body, "type").Str)
 					require.Equal(t, "invalid_request_error", gjson.GetBytes(body, "error.type").Str)
 					require.Contains(t, gjson.GetBytes(body, "error.message").Str, "prompt is too long")
+				},
+			},
+			{
+				name:              aibridge.ProviderOpenAI,
+				fixture:           oaiNonStreamErr,
+				createRequestFunc: createOpenAIChatCompletionsReq,
+				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
+					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+					return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))}, logger, client, srvProxyMgr)
+				},
+				responseHandlerFn: func(resp *http.Response) {
+					require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+					body, err := io.ReadAll(resp.Body)
+					require.NoError(t, err)
+					require.Equal(t, "context_length_exceeded", gjson.GetBytes(body, "error.code").Str)
+					require.Equal(t, "invalid_request_error", gjson.GetBytes(body, "error.type").Str)
+					require.Contains(t, gjson.GetBytes(body, "error.message").Str, "Input tokens exceed the configured limit")
 				},
 			},
 		}

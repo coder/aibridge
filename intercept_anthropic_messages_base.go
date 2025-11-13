@@ -181,6 +181,8 @@ func (i *AnthropicMessagesInterceptionBase) writeUpstreamError(w http.ResponseWr
 	}
 
 	w.WriteHeader(antErr.StatusCode)
+	w.Header().Set("Content-Type", "application/json")
+
 	out, err := json.Marshal(antErr)
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", slog.F("%+v", antErr)))

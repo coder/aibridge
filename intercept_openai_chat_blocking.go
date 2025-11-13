@@ -3,7 +3,6 @@ package aibridge
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -42,7 +41,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	}
 
 	ctx := r.Context()
-	client := newOpenAIClient(i.baseURL, i.key)
+	client := i.newOpenAIClient(i.baseURL, i.key)
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	var (
@@ -184,18 +183,15 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		}
 	}
 
-	// TODO: these probably have to be formatted as JSON errs?
 	if err != nil {
 		if isConnError(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return fmt.Errorf("upstream connection closed: %w", err)
 		}
 
-		logger.Warn(ctx, "openai API error", slog.Error(err))
-		var apierr *openai.Error
-		if errors.As(err, &apierr) {
-			http.Error(w, apierr.Message, apierr.StatusCode)
-			return fmt.Errorf("api error: %w", apierr)
+		if apiErr := getOpenAIErrorResponse(err); apiErr != nil {
+			i.writeUpstreamError(w, apiErr)
+			return fmt.Errorf("openai API error: %w", err)
 		}
 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
