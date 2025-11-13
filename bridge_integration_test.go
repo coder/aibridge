@@ -673,7 +673,7 @@ func TestFallthrough(t *testing.T) {
 			files := filesMap(arc)
 			require.Contains(t, files, fixtureResponse)
 
-			var receivedHeaders *http.Header
+			var receivedHeaders atomic.Pointer[http.Header]
 			respBody := files[fixtureResponse]
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != "/v1/models" {
@@ -685,7 +685,7 @@ func TestFallthrough(t *testing.T) {
 				w.WriteHeader(http.StatusOK)
 				_, _ = w.Write(respBody)
 
-				receivedHeaders = &r.Header
+				receivedHeaders.Store(&r.Header)
 			}))
 			t.Cleanup(upstream.Close)
 
@@ -710,8 +710,8 @@ func TestFallthrough(t *testing.T) {
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			// Ensure that the API key was sent.
-			require.NotNil(t, receivedHeaders)
-			require.Contains(t, receivedHeaders.Get(provider.AuthHeader()), apiKey)
+			require.NotNil(t, receivedHeaders.Load())
+			require.Contains(t, receivedHeaders.Load().Get(provider.AuthHeader()), apiKey)
 
 			gotBytes, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
