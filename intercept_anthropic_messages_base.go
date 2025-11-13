@@ -180,8 +180,8 @@ func (i *AnthropicMessagesInterceptionBase) writeUpstreamError(w http.ResponseWr
 		return
 	}
 
-	w.WriteHeader(antErr.StatusCode)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(antErr.StatusCode)
 
 	out, err := json.Marshal(antErr)
 	if err != nil {
@@ -194,7 +194,7 @@ func (i *AnthropicMessagesInterceptionBase) writeUpstreamError(w http.ResponseWr
 		"type": "error",
 		"message":"error marshaling upstream error"
 	},
-	"request_id": "%s",
+	"request_id": "%s"
 }`, i.ID().String())))
 	} else {
 		_, _ = w.Write(out)

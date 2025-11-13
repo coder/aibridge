@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/aibridge/mcp"
@@ -72,6 +73,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	defer streamCancel(errors.New("deferred"))
 
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
+	var runOnce sync.Once
 	events := newEventStream(streamCtx, logger.Named("sse-sender"), nil)
 	defer func() {
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
@@ -106,7 +108,9 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 
 		for stream.Next() {
 			// Only start the event stream if the upstream starts streaming (as opposed to erroring out prematurely).
-			go events.run(w, r)
+			runOnce.Do(func() {
+				go events.run(w, r)
+			})
 
 			chunk := stream.Current()
 

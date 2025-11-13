@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -96,6 +97,7 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 	}
 
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
+	var runOnce sync.Once
 	events := newEventStream(streamCtx, logger.Named("sse-sender"), i.pingPayload())
 	defer func() {
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
@@ -126,7 +128,9 @@ newStream:
 
 		for stream.Next() {
 			// Only start the event stream if the upstream starts streaming (as opposed to erroring out prematurely).
-			go events.run(w, r)
+			runOnce.Do(func() {
+				go events.run(w, r)
+			})
 
 			event := stream.Current()
 			if err := message.Accumulate(event); err != nil {

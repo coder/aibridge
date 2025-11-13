@@ -54,11 +54,11 @@ func newEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte)
 // run handles sending Server-Sent Event to the client.
 func (s *eventStream) run(w http.ResponseWriter, r *http.Request) {
 	// Only one instance is allowed to run.
-	if s.running.Load() {
+	if swapped := s.running.CompareAndSwap(false, true); !swapped {
+		// Value has not changed; instance is already running.
 		return
 	}
 
-	s.running.Store(true)
 	defer func() {
 		// Signal completion on exit so senders don't block indefinitely after closure.
 		close(s.doneCh)
@@ -160,10 +160,6 @@ func (s *eventStream) sendRaw(ctx context.Context, payload []byte) error {
 // Shutdown gracefully shuts down the stream, sending any supplementary events downstream if required.
 // ONLY call this once all events have been submitted.
 func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
-	defer func() {
-		s.running.Store(false)
-	}()
-
 	s.shutdownOnce.Do(func() {
 		s.logger.Debug(shutdownCtx, "shutdown initiated", slog.F("outstanding_events", len(s.eventsCh)))
 
@@ -172,7 +168,6 @@ func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
 		close(s.eventsCh)
 	})
 
-	// TODO: consider the safety of this approach.
 	if !s.running.Load() {
 		return nil
 	}

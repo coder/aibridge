@@ -109,8 +109,8 @@ func (i *OpenAIChatInterceptionBase) writeUpstreamError(w http.ResponseWriter, o
 		return
 	}
 
-	w.WriteHeader(oaiErr.StatusCode)
 	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(oaiErr.StatusCode)
 
 	out, err := json.Marshal(oaiErr)
 	if err != nil {
