@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -28,13 +27,15 @@ type eventStream struct {
 
 	pingPayload []byte
 
-	running atomic.Bool
-
 	closeOnce    sync.Once
 	shutdownOnce sync.Once
+	doneOnce     sync.Once
 	eventsCh     chan event
 
-	// doneCh is closed when the run loop exits.
+	// startedMu protects the started flag.
+	startedMu sync.Mutex
+	started   bool
+	// doneCh is closed when the start loop exits.
 	doneCh chan struct{}
 }
 
@@ -51,19 +52,23 @@ func newEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte)
 	}
 }
 
-// run handles sending Server-Sent Event to the client.
-func (s *eventStream) run(w http.ResponseWriter, r *http.Request) {
-	// Only one instance is allowed to run.
-	if swapped := s.running.CompareAndSwap(false, true); !swapped {
-		// Value has not changed; instance is already running.
+// start handles sending Server-Sent Event to the client.
+func (s *eventStream) start(w http.ResponseWriter, r *http.Request) {
+	// Atomically signal that streaming has started
+	s.startedMu.Lock()
+	if s.started {
+		// Another goroutine is already running.
+		s.startedMu.Unlock()
 		return
 	}
+	s.started = true
+	s.startedMu.Unlock()
 
 	defer func() {
 		// Signal completion on exit so senders don't block indefinitely after closure.
-		close(s.doneCh)
-
-		s.running.Store(false)
+		s.doneOnce.Do(func() {
+			close(s.doneCh)
+		})
 	}()
 
 	ctx := r.Context()
@@ -160,31 +165,51 @@ func (s *eventStream) sendRaw(ctx context.Context, payload []byte) error {
 // Shutdown gracefully shuts down the stream, sending any supplementary events downstream if required.
 // ONLY call this once all events have been submitted.
 func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
+	var shutdownErr error
+
 	s.shutdownOnce.Do(func() {
 		s.logger.Debug(shutdownCtx, "shutdown initiated", slog.F("outstanding_events", len(s.eventsCh)))
 
-		// Now it is safe to close the events channel; the run loop will exit
+		// Now it is safe to close the events channel; the start() loop will exit
 		// after draining remaining events and receivers will stop ranging.
 		close(s.eventsCh)
 	})
 
-	if !s.running.Load() {
+	// Atomically check if start() was called and close doneCh if it wasn't.
+	s.startedMu.Lock()
+	if !s.started {
+		// start() was never called, close doneCh ourselves so we don't block forever.
+		s.doneOnce.Do(func() {
+			close(s.doneCh)
+		})
+		s.startedMu.Unlock()
 		return nil
 	}
+	// start() was called (or is about to be called), it will close doneCh when it finishes.
+	s.startedMu.Unlock()
 
+	// Wait for start() to complete. We must ALWAYS wait for doneCh to prevent
+	// races with http.ResponseWriter cleanup, even if contexts are cancelled.
 	select {
 	case <-shutdownCtx.Done():
-		// If shutdownCtx completes, shutdown likely exceeded its timeout.
-		return fmt.Errorf("shutdown ended prematurely with %d outstanding events: %w", len(s.eventsCh), shutdownCtx.Err())
+		shutdownErr = fmt.Errorf("shutdown timeout with %d outstanding events: %w", len(s.eventsCh), shutdownCtx.Err())
 	case <-s.ctx.Done():
-		return fmt.Errorf("shutdown ended prematurely with %d outstanding events: %w", len(s.eventsCh), s.ctx.Err())
+		shutdownErr = fmt.Errorf("shutdown cancelled with %d outstanding events: %w", len(s.eventsCh), s.ctx.Err())
 	case <-s.doneCh:
-		return nil
+		// Goroutine has finished.
+		return shutdownErr
 	}
+
+	// If we got here due to context cancellation/timeout, we MUST still wait for doneCh
+	// to ensure the goroutine has stopped using the ResponseWriter before the HTTP handler returns.
+	<-s.doneCh
+	return shutdownErr
 }
 
 func (s *eventStream) isRunning() bool {
-	return s.running.Load()
+	s.startedMu.Lock()
+	defer s.startedMu.Unlock()
+	return s.started
 }
 
 // isConnError checks if an error is related to client disconnection or context cancellation.

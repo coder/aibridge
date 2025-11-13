@@ -109,7 +109,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		for stream.Next() {
 			// Only start the event stream if the upstream starts streaming (as opposed to erroring out prematurely).
 			runOnce.Do(func() {
-				go events.run(w, r)
+				go events.start(w, r)
 			})
 
 			chunk := stream.Current()
