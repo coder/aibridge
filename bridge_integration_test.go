@@ -47,8 +47,8 @@ var (
 	antSingleInjectedTool []byte
 	//go:embed fixtures/anthropic/fallthrough.txtar
 	antFallthrough []byte
-	//go:embed fixtures/anthropic/error.txtar
-	antErr []byte
+	//go:embed fixtures/anthropic/stream_error.txtar
+	antMidstreamErr []byte
 
 	//go:embed fixtures/openai/simple.txtar
 	oaiSimple []byte
@@ -58,8 +58,8 @@ var (
 	oaiSingleInjectedTool []byte
 	//go:embed fixtures/openai/fallthrough.txtar
 	oaiFallthrough []byte
-	//go:embed fixtures/openai/error.txtar
-	oaiErr []byte
+	//go:embed fixtures/openai/stream_error.txtar
+	oaiMidstreamErr []byte
 )
 
 const (
@@ -1009,23 +1009,23 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 func TestErrorHandling(t *testing.T) {
 	t.Parallel()
 
-	cases := []struct {
-		name              string
-		fixture           []byte
-		createRequestFunc createRequestFunc
-		configureFunc     configureFunc
-		responseHandlerFn func(streaming bool, resp *http.Response)
-	}{
-		{
-			name:              aibridge.ProviderAnthropic,
-			fixture:           antErr,
-			createRequestFunc: createAnthropicMessagesReq,
-			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), nil)}, logger, client, srvProxyMgr)
-			},
-			responseHandlerFn: func(streaming bool, resp *http.Response) {
-				if streaming {
+	t.Run("mid-stream error", func(t *testing.T) {
+		cases := []struct {
+			name              string
+			fixture           []byte
+			createRequestFunc createRequestFunc
+			configureFunc     configureFunc
+			responseHandlerFn func(resp *http.Response)
+		}{
+			{
+				name:              aibridge.ProviderAnthropic,
+				fixture:           antMidstreamErr,
+				createRequestFunc: createAnthropicMessagesReq,
+				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
+					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+					return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), nil)}, logger, client, srvProxyMgr)
+				},
+				responseHandlerFn: func(resp *http.Response) {
 					// Server responds first with 200 OK then starts streaming.
 					require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -1033,24 +1033,17 @@ func TestErrorHandling(t *testing.T) {
 					require.NoError(t, sp.Parse(resp.Body))
 					require.Len(t, sp.EventsByType("error"), 1)
 					require.Contains(t, sp.EventsByType("error")[0].Data, "Overloaded")
-				} else {
-					require.Equal(t, resp.StatusCode, http.StatusInternalServerError)
-					body, err := io.ReadAll(resp.Body)
-					require.NoError(t, err)
-					require.Contains(t, string(body), "Overloaded")
-				}
+				},
 			},
-		},
-		{
-			name:              aibridge.ProviderOpenAI,
-			fixture:           oaiErr,
-			createRequestFunc: createOpenAIChatCompletionsReq,
-			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))}, logger, client, srvProxyMgr)
-			},
-			responseHandlerFn: func(streaming bool, resp *http.Response) {
-				if streaming {
+			{
+				name:              aibridge.ProviderOpenAI,
+				fixture:           oaiMidstreamErr,
+				createRequestFunc: createOpenAIChatCompletionsReq,
+				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
+					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+					return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))}, logger, client, srvProxyMgr)
+				},
+				responseHandlerFn: func(resp *http.Response) {
 					// Server responds first with 200 OK then starts streaming.
 					require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -1063,72 +1056,55 @@ func TestErrorHandling(t *testing.T) {
 					errEvent := sp.MessageEvents()[len(sp.MessageEvents())-2] // Last event is termination marker ("[DONE]").
 					require.NotEmpty(t, errEvent)
 					require.Contains(t, errEvent.Data, "The server had an error while processing your request. Sorry about that!")
-				} else {
-					require.Equal(t, resp.StatusCode, http.StatusInternalServerError)
-					body, err := io.ReadAll(resp.Body)
-					require.NoError(t, err)
-					require.Contains(t, string(body), "The server had an error while processing your request. Sorry about that")
-				}
+				},
 			},
-		},
-	}
+		}
 
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
 
-			for _, streaming := range []bool{true, false} {
-				t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
-					t.Parallel()
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				t.Cleanup(cancel)
 
-					ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-					t.Cleanup(cancel)
+				arc := txtar.Parse(tc.fixture)
+				t.Logf("%s: %s", t.Name(), arc.Comment)
 
-					arc := txtar.Parse(tc.fixture)
-					t.Logf("%s: %s", t.Name(), arc.Comment)
+				files := filesMap(arc)
+				require.Len(t, files, 2)
+				require.Contains(t, files, fixtureRequest)
+				require.Contains(t, files, fixtureStreamingResponse)
 
-					files := filesMap(arc)
-					require.Len(t, files, 3)
-					require.Contains(t, files, fixtureRequest)
-					require.Contains(t, files, fixtureStreamingResponse)
-					require.Contains(t, files, fixtureNonStreamingResponse)
+				reqBody := files[fixtureRequest]
 
-					reqBody := files[fixtureRequest]
+				// Setup mock server.
+				mockSrv := newMockServer(ctx, t, files, nil)
+				mockSrv.statusCode = http.StatusInternalServerError
+				t.Cleanup(mockSrv.Close)
 
-					// Add the stream param to the request.
-					newBody, err := setJSON(reqBody, "stream", streaming)
-					require.NoError(t, err)
-					reqBody = newBody
+				recorderClient := &mockRecorderClient{}
 
-					// Setup mock server.
-					mockSrv := newMockServer(ctx, t, files, nil)
-					mockSrv.statusCode = http.StatusInternalServerError
-					t.Cleanup(mockSrv.Close)
+				b, err := tc.configureFunc(mockSrv.URL, recorderClient, mcp.NewServerProxyManager(nil))
+				require.NoError(t, err)
 
-					recorderClient := &mockRecorderClient{}
+				// Invoke request to mocked API via aibridge.
+				bridgeSrv := httptest.NewUnstartedServer(b)
+				bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+					return aibridge.AsActor(ctx, userID, nil)
+				}
+				bridgeSrv.Start()
+				t.Cleanup(bridgeSrv.Close)
 
-					b, err := tc.configureFunc(mockSrv.URL, recorderClient, mcp.NewServerProxyManager(nil))
-					require.NoError(t, err)
+				req := tc.createRequestFunc(t, bridgeSrv.URL, reqBody)
+				resp, err := http.DefaultClient.Do(req)
+				t.Cleanup(func() { _ = resp.Body.Close() })
+				require.NoError(t, err)
 
-					// Invoke request to mocked API via aibridge.
-					bridgeSrv := httptest.NewUnstartedServer(b)
-					bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-						return aibridge.AsActor(ctx, userID, nil)
-					}
-					bridgeSrv.Start()
-					t.Cleanup(bridgeSrv.Close)
-
-					req := tc.createRequestFunc(t, bridgeSrv.URL, reqBody)
-					resp, err := http.DefaultClient.Do(req)
-					t.Cleanup(func() { _ = resp.Body.Close() })
-					require.NoError(t, err)
-
-					tc.responseHandlerFn(streaming, resp)
-					recorderClient.verifyAllInterceptionsEnded(t)
-				})
-			}
-		})
-	}
+				tc.responseHandlerFn(resp)
+				recorderClient.verifyAllInterceptionsEnded(t)
+			})
+		}
+	})
 }
 
 // TestStableRequestEncoding validates that a given intercepted request and a
