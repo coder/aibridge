@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -26,6 +27,8 @@ type eventStream struct {
 	logger slog.Logger
 
 	pingPayload []byte
+
+	running atomic.Bool
 
 	closeOnce    sync.Once
 	shutdownOnce sync.Once
@@ -50,8 +53,18 @@ func newEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte)
 
 // run handles sending Server-Sent Event to the client.
 func (s *eventStream) run(w http.ResponseWriter, r *http.Request) {
-	// Signal completion on exit so senders don't block indefinitely after closure.
-	defer close(s.doneCh)
+	// Only one instance is allowed to run.
+	if s.running.Load() {
+		return
+	}
+
+	s.running.Store(true)
+	defer func() {
+		// Signal completion on exit so senders don't block indefinitely after closure.
+		close(s.doneCh)
+
+		s.running.Store(false)
+	}()
 
 	ctx := r.Context()
 
@@ -147,6 +160,10 @@ func (s *eventStream) sendRaw(ctx context.Context, payload []byte) error {
 // Shutdown gracefully shuts down the stream, sending any supplementary events downstream if required.
 // ONLY call this once all events have been submitted.
 func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
+	defer func() {
+		s.running.Store(false)
+	}()
+
 	s.shutdownOnce.Do(func() {
 		s.logger.Debug(shutdownCtx, "shutdown initiated", slog.F("outstanding_events", len(s.eventsCh)))
 
@@ -154,6 +171,11 @@ func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
 		// after draining remaining events and receivers will stop ranging.
 		close(s.eventsCh)
 	})
+
+	// TODO: consider the safety of this approach.
+	if !s.running.Load() {
+		return nil
+	}
 
 	select {
 	case <-shutdownCtx.Done():
@@ -164,6 +186,10 @@ func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
 	case <-s.doneCh:
 		return nil
 	}
+}
+
+func (s *eventStream) isRunning() bool {
+	return s.running.Load()
 }
 
 // isConnError checks if an error is related to client disconnection or context cancellation.

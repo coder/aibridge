@@ -2,6 +2,7 @@ package aibridge
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -171,6 +172,31 @@ func (i *AnthropicMessagesInterceptionBase) augmentRequestForBedrock() {
 	}
 
 	i.req.MessageNewParams.Model = anthropic.Model(i.Model())
+}
+
+// writeUpstreamError marshals and writes a given error.
+func (i *AnthropicMessagesInterceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *AnthropicErrorResponse) {
+	if antErr == nil {
+		return
+	}
+
+	w.WriteHeader(antErr.StatusCode)
+	out, err := json.Marshal(antErr)
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", slog.F("%+v", antErr)))
+		// Response has to match expected format.
+		// See https://docs.claude.com/en/api/errors#error-shapes.
+		_, _ = w.Write([]byte(fmt.Sprintf(`{
+	"type":"error",
+	"error": {
+		"type": "error",
+		"message":"error marshaling upstream error"
+	},
+	"request_id": "%s",
+}`, i.ID().String())))
+	} else {
+		_, _ = w.Write(out)
+	}
 }
 
 // redirectTransport is an HTTP RoundTripper that redirects requests to a different endpoint.
