@@ -65,7 +65,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
-	client := newOpenAIClient(i.baseURL, i.key)
+	client := i.newOpenAIClient(i.baseURL, i.key)
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
@@ -73,7 +73,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
 	events := newEventStream(streamCtx, logger.Named("sse-sender"), nil)
-	go events.run(w, r)
+	go events.start(w, r)
 	defer func() {
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
@@ -172,35 +172,40 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 			})
 		}
 
-		// Check if the stream encountered any errors.
-		if streamErr := stream.Err(); streamErr != nil {
-			if isUnrecoverableError(streamErr) {
-				logger.Debug(ctx, "stream terminated", slog.Error(streamErr))
-				// We can't reflect an error back if there's a connection error or the request context was canceled.
-			} else if oaiErr := getOpenAIErrorResponse(streamErr); oaiErr != nil {
-				logger.Warn(ctx, "openai stream error", slog.Error(streamErr))
-				interceptionErr = oaiErr
-			} else {
-				logger.Warn(ctx, "unknown error", slog.Error(streamErr))
-				// Unfortunately, the OpenAI SDK does not support parsing errors received in the stream
-				// into known types (i.e. [shared.OverloadedError]).
-				// See https://github.com/openai/openai-go/blob/v2.7.0/packages/ssestream/ssestream.go#L171
-				// All it does is wrap the payload in an error - which is all we can return, currently.
-				interceptionErr = newOpenAIErr(fmt.Errorf("unknown stream error: %w", streamErr))
+		if events.isStreaming() {
+			// Check if the stream encountered any errors.
+			if streamErr := stream.Err(); streamErr != nil {
+				if isUnrecoverableError(streamErr) {
+					logger.Debug(ctx, "stream terminated", slog.Error(streamErr))
+					// We can't reflect an error back if there's a connection error or the request context was canceled.
+				} else if oaiErr := getOpenAIErrorResponse(streamErr); oaiErr != nil {
+					logger.Warn(ctx, "openai stream error", slog.Error(streamErr))
+					interceptionErr = oaiErr
+				} else {
+					logger.Warn(ctx, "unknown error", slog.Error(streamErr))
+					// Unfortunately, the OpenAI SDK does not support parsing errors received in the stream
+					// into known types (i.e. [shared.OverloadedError]).
+					// See https://github.com/openai/openai-go/blob/v2.7.0/packages/ssestream/ssestream.go#L171
+					// All it does is wrap the payload in an error - which is all we can return, currently.
+					interceptionErr = newOpenAIErr(fmt.Errorf("unknown stream error: %w", streamErr))
+				}
+			} else if lastErr != nil {
+				// Otherwise check if any logical errors occurred during processing.
+				logger.Warn(ctx, "stream failed", slog.Error(lastErr))
+				interceptionErr = newOpenAIErr(fmt.Errorf("processing error: %w", lastErr))
 			}
-		} else if lastErr != nil {
-			// Otherwise check if any logical errors occurred during processing.
-			logger.Warn(ctx, "stream failed", slog.Error(lastErr))
-			interceptionErr = newOpenAIErr(fmt.Errorf("processing error: %w", lastErr))
-		}
 
-		if interceptionErr != nil {
-			payload, err := i.marshalErr(interceptionErr)
-			if err != nil {
-				logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", slog.F("%+v", interceptionErr)))
-			} else if err := events.Send(streamCtx, payload); err != nil {
-				logger.Warn(ctx, "failed to relay error", slog.Error(err), slog.F("payload", payload))
+			if interceptionErr != nil {
+				payload, err := i.marshalErr(interceptionErr)
+				if err != nil {
+					logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", slog.F("%+v", interceptionErr)))
+				} else if err := events.Send(streamCtx, payload); err != nil {
+					logger.Warn(ctx, "failed to relay error", slog.Error(err), slog.F("payload", payload))
+				}
 			}
+		} else {
+			// Stream has not started yet; write to response if present.
+			i.writeUpstreamError(w, getOpenAIErrorResponse(stream.Err()))
 		}
 
 		// No tool call, nothing more to do.

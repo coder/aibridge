@@ -76,19 +76,17 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 		resp, err = client.Messages.New(ctx, messages)
 		if err != nil {
 			if isConnError(err) {
-				logger.Warn(ctx, "upstream connection closed", slog.Error(err))
+				// Can't write a response, just error out.
 				return fmt.Errorf("upstream connection closed: %w", err)
 			}
 
-			logger.Warn(ctx, "anthropic API error", slog.Error(err))
 			if antErr := getAnthropicErrorResponse(err); antErr != nil {
-				http.Error(w, antErr.Error(), antErr.StatusCode)
-				return fmt.Errorf("api error: %w", err)
+				i.writeUpstreamError(w, antErr)
+				return fmt.Errorf("anthropic API error: %w", err)
 			}
 
-			logger.Warn(ctx, "upstream API error", slog.Error(err))
 			http.Error(w, "internal error", http.StatusInternalServerError)
-			return fmt.Errorf("upstream API error: %w", err)
+			return fmt.Errorf("internal error: %w", err)
 		}
 
 		if prompt != nil {
