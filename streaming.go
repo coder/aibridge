@@ -28,9 +28,9 @@ type eventStream struct {
 
 	pingPayload []byte
 
-	initiated atomic.Bool
-
+	initiated    atomic.Bool
 	initiateOnce sync.Once
+
 	closeOnce    sync.Once
 	shutdownOnce sync.Once
 	eventsCh     chan event
@@ -79,14 +79,22 @@ func (s *eventStream) start(w http.ResponseWriter, r *http.Request) {
 			return
 		case ev, open = <-s.eventsCh: // Once closed, the buffered channel will drain all buffered values before showing as closed.
 			if !open {
+				s.logger.Debug(ctx, "events channel closed")
 				return
 			}
 
 			// Initiate the stream once the first event is received.
 			s.initiateOnce.Do(func() {
 				s.initiated.Store(true)
+				s.logger.Debug(ctx, "stream initiated")
 
 				// Send headers for Server-Sent Event stream.
+				//
+				// We only send these once an event is processed because an error can occur in the upstream
+				// request prior to the stream starting, in which case the SSE headers are inappropriate to
+				// send to the client.
+				//
+				// See use of isStreaming().
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.Header().Set("Cache-Control", "no-cache")
 				w.Header().Set("Connection", "keep-alive")
@@ -185,8 +193,10 @@ func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
 	return err
 }
 
-func (s *eventStream) hasInitiated() bool {
-	return s.initiated.Load()
+// isStreaming checks if the stream has been initiated, or
+// when events are buffered which - when processed - will initiate the stream.
+func (s *eventStream) isStreaming() bool {
+	return s.initiated.Load() || len(s.eventsCh) > 0
 }
 
 // isConnError checks if an error is related to client disconnection or context cancellation.

@@ -172,7 +172,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 			})
 		}
 
-		if events.hasInitiated() {
+		if events.isStreaming() {
 			// Check if the stream encountered any errors.
 			if streamErr := stream.Err(); streamErr != nil {
 				if isUnrecoverableError(streamErr) {
