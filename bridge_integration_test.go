@@ -709,12 +709,12 @@ func TestFallthrough(t *testing.T) {
 
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
+			gotBytes, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
 			// Ensure that the API key was sent.
 			require.NotNil(t, receivedHeaders.Load())
 			require.Contains(t, receivedHeaders.Load().Get(provider.AuthHeader()), apiKey)
-
-			gotBytes, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
 
 			// Compare JSON bodies for semantic equality.
 			var got any
