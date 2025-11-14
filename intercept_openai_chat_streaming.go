@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/coder/aibridge/mcp"
@@ -73,8 +72,8 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	defer streamCancel(errors.New("deferred"))
 
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
-	var runOnce sync.Once
 	events := newEventStream(streamCtx, logger.Named("sse-sender"), nil)
+	go events.start(w, r)
 	defer func() {
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
@@ -107,11 +106,6 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		var toolCall *openai.FinishedChatCompletionToolCall
 
 		for stream.Next() {
-			// Only start the event stream if the upstream starts streaming (as opposed to erroring out prematurely).
-			runOnce.Do(func() {
-				go events.start(w, r)
-			})
-
 			chunk := stream.Current()
 
 			canRelay := processor.process(chunk)
@@ -178,7 +172,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 			})
 		}
 
-		if events.isRunning() {
+		if events.hasInitiated() {
 			// Check if the stream encountered any errors.
 			if streamErr := stream.Err(); streamErr != nil {
 				if isUnrecoverableError(streamErr) {

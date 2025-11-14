@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -27,14 +28,13 @@ type eventStream struct {
 
 	pingPayload []byte
 
+	initiated atomic.Bool
+
+	initiateOnce sync.Once
 	closeOnce    sync.Once
 	shutdownOnce sync.Once
-	doneOnce     sync.Once
 	eventsCh     chan event
 
-	// startedMu protects the started flag.
-	startedMu sync.Mutex
-	started   bool
 	// doneCh is closed when the start loop exits.
 	doneCh chan struct{}
 }
@@ -54,39 +54,15 @@ func newEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte)
 
 // start handles sending Server-Sent Event to the client.
 func (s *eventStream) start(w http.ResponseWriter, r *http.Request) {
-	// Atomically signal that streaming has started
-	s.startedMu.Lock()
-	if s.started {
-		// Another goroutine is already running.
-		s.startedMu.Unlock()
-		return
-	}
-	s.started = true
-	s.startedMu.Unlock()
-
-	defer func() {
-		// Signal completion on exit so senders don't block indefinitely after closure.
-		s.doneOnce.Do(func() {
-			close(s.doneCh)
-		})
-	}()
+	// Signal completion on exit so senders don't block indefinitely after closure.
+	defer close(s.doneCh)
 
 	ctx := r.Context()
 
-	w.Header().Set("Content-Type", "text/event-stream")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.Header().Set("Connection", "keep-alive")
-	w.Header().Set("X-Accel-Buffering", "no")
-
-	// Send initial flush to ensure connection is established.
-	if err := flush(w); err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	// Send periodic pings to keep connections alive.
 	// The upstream provider may also send their own pings, but we can't rely on this.
-	tick := time.NewTicker(pingInterval)
+	tick := time.NewTicker(time.Nanosecond)
+	tick.Stop() // Ticker will start after stream initiation.
 	defer tick.Stop()
 
 	for {
@@ -101,10 +77,30 @@ func (s *eventStream) start(w http.ResponseWriter, r *http.Request) {
 		case <-ctx.Done():
 			s.logger.Debug(ctx, "request context canceled", slog.Error(ctx.Err()))
 			return
-		case ev, open = <-s.eventsCh:
+		case ev, open = <-s.eventsCh: // Once closed, the buffered channel will drain all buffered values before showing as closed.
 			if !open {
 				return
 			}
+
+			// Initiate the stream once the first event is received.
+			s.initiateOnce.Do(func() {
+				s.initiated.Store(true)
+
+				// Send headers for Server-Sent Event stream.
+				w.Header().Set("Content-Type", "text/event-stream")
+				w.Header().Set("Cache-Control", "no-cache")
+				w.Header().Set("Connection", "keep-alive")
+				w.Header().Set("X-Accel-Buffering", "no")
+
+				// Send initial flush to ensure connection is established.
+				if err := flush(w); err != nil {
+					http.Error(w, err.Error(), http.StatusInternalServerError)
+					return
+				}
+
+				// Start ping ticker.
+				tick.Reset(pingInterval)
+			})
 		case <-tick.C:
 			ev = s.pingPayload
 			if ev == nil {
@@ -165,8 +161,6 @@ func (s *eventStream) sendRaw(ctx context.Context, payload []byte) error {
 // Shutdown gracefully shuts down the stream, sending any supplementary events downstream if required.
 // ONLY call this once all events have been submitted.
 func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
-	var shutdownErr error
-
 	s.shutdownOnce.Do(func() {
 		s.logger.Debug(shutdownCtx, "shutdown initiated", slog.F("outstanding_events", len(s.eventsCh)))
 
@@ -175,41 +169,24 @@ func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
 		close(s.eventsCh)
 	})
 
-	// Atomically check if start() was called and close doneCh if it wasn't.
-	s.startedMu.Lock()
-	if !s.started {
-		// start() was never called, close doneCh ourselves so we don't block forever.
-		s.doneOnce.Do(func() {
-			close(s.doneCh)
-		})
-		s.startedMu.Unlock()
-		return nil
-	}
-	// start() was called (or is about to be called), it will close doneCh when it finishes.
-	s.startedMu.Unlock()
-
-	// Wait for start() to complete. We must ALWAYS wait for doneCh to prevent
-	// races with http.ResponseWriter cleanup, even if contexts are cancelled.
+	var err error
 	select {
 	case <-shutdownCtx.Done():
-		shutdownErr = fmt.Errorf("shutdown timeout with %d outstanding events: %w", len(s.eventsCh), shutdownCtx.Err())
+		// If shutdownCtx completes, shutdown likely exceeded its timeout.
+		err = fmt.Errorf("shutdown ended prematurely with %d outstanding events: %w", len(s.eventsCh), shutdownCtx.Err())
 	case <-s.ctx.Done():
-		shutdownErr = fmt.Errorf("shutdown cancelled with %d outstanding events: %w", len(s.eventsCh), s.ctx.Err())
+		err = fmt.Errorf("shutdown ended prematurely with %d outstanding events: %w", len(s.eventsCh), s.ctx.Err())
 	case <-s.doneCh:
-		// Goroutine has finished.
-		return shutdownErr
+		return nil
 	}
 
-	// If we got here due to context cancellation/timeout, we MUST still wait for doneCh
-	// to ensure the goroutine has stopped using the ResponseWriter before the HTTP handler returns.
+	// Even if the context is canceled, we need to wait for start() to complete.
 	<-s.doneCh
-	return shutdownErr
+	return err
 }
 
-func (s *eventStream) isRunning() bool {
-	s.startedMu.Lock()
-	defer s.startedMu.Unlock()
-	return s.started
+func (s *eventStream) hasInitiated() bool {
+	return s.initiated.Load()
 }
 
 // isConnError checks if an error is related to client disconnection or context cancellation.
