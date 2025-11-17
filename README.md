@@ -17,7 +17,7 @@ AIBridge is a Go library that provides a centralized governance layer for AI pro
 
 ## Architecture
 
-![AIBridge Architecture](https://blink.so/api/files/5102455c-33cc-4b3f-9413-11d8510c9d01)
+![AIBridge Architecture](docs/architecture.png)
 
 ### Core Components
 
