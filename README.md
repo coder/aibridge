@@ -30,11 +30,11 @@ graph LR
     DB[("Database<br/>(Usage Tracking)")]
     
     Client -->|"1. Requests"| Bridge
-    Bridge -.->|"2. Tool Injection<br/>(optional)"| MCP
-    Bridge -->|"3. Intercepts & Augments"| APIs
+    Bridge -.->|"2a. Get Tools<br/>(optional)"| MCP
+    Bridge -->|"2b. Intercepts & Augments"| APIs
     Bridge -->|"Records Usage"| DB
-    APIs -->|"4. Responses"| Bridge
-    Bridge -->|"5. Responses"| Client
+    APIs -->|"3. Responses"| Bridge
+    Bridge -->|"4. Responses"| Client
     
     style aibridge fill:#4A90E2,stroke:#2E5C8A,stroke-width:3px,color:#fff
     style Bridge fill:#5DA5E8,stroke:#2E5C8A,stroke-width:2px,color:#fff
