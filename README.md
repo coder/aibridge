@@ -19,42 +19,29 @@ AIBridge is a Go library that provides a centralized governance layer for AI pro
 
 ```mermaid
 graph TB
-    subgraph clients["AI Clients"]
-        C1["Claude/ChatGPT/etc."]
+    Client["AI Clients<br/>(Claude, ChatGPT, etc.)"]
+    
+    subgraph aibridge["<b>AIBridge</b>"]
+        Bridge["RequestBridge<br/>(HTTP Proxy)"]
     end
     
-    subgraph bridge["AIBridge (RequestBridge)"]
-        Router["HTTP Router"]
-        Providers["Provider Layer<br/>(OpenAI, Anthropic, Bedrock)"]
-        Interceptor["Interceptor Layer"]
-        MCP["MCP Server Proxy Manager<br/>(MCP Tools)"]
-        Recorder["Recorder<br/>(Usage Tracking)"]
-    end
+    APIs["Upstream AI APIs<br/>(OpenAI, Anthropic, Bedrock)"]
+    MCP["MCP Servers<br/>(External Tools)"]
+    DB[("Database<br/>(Usage Tracking)")]
     
-    subgraph upstream["Upstream Services"]
-        APIs["AI APIs<br/>(OpenAI, Anthropic, AWS Bedrock)"]
-    end
+    Client -->|"Requests"| Bridge
+    Bridge -->|"Intercepts & Augments"| APIs
+    Bridge -.->|"Tool Injection"| MCP
+    Bridge -->|"Records Usage"| DB
+    APIs -->|"Responses"| Bridge
+    Bridge -->|"Responses"| Client
     
-    subgraph external["External Services"]
-        MCPServers["MCP Servers<br/>(External Tools)"]
-        DB[("Database<br/>(Token/Prompt/Tool Usage)")]
-    end
-    
-    C1 -->|Requests| Router
-    Router --> Providers
-    Providers --> Interceptor
-    Interceptor -->|Tool Injection| MCP
-    MCP -.->|Tool Calls| MCPServers
-    Interceptor -->|Requests| APIs
-    APIs -->|Responses| Interceptor
-    Interceptor -->|Usage Data| Recorder
-    Recorder -->|Record| DB
-    Interceptor -->|Responses| C1
-    
-    style bridge fill:#e1f5ff
-    style clients fill:#fff4e1
-    style upstream fill:#f0f0f0
-    style external fill:#e8f5e9
+    style aibridge fill:#4A90E2,stroke:#2E5C8A,stroke-width:3px,color:#fff
+    style Bridge fill:#5DA5E8,stroke:#2E5C8A,stroke-width:2px,color:#fff
+    style Client fill:#E8F4F8,stroke:#4A90E2,stroke-width:2px
+    style APIs fill:#F5F5F5,stroke:#999,stroke-width:2px
+    style MCP fill:#E8F5E9,stroke:#66BB6A,stroke-width:2px
+    style DB fill:#FFF3E0,stroke:#FF9800,stroke-width:2px
 ```
 
 ### Core Components
