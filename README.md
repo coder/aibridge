@@ -30,8 +30,8 @@ graph TB
     DB[("Database<br/>(Usage Tracking)")]
     
     Client -->|"Requests"| Bridge
-    Bridge -->|"Intercepts & Augments"| APIs
     Bridge -.->|"Tool Injection"| MCP
+    Bridge -->|"Intercepts & Augments"| APIs
     Bridge -->|"Records Usage"| DB
     APIs -->|"Responses"| Bridge
     Bridge -->|"Responses"| Client
