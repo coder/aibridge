@@ -18,23 +18,23 @@ AIBridge is a Go library that provides a centralized governance layer for AI pro
 ## Architecture
 
 ```mermaid
-graph TB
+graph LR
     Client["AI Clients<br/>(Claude, ChatGPT, etc.)"]
     
     subgraph aibridge["<b>AIBridge</b>"]
         Bridge["RequestBridge<br/>(HTTP Proxy)"]
     end
     
+    MCP["MCP Servers<br/>(Optional Tool Injection)"]
     APIs["Upstream AI APIs<br/>(OpenAI, Anthropic, Bedrock)"]
-    MCP["MCP Servers<br/>(External Tools)"]
     DB[("Database<br/>(Usage Tracking)")]
     
-    Client -->|"Requests"| Bridge
-    Bridge -.->|"Tool Injection"| MCP
-    Bridge -->|"Intercepts & Augments"| APIs
+    Client -->|"1. Requests"| Bridge
+    Bridge -.->|"2. Tool Injection<br/>(optional)"| MCP
+    Bridge -->|"3. Intercepts & Augments"| APIs
     Bridge -->|"Records Usage"| DB
-    APIs -->|"Responses"| Bridge
-    Bridge -->|"Responses"| Client
+    APIs -->|"4. Responses"| Bridge
+    Bridge -->|"5. Responses"| Client
     
     style aibridge fill:#4A90E2,stroke:#2E5C8A,stroke-width:3px,color:#fff
     style Bridge fill:#5DA5E8,stroke:#2E5C8A,stroke-width:2px,color:#fff
