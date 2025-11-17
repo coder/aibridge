@@ -3,11 +3,13 @@ package aibridge
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"strings"
 
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v2/option"
 	"github.com/openai/openai-go/v2/shared"
 
 	"cdr.dev/slog"
@@ -22,6 +24,14 @@ type OpenAIChatInterceptionBase struct {
 
 	recorder Recorder
 	mcpProxy mcp.ServerProxier
+}
+
+func (i *OpenAIChatInterceptionBase) newOpenAIClient(baseURL, key string) openai.Client {
+	var opts []option.RequestOption
+	opts = append(opts, option.WithAPIKey(key))
+	opts = append(opts, option.WithBaseURL(baseURL))
+
+	return openai.NewClient(opts...)
 }
 
 func (i *OpenAIChatInterceptionBase) ID() uuid.UUID {
@@ -91,4 +101,29 @@ func (i *OpenAIChatInterceptionBase) unmarshalArgs(in string) (args ToolArgs) {
 	}
 
 	return args
+}
+
+// writeUpstreamError marshals and writes a given error.
+func (i *OpenAIChatInterceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *OpenAIErrorResponse) {
+	if oaiErr == nil {
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(oaiErr.StatusCode)
+
+	out, err := json.Marshal(oaiErr)
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", slog.F("%+v", oaiErr)))
+		// Response has to match expected format.
+		_, _ = w.Write([]byte(`{
+	"error": {
+		"type": "error",
+		"message":"error marshaling upstream error",
+		"code": "server_error"
+	},
+}`))
+	} else {
+		_, _ = w.Write(out)
+	}
 }

@@ -97,7 +97,7 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
 	events := newEventStream(streamCtx, logger.Named("sse-sender"), i.pingPayload())
-	go events.run(w, r)
+	go events.start(w, r)
 	defer func() {
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
@@ -414,35 +414,40 @@ newStream:
 			prompt = nil
 		}
 
-		// Check if the stream encountered any errors.
-		if streamErr := stream.Err(); streamErr != nil {
-			if isUnrecoverableError(streamErr) {
-				logger.Debug(ctx, "stream terminated", slog.Error(streamErr))
-				// We can't reflect an error back if there's a connection error or the request context was canceled.
-			} else if antErr := getAnthropicErrorResponse(streamErr); antErr != nil {
-				logger.Warn(ctx, "anthropic stream error", slog.Error(streamErr))
-				interceptionErr = fmt.Errorf("stream error: %w", antErr)
-			} else {
-				logger.Warn(ctx, "unknown error", slog.Error(streamErr))
-				// Unfortunately, the Anthropic SDK does not support parsing errors received in the stream
-				// into known types (i.e. [shared.OverloadedError]).
-				// See https://github.com/anthropics/anthropic-sdk-go/blob/v1.12.0/packages/ssestream/ssestream.go#L172-L174
-				// All it does is wrap the payload in an error - which is all we can return, currently.
-				interceptionErr = newAnthropicErr(fmt.Errorf("unknown stream error: %w", streamErr))
+		if events.isStreaming() {
+			// Check if the stream encountered any errors.
+			if streamErr := stream.Err(); streamErr != nil {
+				if isUnrecoverableError(streamErr) {
+					logger.Debug(ctx, "stream terminated", slog.Error(streamErr))
+					// We can't reflect an error back if there's a connection error or the request context was canceled.
+				} else if antErr := getAnthropicErrorResponse(streamErr); antErr != nil {
+					logger.Warn(ctx, "anthropic stream error", slog.Error(streamErr))
+					interceptionErr = antErr
+				} else {
+					logger.Warn(ctx, "unknown error", slog.Error(streamErr))
+					// Unfortunately, the Anthropic SDK does not support parsing errors received in the stream
+					// into known types (i.e. [shared.OverloadedError]).
+					// See https://github.com/anthropics/anthropic-sdk-go/blob/v1.12.0/packages/ssestream/ssestream.go#L172-L174
+					// All it does is wrap the payload in an error - which is all we can return, currently.
+					interceptionErr = newAnthropicErr(fmt.Errorf("unknown stream error: %w", streamErr))
+				}
+			} else if lastErr != nil {
+				// Otherwise check if any logical errors occurred during processing.
+				logger.Warn(ctx, "stream failed", slog.Error(lastErr))
+				interceptionErr = newAnthropicErr(fmt.Errorf("processing error: %w", lastErr))
 			}
-		} else if lastErr != nil {
-			// Otherwise check if any logical errors occurred during processing.
-			logger.Warn(ctx, "stream failed", slog.Error(lastErr))
-			interceptionErr = newAnthropicErr(fmt.Errorf("processing error: %w", lastErr))
-		}
 
-		if interceptionErr != nil {
-			payload, err := i.marshal(interceptionErr)
-			if err != nil {
-				logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", slog.F("%+v", interceptionErr)))
-			} else if err := events.Send(streamCtx, payload); err != nil {
-				logger.Warn(ctx, "failed to relay error", slog.Error(err), slog.F("payload", payload))
+			if interceptionErr != nil {
+				payload, err := i.marshal(interceptionErr)
+				if err != nil {
+					logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", slog.F("%+v", interceptionErr)))
+				} else if err := events.Send(streamCtx, payload); err != nil {
+					logger.Warn(ctx, "failed to relay error", slog.Error(err), slog.F("payload", payload))
+				}
 			}
+		} else {
+			// Stream has not started yet; write to response if present.
+			i.writeUpstreamError(w, getAnthropicErrorResponse(stream.Err()))
 		}
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, time.Second*30)

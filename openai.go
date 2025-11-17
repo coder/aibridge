@@ -1,14 +1,12 @@
 package aibridge
 
 import (
-	"encoding/json"
 	"errors"
 
-	"github.com/anthropics/anthropic-sdk-go/shared"
-	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/packages/param"
+	"github.com/openai/openai-go/v2/shared"
 )
 
 // ChatCompletionNewParamsWrapper exists because the "stream" param is not included in openai.ChatCompletionNewParams.
@@ -106,57 +104,41 @@ func calculateActualInputTokenUsage(in openai.CompletionUsage) int64 {
 }
 
 func getOpenAIErrorResponse(err error) *OpenAIErrorResponse {
-	var apierr *openai.Error
-	if !errors.As(err, &apierr) {
+	var apiErr *openai.Error
+	if !errors.As(err, &apiErr) {
 		return nil
 	}
 
-	msg := apierr.Error()
-	typ := string(constant.ValueOf[constant.APIError]())
-
-	var detail *shared.APIErrorObject
-	if field, ok := apierr.JSON.ExtraFields["error"]; ok {
-		_ = json.Unmarshal([]byte(field.Raw()), &detail)
-	}
-	if detail != nil {
-		msg = detail.Message
-		typ = string(detail.Type)
-	}
-
 	return &OpenAIErrorResponse{
-		ErrorResponse: &shared.ErrorResponse{
-			Error: shared.ErrorObjectUnion{
-				Message: msg,
-				Type:    typ,
-			},
-			Type: constant.ValueOf[constant.Error](),
+		ErrorObject: &shared.ErrorObject{
+			Code:    apiErr.Code,
+			Message: apiErr.Message,
+			Type:    apiErr.Type,
 		},
-		StatusCode: apierr.StatusCode,
+		StatusCode: apiErr.StatusCode,
 	}
 }
 
 var _ error = &OpenAIErrorResponse{}
 
 type OpenAIErrorResponse struct {
-	*shared.ErrorResponse
-
-	StatusCode int `json:"-"`
+	ErrorObject *shared.ErrorObject `json:"error"`
+	StatusCode  int                 `json:"-"`
 }
 
 func newOpenAIErr(msg error) *OpenAIErrorResponse {
 	return &OpenAIErrorResponse{
-		ErrorResponse: &shared.ErrorResponse{
-			Error: shared.ErrorObjectUnion{
-				Message: msg.Error(),
-				Type:    "error",
-			},
+		ErrorObject: &shared.ErrorObject{
+			Code:    "error",
+			Message: msg.Error(),
+			Type:    "error",
 		},
 	}
 }
 
 func (a *OpenAIErrorResponse) Error() string {
-	if a.ErrorResponse == nil {
+	if a.ErrorObject == nil {
 		return ""
 	}
-	return a.ErrorResponse.Error.Message
+	return a.ErrorObject.Message
 }
