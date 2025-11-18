@@ -366,6 +366,8 @@ func (s *openAIResponsesStreamProcessor) process(chunk responses.ResponseStreamE
 	case
 	}
 
+	/*
+
 	// Accumulate token usage.
 	s.lastUsage = chunk.Response.Usage
 	s.cumulativeUsage = sumOpenAICompletionsUsage(s.cumulativeUsage, chunk.Usage)
@@ -429,6 +431,8 @@ func (s *openAIResponsesStreamProcessor) process(chunk responses.ResponseStreamE
 
 	// There is a tool call, but it's not injected.
 	return true
+
+	*/
 }
 
 // getMsgID returns the ID given by the API for this (accumulated) message.
