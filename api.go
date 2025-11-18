@@ -10,10 +10,15 @@ type ToolArgs any
 type Metadata map[string]any
 
 type InterceptionRecord struct {
-	ID                           string
-	InitiatorID, Provider, Model string
-	Metadata                     Metadata
-	StartedAt                    time.Time
+	// keep-sorted start
+	ID          string
+	InitiatorID string
+	UserAgent   string
+	Provider    string
+	Model       string
+	StartedAt   time.Time
+	Metadata    Metadata
+	// keep-sorted end
 }
 
 type InterceptionRecordEnded struct {
