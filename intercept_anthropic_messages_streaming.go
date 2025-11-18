@@ -88,7 +88,7 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
 	defer streamCancel(errors.New("deferred"))
 
-	client, err := i.newAnthropicClient(streamCtx)
+	svc, err := i.newMessagesService(streamCtx)
 	if err != nil {
 		err = fmt.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -118,7 +118,7 @@ newStream:
 			break
 		}
 
-		stream := client.Messages.NewStreaming(streamCtx, messages)
+		stream := svc.NewStreaming(streamCtx, messages)
 
 		var message anthropic.Message
 		var lastToolName string

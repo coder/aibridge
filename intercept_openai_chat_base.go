@@ -26,12 +26,10 @@ type OpenAIChatInterceptionBase struct {
 	mcpProxy mcp.ServerProxier
 }
 
-func (i *OpenAIChatInterceptionBase) newOpenAIClient(baseURL, key string) openai.Client {
-	var opts []option.RequestOption
-	opts = append(opts, option.WithAPIKey(key))
-	opts = append(opts, option.WithBaseURL(baseURL))
+func (i *OpenAIChatInterceptionBase) newCompletionsService(baseURL, key string) openai.ChatCompletionService {
+	opts := []option.RequestOption{option.WithAPIKey(key), option.WithBaseURL(baseURL)}
 
-	return openai.NewClient(opts...)
+	return openai.NewChatCompletionService(opts...)
 }
 
 func (i *OpenAIChatInterceptionBase) ID() uuid.UUID {

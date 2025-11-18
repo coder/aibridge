@@ -65,7 +65,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
-	client := i.newOpenAIClient(i.baseURL, i.key)
+	svc := i.newCompletionsService(i.baseURL, i.key)
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
@@ -100,7 +100,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		interceptionErr error
 	)
 	for {
-		stream = client.Chat.Completions.NewStreaming(streamCtx, i.req.ChatCompletionNewParams)
+		stream = svc.NewStreaming(streamCtx, i.req.ChatCompletionNewParams)
 		processor := newStreamProcessor(streamCtx, i.logger.Named("stream-processor"), i.getInjectedToolByName)
 
 		var toolCall *openai.FinishedChatCompletionToolCall
