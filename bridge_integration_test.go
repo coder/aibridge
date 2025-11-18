@@ -29,8 +29,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/openai/openai-go/v2"
-	oaissestream "github.com/openai/openai-go/v2/packages/ssestream"
+	"github.com/openai/openai-go/v3"
+	oaissestream "github.com/openai/openai-go/v3/packages/ssestream"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"

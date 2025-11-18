@@ -14,18 +14,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/ssestream"
+	"github.com/openai/openai-go/v3/responses"
 
 	"cdr.dev/slog"
 )
 
 var _ Interceptor = &OpenAIStreamingChatInterception{}
 
-type OpenAIStreamingChatInterception struct {
-	OpenAIChatInterceptionBase
+type OpenAIStreamingResponsesInterception struct {
+	OpenAIResponsesInterceptionBase
 }
 
-func NewOpenAIStreamingChatInterception(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string) *OpenAIStreamingChatInterception {
-	return &OpenAIStreamingChatInterception{OpenAIChatInterceptionBase: OpenAIChatInterceptionBase{
+func NewOpenAIStreamingResponsesInterception(id uuid.UUID, req *ResponsesNewParamsWrapper, baseURL, key string) *OpenAIStreamingResponsesInterception {
+	return &OpenAIStreamingResponsesInterception{OpenAIResponsesInterceptionBase: OpenAIResponsesInterceptionBase{
 		id:      id,
 		req:     req,
 		baseURL: baseURL,
@@ -33,29 +34,28 @@ func NewOpenAIStreamingChatInterception(id uuid.UUID, req *ChatCompletionNewPara
 	}}
 }
 
-func (i *OpenAIStreamingChatInterception) Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) {
-	i.OpenAIChatInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
+func (i *OpenAIStreamingResponsesInterception) Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) {
+	i.OpenAIResponsesInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
-// ProcessRequest handles a request to /v1/chat/completions.
-// See https://platform.openai.com/docs/api-reference/chat-streaming/streaming.
+// ProcessRequest handles a streaming request to /v1/responses.
 //
 // It will inject any tools which have been provided by the [mcp.ServerProxier].
 //
-// When a response from the server includes an event indicating that a tool must be invoked, a conditional
-// flow takes place:
+// When a response from the server includes an event indicating that a tool must
+// be invoked, a conditional flow takes place:
 //
 // a) if the tool is not injected (i.e. defined by the client), relay the event unmodified
 // b) if the tool is injected, it will be invoked by the [mcp.ServerProxier] in the remote MCP server, and its
 // results relayed to the SERVER. The response from the server will be handled synchronously, and this loop
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
-func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
+func (i *OpenAIStreamingResponsesInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
-
-	// Include token usage.
-	i.req.StreamOptions.IncludeUsage = openai.Bool(true)
+	if i.req.Background.Value {
+		return fmt.Errorf("background requests are currently not supported by aibridge")
+	}
 
 	i.injectTools()
 
@@ -78,15 +78,8 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	}()
 
 	// TODO: implement parallel tool calls.
-	// TODO: don't send if not supported by model (i.e. o4-mini).
-	if len(i.req.Tools) > 0 { // If no tools are specified but this setting is set, it'll cause a 400 Bad Request.
-		i.req.ParallelToolCalls = openai.Bool(false)
-	}
-
-	// Force responses to only have one choice.
-	// It's unnecessary to generate multiple responses, and would complicate our stream processing logic if
-	// multiple choices were returned.
-	i.req.N = openai.Int(1)
+	// TODO: safe to send if there are zero tools?
+	i.req.ParallelToolCalls = openai.Bool(false)
 
 	prompt, err := i.req.LastUserPrompt()
 	if err != nil {
@@ -94,13 +87,13 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	}
 
 	var (
-		stream          *ssestream.Stream[openai.ChatCompletionChunk]
+		stream          *ssestream.Stream[responses.ResponseStreamEventUnion]
 		lastErr         error
 		interceptionErr error
 	)
 	for {
-		stream = client.Chat.Completions.NewStreaming(streamCtx, i.req.ChatCompletionNewParams)
-		processor := newStreamProcessor(streamCtx, i.logger.Named("stream-processor"), i.getInjectedToolByName)
+		stream = client.Responses.NewStreaming(streamCtx, i.req.ResponseNewParams)
+		processor := newOpenAIResponsesStreamProcessor(streamCtx, i.logger.Named("stream-processor"), i.getInjectedToolByName)
 
 		var toolCall *openai.FinishedChatCompletionToolCall
 
@@ -118,12 +111,12 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 			}
 
 			// If usage information is available, relay the cumulative usage once all tool invocations have completed.
-			if chunk.Usage.CompletionTokens > 0 {
-				chunk.Usage = processor.getCumulativeUsage()
+			if chunk.Response.Usage.OutputTokens > 0 {
+				chunk.Response.Usage = processor.getCumulativeUsage()
 			}
 
 			// Overwrite response identifier since proxy obscures injected tool call invocations.
-			chunk.ID = i.ID().String()
+			chunk.Response.ID = i.ID().String()
 
 			// Marshal and relay chunk to client.
 			payload, err := i.marshal(chunk)
@@ -283,7 +276,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	return interceptionErr
 }
 
-func (i *OpenAIStreamingChatInterception) getInjectedToolByName(name string) *mcp.Tool {
+func (i *OpenAIStreamingResponsesInterception) getInjectedToolByName(name string) *mcp.Tool {
 	if i.mcpProxy == nil {
 		return nil
 	}
@@ -291,7 +284,7 @@ func (i *OpenAIStreamingChatInterception) getInjectedToolByName(name string) *mc
 	return i.mcpProxy.GetTool(name)
 }
 
-func (i *OpenAIStreamingChatInterception) marshal(payload any) ([]byte, error) {
+func (i *OpenAIStreamingResponsesInterception) marshal(payload any) ([]byte, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal payload: %w", err)
@@ -300,7 +293,7 @@ func (i *OpenAIStreamingChatInterception) marshal(payload any) ([]byte, error) {
 	return i.encodeForStream(data), nil
 }
 
-func (i *OpenAIStreamingChatInterception) encodeForStream(payload []byte) []byte {
+func (i *OpenAIStreamingResponsesInterception) encodeForStream(payload []byte) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("data: ")
 	buf.Write(payload)
@@ -308,11 +301,19 @@ func (i *OpenAIStreamingChatInterception) encodeForStream(payload []byte) []byte
 	return buf.Bytes()
 }
 
-type openAIStreamProcessor struct {
+type openAIResponsesStreamProcessor struct {
 	ctx    context.Context
 	logger slog.Logger
 
-	acc openai.ChatCompletionAccumulator
+	allEvents []responses.ResponseStreamEventUnion
+	// sentCreated tracks whether we've sent a response.created event to the
+	// client.
+	sentCreated bool
+
+	// pendingInjectedToolCallOutput stores a pending completed tool call output
+	// incompletedInjectedToolCallOutputIndices tracks the indices of output
+	// items that are still being streamed but relate to pending tool calls.
+	incompletedInjectedToolCallOutputIndices map[int]struct{}
 
 	// Tool handling.
 	pendingToolCall     bool
@@ -323,8 +324,8 @@ type openAIStreamProcessor struct {
 	cumulativeUsage openai.CompletionUsage
 }
 
-func newStreamProcessor(ctx context.Context, logger slog.Logger, isToolInjectedFunc func(string) *mcp.Tool) *openAIStreamProcessor {
-	return &openAIStreamProcessor{
+func newOpenAIResponsesStreamProcessor(ctx context.Context, logger slog.Logger, isToolInjectedFunc func(string) *mcp.Tool) *openAIResponsesStreamProcessor {
+	return &openAIResponsesStreamProcessor{
 		ctx:    ctx,
 		logger: logger,
 
@@ -332,16 +333,41 @@ func newStreamProcessor(ctx context.Context, logger slog.Logger, isToolInjectedF
 	}
 }
 
-// process receives a completion chunk and returns a bool indicating whether it should be
-// relayed to the client.
-func (s *openAIStreamProcessor) process(chunk openai.ChatCompletionChunk) bool {
-	if !s.acc.AddChunk(chunk) {
-		s.logger.Debug(s.ctx, "failed to accumulate chunk", slog.F("chunk", chunk.RawJSON()))
-		// Potentially not fatal, move along in best effort...
+// process receives a completion chunk and returns a potentially modified
+// response object and a bool representing whether the chunk should be relayed
+// to the client.
+func (s *openAIResponsesStreamProcessor) process(chunk responses.ResponseStreamEventUnion) (any, bool) {
+	s.allEvents = append(s.allEvents, chunk)
+
+	switch chunk.Type() {
+	case "response.created":
+		v := chunk.AsResponseCreated()
+		if len(v.Response.Output) > 0 {
+			// TODO: do we need to handle tool calls that could be in here??
+			// for now we just ignore them
+			logger.Warn(s.ctx, "response created with output items", slog.F("output_items", len(v.Response.Output)))
+		}
+
+		if !s.sentCreated {
+			s.sentCreated = true
+			return v, true
+		}
+
+
+
+	case "response.output_item.added":
+		outputItemAdded := chunk.AsResponseOutputItemAdded()
+		if outputItemAdded != nil {
+			toolCall := outputItemAdded.Item.AsCustomToolCall()
+			if toolCall != nil {
+				s.incompletedInjectedToolCallOutputIndices[outputItemAdded.Index] = struct{}{}
+			}
+		}
+	case
 	}
 
 	// Accumulate token usage.
-	s.lastUsage = chunk.Usage
+	s.lastUsage = chunk.Response.Usage
 	s.cumulativeUsage = sumOpenAICompletionsUsage(s.cumulativeUsage, chunk.Usage)
 
 	// If the stream has reached a terminal state (i.e. call a tool), and this tool is injected,
@@ -406,15 +432,15 @@ func (s *openAIStreamProcessor) process(chunk openai.ChatCompletionChunk) bool {
 }
 
 // getMsgID returns the ID given by the API for this (accumulated) message.
-func (s *openAIStreamProcessor) getMsgID() string {
+func (s *openAIResponsesStreamProcessor) getMsgID() string {
 	return s.acc.ID
 }
 
-func (s *openAIStreamProcessor) isInjected(toolCall openai.ChatCompletionChunkChoiceDeltaToolCall) bool {
-	return s.getInjectedToolFunc(strings.TrimSpace(toolCall.Function.Name)) != nil
+func (s *openAIResponsesStreamProcessor) isInjected(toolCall responses.ResponseCustomToolCall) bool {
+	return s.getInjectedToolFunc(strings.TrimSpace(toolCall.Name)) != nil
 }
 
-func (s *openAIStreamProcessor) getToolCall() *openai.FinishedChatCompletionToolCall {
+func (s *openAIResponsesStreamProcessor) getToolCall() *openai.FinishedChatCompletionToolCall {
 	tc, ok := s.acc.JustFinishedToolCall()
 	if !ok {
 		return nil
@@ -423,7 +449,7 @@ func (s *openAIStreamProcessor) getToolCall() *openai.FinishedChatCompletionTool
 	return &tc
 }
 
-func (s *openAIStreamProcessor) getLastCompletion() *openai.ChatCompletionMessage {
+func (s *openAIResponsesStreamProcessor) getLastCompletion() *openai.ChatCompletionMessage {
 	if len(s.acc.Choices) == 0 {
 		return nil
 	}
@@ -431,10 +457,10 @@ func (s *openAIStreamProcessor) getLastCompletion() *openai.ChatCompletionMessag
 	return &s.acc.Choices[0].Message
 }
 
-func (s *openAIStreamProcessor) getLastUsage() openai.CompletionUsage {
+func (s *openAIResponsesStreamProcessor) getLastUsage() openai.CompletionUsage {
 	return s.lastUsage
 }
 
-func (s *openAIStreamProcessor) getCumulativeUsage() openai.CompletionUsage {
+func (s *openAIResponsesStreamProcessor) getCumulativeUsage() openai.CompletionUsage {
 	return s.cumulativeUsage
 }

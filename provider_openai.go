@@ -8,8 +8,8 @@ import (
 	"os"
 
 	"github.com/google/uuid"
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/option"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 )
 
 var _ Provider = &OpenAIProvider{}
@@ -23,6 +23,7 @@ const (
 	ProviderOpenAI = "openai"
 
 	routeChatCompletions = "/openai/v1/chat/completions" // https://platform.openai.com/docs/api-reference/chat
+	routeResponses       = "/openai/v1/responses"        // https://platform.openai.com/docs/api-reference/responses
 )
 
 func NewOpenAIProvider(cfg ProviderConfig) *OpenAIProvider {
@@ -45,7 +46,7 @@ func (p *OpenAIProvider) Name() string {
 }
 
 func (p *OpenAIProvider) BridgedRoutes() []string {
-	return []string{routeChatCompletions}
+	return []string{routeChatCompletions, routeResponses}
 }
 
 // PassthroughRoutes define the routes which are not currently intercepted
@@ -53,10 +54,15 @@ func (p *OpenAIProvider) BridgedRoutes() []string {
 // The /v1/completions legacy API is deprecated and will not be passed through.
 // See https://platform.openai.com/docs/api-reference/completions.
 func (p *OpenAIProvider) PassthroughRoutes() []string {
+	// See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux
+	// for details on trailing slash handling (effectively acts as `/...`).
 	return []string{
 		"/v1/models",
-		"/v1/models/",   // See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux.
-		"/v1/responses", // TODO: support Responses API.
+		"/v1/models/",
+		// /v1/responses is handled by CreateInterceptor, but the auxiliary
+		// routes are passed through.
+		// TODO: is it safe to pass these through?
+		"/v1/responses/",
 	}
 }
 
@@ -79,6 +85,18 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 			return NewOpenAIStreamingChatInterception(id, &req, p.baseURL, p.key), nil
 		} else {
 			return NewOpenAIBlockingChatInterception(id, &req, p.baseURL, p.key), nil
+		}
+
+	case routeResponses:
+		var req ResponsesNewParamsWrapper
+		if err := json.Unmarshal(payload, &req); err != nil {
+			return nil, fmt.Errorf("unmarshal request body: %w", err)
+		}
+
+		if req.Stream {
+			return NewOpenAIStreamingResponsesInterception(id, &req, p.baseURL, p.key), nil
+		} else {
+			return NewOpenAIBlockingResponsesInterception(id, &req, p.baseURL, p.key), nil
 		}
 	}
 

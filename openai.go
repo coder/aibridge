@@ -7,8 +7,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/coder/aibridge/utils"
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/packages/param"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/packages/param"
 )
 
 // ChatCompletionNewParamsWrapper exists because the "stream" param is not included in openai.ChatCompletionNewParams.
@@ -78,7 +78,7 @@ func (c *ChatCompletionNewParamsWrapper) LastUserPrompt() (*string, error) {
 	return nil, nil
 }
 
-func sumUsage(ref, in openai.CompletionUsage) openai.CompletionUsage {
+func sumOpenAICompletionsUsage(ref, in openai.CompletionUsage) openai.CompletionUsage {
 	return openai.CompletionUsage{
 		CompletionTokens: ref.CompletionTokens + in.CompletionTokens,
 		PromptTokens:     ref.PromptTokens + in.PromptTokens,
@@ -96,8 +96,8 @@ func sumUsage(ref, in openai.CompletionUsage) openai.CompletionUsage {
 	}
 }
 
-// calculateActualInputTokenUsage accounts for cached tokens which are included in [openai.CompletionUsage].PromptTokens.
-func calculateActualInputTokenUsage(in openai.CompletionUsage) int64 {
+// calculateOpenAICompletionsActualInputTokenUsage accounts for cached tokens which are included in [openai.CompletionUsage].PromptTokens.
+func calculateOpenAICompletionsActualInputTokenUsage(in openai.CompletionUsage) int64 {
 	// Input *includes* the cached tokens, so we subtract them here to reflect actual input token usage.
 	// The original value can be reconstructed by referencing the "prompt_cached" field in metadata.
 	// See https://platform.openai.com/docs/api-reference/usage/completions_object#usage/completions_object-input_tokens.
@@ -159,4 +159,12 @@ func (a *OpenAIErrorResponse) Error() string {
 		return ""
 	}
 	return a.ErrorResponse.Error.Message
+}
+
+func parseToolCallArguments(in string) (any, error) {
+	var out map[string]any
+	if err := json.Unmarshal([]byte(in), &out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }

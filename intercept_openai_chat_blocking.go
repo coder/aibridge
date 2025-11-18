@@ -1,7 +1,6 @@
 package aibridge
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,8 +10,8 @@ import (
 
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/option"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 
 	"cdr.dev/slog"
 )
@@ -77,12 +76,12 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		}
 
 		lastUsage := completion.Usage
-		cumulativeUsage = sumUsage(cumulativeUsage, completion.Usage)
+		cumulativeUsage = sumOpenAICompletionsUsage(cumulativeUsage, completion.Usage)
 
 		_ = i.recorder.RecordTokenUsage(ctx, &TokenUsageRecord{
 			InterceptionID: i.ID().String(),
 			MsgID:          completion.ID,
-			Input:          calculateActualInputTokenUsage(lastUsage),
+			Input:          calculateOpenAICompletionsActualInputTokenUsage(lastUsage),
 			Output:         lastUsage.CompletionTokens,
 			Metadata: Metadata{
 				"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,
@@ -120,6 +119,8 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		appendedPrevMsg := false
 		for _, tc := range pendingToolCalls {
 			if i.mcpProxy == nil {
+				logger.Warn(ctx, "pending tool call but no MCP proxy", slog.F("tool", tc.Function.Name))
+				// TODO: track a tool call error
 				continue
 			}
 
@@ -127,6 +128,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 			if tool == nil {
 				// Not a known tool, don't do anything.
 				logger.Warn(ctx, "pending tool call for non-managed tool, skipping", slog.F("tool", tc.Function.Name))
+				// TODO: track a tool call error
 				continue
 			}
 			// Only do this once.
@@ -136,12 +138,13 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 				appendedPrevMsg = true
 			}
 
-			var (
-				args map[string]string
-				buf  bytes.Buffer
-			)
-			_ = json.NewEncoder(&buf).Encode(tc.Function.Arguments)
-			_ = json.NewDecoder(&buf).Decode(&args)
+			// Parse the tool call arguments.
+			args, err := parseToolCallArguments(tc.Function.Arguments)
+			if err != nil {
+				logger.Warn(ctx, "failed to parse tool call arguments", slog.Error(err))
+				// TODO: track a tool call error
+				continue
+			}
 			res, err := tool.Call(ctx, args)
 
 			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{

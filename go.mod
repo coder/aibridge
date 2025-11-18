@@ -20,7 +20,7 @@ require (
 // AI-related libs.
 require (
 	github.com/anthropics/anthropic-sdk-go v1.12.0
-	github.com/openai/openai-go/v2 v2.7.0
+	github.com/openai/openai-go/v3 v3.1.0
 )
 
 require (
