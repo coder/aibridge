@@ -58,7 +58,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 
 	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 60)} // TODO: configurable timeout
 
-	client, err := i.newMessagesService(ctx, opts...)
+	svc, err := i.newMessagesService(ctx, opts...)
 	if err != nil {
 		err = fmt.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -73,7 +73,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 	var cumulativeUsage anthropic.Usage
 
 	for {
-		resp, err = client.New(ctx, messages)
+		resp, err = svc.New(ctx, messages)
 		if err != nil {
 			if isConnError(err) {
 				// Can't write a response, just error out.

@@ -41,7 +41,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	}
 
 	ctx := r.Context()
-	client := i.newCompletionsService(i.baseURL, i.key)
+	svc := i.newCompletionsService(i.baseURL, i.key)
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	var (
@@ -61,7 +61,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		var opts []option.RequestOption
 		opts = append(opts, option.WithRequestTimeout(time.Second*60)) // TODO: configurable timeout
 
-		completion, err = client.New(ctx, i.req.ChatCompletionNewParams, opts...)
+		completion, err = svc.New(ctx, i.req.ChatCompletionNewParams, opts...)
 		if err != nil {
 			break
 		}
