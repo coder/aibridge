@@ -96,7 +96,7 @@ func (i *AnthropicMessagesInterceptionBase) isSmallFastModel() bool {
 	return strings.Contains(string(i.req.Model), "haiku")
 }
 
-func (i *AnthropicMessagesInterceptionBase) newAnthropicClient(ctx context.Context, opts ...option.RequestOption) (anthropic.Client, error) {
+func (i *AnthropicMessagesInterceptionBase) newMessagesService(ctx context.Context, opts ...option.RequestOption) (anthropic.MessageService, error) {
 	opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
 
@@ -105,7 +105,7 @@ func (i *AnthropicMessagesInterceptionBase) newAnthropicClient(ctx context.Conte
 		defer cancel()
 		bedrockOpt, err := i.withAWSBedrock(ctx, i.bedrockCfg)
 		if err != nil {
-			return anthropic.Client{}, err
+			return anthropic.MessageService{}, err
 		}
 		opts = append(opts, bedrockOpt)
 		i.augmentRequestForBedrock()
@@ -122,7 +122,7 @@ func (i *AnthropicMessagesInterceptionBase) newAnthropicClient(ctx context.Conte
 		}
 	}
 
-	return anthropic.NewClient(opts...), nil
+	return anthropic.NewMessageService(opts...), nil
 }
 
 func (i *AnthropicMessagesInterceptionBase) withAWSBedrock(ctx context.Context, cfg *AWSBedrockConfig) (option.RequestOption, error) {

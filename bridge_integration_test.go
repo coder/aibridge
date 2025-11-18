@@ -504,7 +504,7 @@ func TestSimple(t *testing.T) {
 			fixture: oaiSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))}, logger, client, mcp.NewServerProxyManager(nil))
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}, logger, client, mcp.NewServerProxyManager(nil))
 			},
 			getResponseIDFunc: func(streaming bool, resp *http.Response) (string, error) {
 				if streaming {
@@ -655,7 +655,7 @@ func TestFallthrough(t *testing.T) {
 			fixture: oaiFallthrough,
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				provider := aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))
+				provider := aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))
 				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, logger, client, mcp.NewServerProxyManager(nil))
 				require.NoError(t, err)
 				return provider, bridge
@@ -843,7 +843,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 
 			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))}, logger, client, srvProxyMgr)
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}, logger, client, srvProxyMgr)
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
@@ -1046,7 +1046,7 @@ func TestErrorHandling(t *testing.T) {
 				createRequestFunc: createOpenAIChatCompletionsReq,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-					return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))}, logger, client, srvProxyMgr)
+					return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}, logger, client, srvProxyMgr)
 				},
 				responseHandlerFn: func(resp *http.Response) {
 					require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -1152,7 +1152,7 @@ func TestErrorHandling(t *testing.T) {
 				createRequestFunc: createOpenAIChatCompletionsReq,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-					return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))}, logger, client, srvProxyMgr)
+					return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}, logger, client, srvProxyMgr)
 				},
 				responseHandlerFn: func(resp *http.Response) {
 					// Server responds first with 200 OK then starts streaming.
@@ -1246,7 +1246,7 @@ func TestStableRequestEncoding(t *testing.T) {
 			fixture:           oaiSimple,
 			createRequestFunc: createOpenAIChatCompletionsReq,
 			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(aibridge.OpenAIConfig(anthropicCfg(addr, apiKey)))}, logger, client, srvProxyMgr)
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}, logger, client, srvProxyMgr)
 			},
 		},
 	}
@@ -1330,6 +1330,103 @@ func TestStableRequestEncoding(t *testing.T) {
 			}
 
 			require.EqualValues(t, count, reqCount.Load())
+		})
+	}
+}
+
+func TestEnvironmentDoNotLeak(t *testing.T) {
+	// NOTE: Cannot use t.Parallel() here because subtests use t.Setenv which requires sequential execution.
+
+	// Test that environment variables containing API keys/tokens are not leaked to upstream requests.
+	// See https://github.com/coder/aibridge/issues/60.
+	testCases := []struct {
+		name          string
+		fixture       []byte
+		configureFunc func(string, aibridge.Recorder) (*aibridge.RequestBridge, error)
+		createRequest func(*testing.T, string, []byte) *http.Request
+		envVars       map[string]string
+		headerName    string
+	}{
+		{
+			name:    aibridge.ProviderAnthropic,
+			fixture: antSimple,
+			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
+				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), nil)}, logger, client, mcp.NewServerProxyManager(nil))
+			},
+			createRequest: createAnthropicMessagesReq,
+			envVars: map[string]string{
+				"ANTHROPIC_AUTH_TOKEN": "should-not-leak",
+			},
+			headerName: "Authorization", // We only send through the X-Api-Key, so this one should not be present.
+		},
+		{
+			name:    aibridge.ProviderOpenAI,
+			fixture: oaiSimple,
+			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
+				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+				return aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}, logger, client, mcp.NewServerProxyManager(nil))
+			},
+			createRequest: createOpenAIChatCompletionsReq,
+			envVars: map[string]string{
+				"OPENAI_ORG_ID": "should-not-leak",
+			},
+			headerName: "OpenAI-Organization",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// NOTE: Cannot use t.Parallel() here because t.Setenv requires sequential execution.
+
+			arc := txtar.Parse(tc.fixture)
+			files := filesMap(arc)
+			reqBody := files[fixtureRequest]
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			// Track headers received by the upstream server.
+			var receivedHeaders http.Header
+			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedHeaders = r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write(files[fixtureNonStreamingResponse])
+			}))
+			srv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return ctx
+			}
+			srv.Start()
+			t.Cleanup(srv.Close)
+
+			// Set environment variables that the SDK would automatically read.
+			// These should NOT leak into upstream requests.
+			for key, val := range tc.envVars {
+				t.Setenv(key, val)
+			}
+
+			recorderClient := &mockRecorderClient{}
+			b, err := tc.configureFunc(srv.URL, recorderClient)
+			require.NoError(t, err)
+
+			mockSrv := httptest.NewUnstartedServer(b)
+			t.Cleanup(mockSrv.Close)
+			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return aibridge.AsActor(ctx, userID, nil)
+			}
+			mockSrv.Start()
+
+			req := tc.createRequest(t, mockSrv.URL, reqBody)
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			defer resp.Body.Close()
+
+			// Verify that environment values did not leak.
+			require.NotNil(t, receivedHeaders)
+			require.Empty(t, receivedHeaders.Get(tc.headerName))
 		})
 	}
 }
