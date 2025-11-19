@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/tools/txtar"
 )
 
@@ -48,7 +49,7 @@ func TestMetrics_Interception(t *testing.T) {
 
 		metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 		provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), nil)
-		srv := newTestSrv(t, ctx, provider, metrics)
+		srv, _ := newTestSrv(t, ctx, provider, metrics, defaultTracer)
 
 		req := createAnthropicMessagesReq(t, srv.URL, files[fixtureRequest])
 		resp, err := http.DefaultClient.Do(req)
@@ -89,7 +90,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := aibridge.NewAnthropicProvider(anthropicCfg(srv.URL, apiKey), nil)
-	bridgeSrv := newTestSrv(t, ctx, provider, metrics)
+	bridgeSrv, _ := newTestSrv(t, ctx, provider, metrics, defaultTracer)
 
 	// Make request in background.
 	doneCh := make(chan struct{})
@@ -141,7 +142,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))
-	srv := newTestSrv(t, t.Context(), provider, metrics)
+	srv, _ := newTestSrv(t, t.Context(), provider, metrics, defaultTracer)
 
 	req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/openai/v1/models", nil)
 	require.NoError(t, err)
@@ -170,7 +171,7 @@ func TestMetrics_PromptCount(t *testing.T) {
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
-	srv := newTestSrv(t, ctx, provider, metrics)
+	srv, _ := newTestSrv(t, ctx, provider, metrics, defaultTracer)
 
 	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
 	resp, err := http.DefaultClient.Do(req)
@@ -198,7 +199,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
-	srv := newTestSrv(t, ctx, provider, metrics)
+	srv, _ := newTestSrv(t, ctx, provider, metrics, defaultTracer)
 
 	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
 	resp, err := http.DefaultClient.Do(req)
@@ -240,7 +241,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	mcpMgr := mcp.NewServerProxyManager(tools)
 	require.NoError(t, mcpMgr.Init(ctx))
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mcpMgr, metrics, logger)
+	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mcpMgr, metrics, defaultTracer, logger)
 	require.NoError(t, err)
 
 	srv := httptest.NewUnstartedServer(bridge)
@@ -272,13 +273,17 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	require.Equal(t, 1.0, count)
 }
 
-func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, metrics *aibridge.Metrics) *httptest.Server {
+func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, metrics *aibridge.Metrics, tracer trace.Tracer) (*httptest.Server, *mockRecorderClient) {
 	t.Helper()
 
-	recorder := &mockRecorderClient{}
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+	mockRecorder := &mockRecorderClient{}
+	clientFn := func() (aibridge.Recorder, error) {
+		return mockRecorder, nil
+	}
+	wrappedRecorder := aibridge.NewRecorder(logger, tracer, clientFn)
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mcp.NewServerProxyManager(nil), metrics, logger)
+	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, mcp.NewServerProxyManager(nil), metrics, tracer, logger)
 	require.NoError(t, err)
 
 	srv := httptest.NewUnstartedServer(bridge)
@@ -288,5 +293,5 @@ func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, m
 	srv.Start()
 	t.Cleanup(srv.Close)
 
-	return srv
+	return srv, mockRecorder
 }
