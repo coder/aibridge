@@ -7,12 +7,20 @@ import (
 	"strings"
 
 	"cdr.dev/slog"
+	"github.com/coder/aibridge/aibtrace"
 	"github.com/mark3labs/mcp-go/mcp"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
 	injectedToolPrefix    = "bmcp" // "bridged MCP"
 	injectedToolDelimiter = "_"
+)
+
+var (
+	tracer = otel.Tracer("github.com/coder/aibridge/mcp")
 )
 
 // ToolCaller is the narrowest interface which describes the behaviour required from [mcp.Client],
@@ -34,13 +42,20 @@ type Tool struct {
 	Required    []string
 }
 
-func (t *Tool) Call(ctx context.Context, input any) (*mcp.CallToolResult, error) {
+func (t *Tool) Call(ctx context.Context, input any) (_ *mcp.CallToolResult, outErr error) {
 	if t == nil {
-		return nil, errors.New("nil tool!")
+		return nil, errors.New("nil tool")
 	}
 	if t.Client == nil {
-		return nil, errors.New("nil client!")
+		return nil, errors.New("nil client")
 	}
+
+	spanAttrs := append(
+		aibtrace.TraceInterceptionAttributesFromContext(ctx),
+		attribute.String(aibtrace.TraceMCPToolName, t.Name),
+	)
+	ctx, span := tracer.Start(ctx, "Intercept.RecordInterception.ToolCall", trace.WithAttributes(spanAttrs...))
+	defer aibtrace.EndSpanErr(span, outErr)
 
 	return t.Client.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{

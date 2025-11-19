@@ -6,11 +6,13 @@ import (
 	"net/http"
 	"strings"
 
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
 	"github.com/openai/openai-go/v2/shared"
+	"go.opentelemetry.io/otel/attribute"
 
 	"cdr.dev/slog"
 )
@@ -40,6 +42,16 @@ func (i *OpenAIChatInterceptionBase) Setup(logger slog.Logger, recorder Recorder
 	i.logger = logger
 	i.recorder = recorder
 	i.mcpProxy = mcpProxy
+}
+
+func (s *OpenAIChatInterceptionBase) baseTraceAttributes(ctx context.Context, streaming bool) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String(aibtrace.TraceProviderKey, ProviderOpenAI),
+		attribute.String(aibtrace.TraceInterceptionIDKey, s.id.String()),
+		attribute.String(aibtrace.TraceModelKey, s.Model()),
+		attribute.String(aibtrace.TraceUserIDKey, actorFromContext(ctx).id),
+		attribute.Bool(aibtrace.TraceStreamingKey, streaming),
+	}
 }
 
 func (i *OpenAIChatInterceptionBase) Model() string {

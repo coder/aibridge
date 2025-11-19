@@ -1,6 +1,7 @@
 package aibridge
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,7 +11,10 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp" // TODO: abstract this away so callers need no knowledge of underlying lib.
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
 
 	"cdr.dev/slog"
@@ -31,16 +35,21 @@ func NewAnthropicMessagesBlockingInterception(id uuid.UUID, req *MessageNewParam
 	}}
 }
 
-func (s *AnthropicMessagesBlockingInterception) Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) {
-	s.AnthropicMessagesInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+func (i *AnthropicMessagesBlockingInterception) Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) {
+	i.AnthropicMessagesInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
-func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
+func (i *AnthropicMessagesBlockingInterception) TraceAttributes(ctx context.Context) []attribute.KeyValue {
+	return i.AnthropicMessagesInterceptionBase.baseTraceAttributes(ctx, false)
+}
+
+func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx := r.Context()
+	ctx, span := tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(r.Context())...))
+	defer aibtrace.EndSpanErr(span, outErr)
 
 	i.injectTools()
 
@@ -73,7 +82,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 	var cumulativeUsage anthropic.Usage
 
 	for {
-		resp, err = svc.New(ctx, messages)
+		resp, err = i.traceNewMessage(ctx, svc, messages) // traces client.Messages.New(ctx, msgParams) call
 		if err != nil {
 			if isConnError(err) {
 				// Can't write a response, just error out.
@@ -280,4 +289,11 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 	_, _ = w.Write(out)
 
 	return nil
+}
+
+func (i *AnthropicMessagesBlockingInterception) traceNewMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {
+	ctx, span := tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+	defer aibtrace.EndSpanErr(span, outErr)
+
+	return svc.New(ctx, msgParams)
 }

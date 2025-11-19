@@ -10,11 +10,14 @@ import (
 	"strings"
 	"time"
 
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/packages/ssestream"
 	"github.com/tidwall/sjson"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog"
 )
@@ -38,6 +41,10 @@ func (i *OpenAIStreamingChatInterception) Setup(logger slog.Logger, recorder Rec
 	i.OpenAIChatInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
+func (s *OpenAIStreamingChatInterception) TraceAttributes(ctx context.Context) []attribute.KeyValue {
+	return s.OpenAIChatInterceptionBase.baseTraceAttributes(ctx, true)
+}
+
 // ProcessRequest handles a request to /v1/chat/completions.
 // See https://platform.openai.com/docs/api-reference/chat-streaming/streaming.
 //
@@ -50,10 +57,13 @@ func (i *OpenAIStreamingChatInterception) Setup(logger slog.Logger, recorder Rec
 // b) if the tool is injected, it will be invoked by the [mcp.ServerProxier] in the remote MCP server, and its
 // results relayed to the SERVER. The response from the server will be handled synchronously, and this loop
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
-func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
+func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
+
+	ctx, span := tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(r.Context())...))
+	defer aibtrace.EndSpanErr(span, outErr)
 
 	// Include token usage.
 	i.req.StreamOptions.IncludeUsage = openai.Bool(true)
@@ -61,7 +71,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	i.injectTools()
 
 	// Allow us to interrupt watch via cancel.
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
@@ -105,7 +115,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 
 		var toolCall *openai.FinishedChatCompletionToolCall
 
-		for stream.Next() {
+		for i.traceStreamNext(ctx, stream) { // traces stream.Next() call
 			chunk := stream.Current()
 
 			canRelay := processor.process(chunk)
@@ -330,6 +340,13 @@ func (i *OpenAIStreamingChatInterception) encodeForStream(payload []byte) []byte
 	buf.Write(payload)
 	buf.WriteString("\n\n")
 	return buf.Bytes()
+}
+
+func (i *OpenAIStreamingChatInterception) traceStreamNext(ctx context.Context, stream *ssestream.Stream[openai.ChatCompletionChunk]) bool {
+	_, span := tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+	defer span.End()
+
+	return stream.Next()
 }
 
 type openAIStreamProcessor struct {

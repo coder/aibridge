@@ -9,6 +9,7 @@ import (
 
 	"cdr.dev/slog"
 	"github.com/coder/aibridge/mcp"
+	"go.opentelemetry.io/otel"
 
 	"github.com/hashicorp/go-multierror"
 )
@@ -39,7 +40,11 @@ type RequestBridge struct {
 	closed       chan struct{}
 }
 
-var _ http.Handler = &RequestBridge{}
+var (
+	tracer = otel.Tracer("github.com/coder/aibridge")
+
+	_ http.Handler = &RequestBridge{}
+)
 
 // NewRequestBridge creates a new *[RequestBridge] and registers the HTTP routes defined by the given providers.
 // Any routes which are requested but not registered will be reverse-proxied to the upstream service.

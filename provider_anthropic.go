@@ -11,10 +11,15 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
-var _ Provider = &AnthropicProvider{}
+var (
+	_ Provider = &AnthropicProvider{}
+)
 
 // AnthropicProvider allows for interactions with the Anthropic API.
 type AnthropicProvider struct {
@@ -58,13 +63,19 @@ func (p *AnthropicProvider) PassthroughRoutes() []string {
 	}
 }
 
-func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request) (Interceptor, error) {
+func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request) (_ Interceptor, outErr error) {
+	id := uuid.New()
+	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor", trace.WithAttributes(
+		attribute.String(aibtrace.TraceInterceptionIDKey, id.String()),
+		attribute.String(aibtrace.TraceProviderKey, ProviderAnthropic),
+		attribute.String(aibtrace.TraceUserIDKey, actorFromContext(r.Context()).id),
+	))
+	defer aibtrace.EndSpanErr(span, outErr)
+
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
-
-	id := uuid.New()
 
 	switch r.URL.Path {
 	case routeMessages:
@@ -72,11 +83,14 @@ func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Req
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 		}
+		span.SetAttributes(attribute.String(aibtrace.TraceModelKey, string(req.Model)))
 
 		if req.Stream {
+			span.SetAttributes(attribute.Bool(aibtrace.TraceStreamingKey, true))
 			return NewAnthropicMessagesStreamingInterception(id, &req, p.cfg, p.bedrockCfg), nil
 		}
 
+		span.SetAttributes(attribute.Bool(aibtrace.TraceStreamingKey, false))
 		return NewAnthropicMessagesBlockingInterception(id, &req, p.cfg, p.bedrockCfg), nil
 	}
 

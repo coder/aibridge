@@ -14,8 +14,10 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
 
 	"cdr.dev/slog"
 )
@@ -57,6 +59,17 @@ func (i *AnthropicMessagesInterceptionBase) Model() string {
 	}
 
 	return string(i.req.Model)
+}
+
+func (s *AnthropicMessagesInterceptionBase) baseTraceAttributes(ctx context.Context, streaming bool) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String(aibtrace.TraceProviderKey, ProviderAnthropic),
+		attribute.String(aibtrace.TraceInterceptionIDKey, s.id.String()),
+		attribute.String(aibtrace.TraceModelKey, s.Model()),
+		attribute.String(aibtrace.TraceUserIDKey, actorFromContext(ctx).id),
+		attribute.Bool(aibtrace.TraceStreamingKey, streaming),
+		attribute.Bool(aibtrace.TraceIsBedrockKey, s.bedrockCfg != nil),
+	}
 }
 
 func (i *AnthropicMessagesInterceptionBase) injectTools() {

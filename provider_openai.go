@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"os"
 
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ Provider = &OpenAIProvider{}
@@ -58,13 +61,20 @@ func (p *OpenAIProvider) PassthroughRoutes() []string {
 	}
 }
 
-func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request) (Interceptor, error) {
+func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request) (_ Interceptor, outErr error) {
+	id := uuid.New()
+
+	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor", trace.WithAttributes(
+		attribute.String(aibtrace.TraceInterceptionIDKey, id.String()),
+		attribute.String(aibtrace.TraceProviderKey, ProviderOpenAI),
+		attribute.String(aibtrace.TraceUserIDKey, actorFromContext(r.Context()).id),
+	))
+	defer aibtrace.EndSpanErr(span, outErr)
+
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
-
-	id := uuid.New()
 
 	switch r.URL.Path {
 	case routeChatCompletions:
@@ -72,12 +82,15 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
+		span.SetAttributes(attribute.String(aibtrace.TraceModelKey, req.Model))
 
 		if req.Stream {
+			span.SetAttributes(attribute.Bool(aibtrace.TraceStreamingKey, true))
 			return NewOpenAIStreamingChatInterception(id, &req, p.baseURL, p.key), nil
-		} else {
-			return NewOpenAIBlockingChatInterception(id, &req, p.baseURL, p.key), nil
 		}
+
+		span.SetAttributes(attribute.Bool(aibtrace.TraceStreamingKey, false))
+		return NewOpenAIBlockingChatInterception(id, &req, p.baseURL, p.key), nil
 	}
 
 	return nil, UnknownRoute

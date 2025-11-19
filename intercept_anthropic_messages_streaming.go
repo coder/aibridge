@@ -11,10 +11,14 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog"
 )
@@ -38,6 +42,10 @@ func (s *AnthropicMessagesStreamingInterception) Setup(logger slog.Logger, recor
 	s.AnthropicMessagesInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
+func (s *AnthropicMessagesStreamingInterception) TraceAttributes(ctx context.Context) []attribute.KeyValue {
+	return s.AnthropicMessagesInterceptionBase.baseTraceAttributes(ctx, true)
+}
+
 // ProcessRequest handles a request to /v1/messages.
 // This API has a state-machine behind it, which is described in https://docs.claude.com/en/docs/build-with-claude/streaming#event-types.
 //
@@ -57,13 +65,16 @@ func (s *AnthropicMessagesStreamingInterception) Setup(logger slog.Logger, recor
 // b) if the tool is injected, it will be invoked by the [mcp.ServerProxier] in the remote MCP server, and its
 // results relayed to the SERVER. The response from the server will be handled synchronously, and this loop
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
-func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
+func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
 
+	ctx, span := tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(r.Context())...))
+	defer aibtrace.EndSpanErr(span, outErr)
+
 	// Allow us to interrupt watch via cancel.
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
@@ -125,7 +136,7 @@ newStream:
 
 		pendingToolCalls := make(map[string]string)
 
-		for stream.Next() {
+		for i.traceStreamNext(ctx, stream) { // traces stream.Next() call
 			event := stream.Current()
 			if err := message.Accumulate(event); err != nil {
 				logger.Warn(ctx, "failed to accumulate streaming events", slog.Error(err), slog.F("event", event), slog.F("msg", message.RawJSON()))
@@ -503,4 +514,11 @@ func (s *AnthropicMessagesStreamingInterception) encodeForStream(payload []byte,
 	buf.Write(payload)
 	buf.WriteString("\n\n")
 	return buf.Bytes()
+}
+
+func (s *AnthropicMessagesStreamingInterception) traceStreamNext(ctx context.Context, stream *ssestream.Stream[anthropic.MessageStreamEventUnion]) bool {
+	_, span := tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+	defer span.End()
+
+	return stream.Next()
 }

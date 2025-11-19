@@ -7,9 +7,14 @@ import (
 	"time"
 
 	"cdr.dev/slog"
+	aibtrace "github.com/coder/aibridge/aibtrace"
+	"go.opentelemetry.io/otel/trace"
 )
 
-var _ Recorder = &RecorderWrapper{}
+var (
+	_ Recorder = &RecorderWrapper{}
+	_ Recorder = &AsyncRecorder{}
+)
 
 // RecorderWrapper is a convenience struct which implements RecorderClient and resolves a client before calling each method.
 // It also sets the start/creation time of each record.
@@ -18,7 +23,10 @@ type RecorderWrapper struct {
 	clientFn func() (Recorder, error)
 }
 
-func (r *RecorderWrapper) RecordInterception(ctx context.Context, req *InterceptionRecord) error {
+func (r *RecorderWrapper) RecordInterception(ctx context.Context, req *InterceptionRecord) (outErr error) {
+	ctx, span := tracer.Start(ctx, "Intercept.RecordInterception", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+	defer aibtrace.EndSpanErr(span, outErr)
+
 	client, err := r.clientFn()
 	if err != nil {
 		return fmt.Errorf("acquire client: %w", err)
@@ -33,7 +41,10 @@ func (r *RecorderWrapper) RecordInterception(ctx context.Context, req *Intercept
 	return err
 }
 
-func (r *RecorderWrapper) RecordInterceptionEnded(ctx context.Context, req *InterceptionRecordEnded) error {
+func (r *RecorderWrapper) RecordInterceptionEnded(ctx context.Context, req *InterceptionRecordEnded) (outErr error) {
+	ctx, span := tracer.Start(ctx, "Intercept.RecordInterceptionEnded", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+	defer aibtrace.EndSpanErr(span, outErr)
+
 	client, err := r.clientFn()
 	if err != nil {
 		return fmt.Errorf("acquire client: %w", err)
@@ -48,7 +59,10 @@ func (r *RecorderWrapper) RecordInterceptionEnded(ctx context.Context, req *Inte
 	return err
 }
 
-func (r *RecorderWrapper) RecordPromptUsage(ctx context.Context, req *PromptUsageRecord) error {
+func (r *RecorderWrapper) RecordPromptUsage(ctx context.Context, req *PromptUsageRecord) (outErr error) {
+	ctx, span := tracer.Start(ctx, "Intercept.RecordPromptUsage", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+	defer aibtrace.EndSpanErr(span, outErr)
+
 	client, err := r.clientFn()
 	if err != nil {
 		return fmt.Errorf("acquire client: %w", err)
@@ -63,7 +77,10 @@ func (r *RecorderWrapper) RecordPromptUsage(ctx context.Context, req *PromptUsag
 	return err
 }
 
-func (r *RecorderWrapper) RecordTokenUsage(ctx context.Context, req *TokenUsageRecord) error {
+func (r *RecorderWrapper) RecordTokenUsage(ctx context.Context, req *TokenUsageRecord) (outErr error) {
+	ctx, span := tracer.Start(ctx, "Intercept.RecordTokenUsage", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+	defer aibtrace.EndSpanErr(span, outErr)
+
 	client, err := r.clientFn()
 	if err != nil {
 		return fmt.Errorf("acquire client: %w", err)
@@ -78,7 +95,10 @@ func (r *RecorderWrapper) RecordTokenUsage(ctx context.Context, req *TokenUsageR
 	return err
 }
 
-func (r *RecorderWrapper) RecordToolUsage(ctx context.Context, req *ToolUsageRecord) error {
+func (r *RecorderWrapper) RecordToolUsage(ctx context.Context, req *ToolUsageRecord) (outErr error) {
+	ctx, span := tracer.Start(ctx, "Intercept.RecordToolUsage", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+	defer aibtrace.EndSpanErr(span, outErr)
+
 	client, err := r.clientFn()
 	if err != nil {
 		return fmt.Errorf("acquire client: %w", err)
@@ -96,8 +116,6 @@ func (r *RecorderWrapper) RecordToolUsage(ctx context.Context, req *ToolUsageRec
 func NewRecorder(logger slog.Logger, clientFn func() (Recorder, error)) *RecorderWrapper {
 	return &RecorderWrapper{logger: logger, clientFn: clientFn}
 }
-
-var _ Recorder = &AsyncRecorder{}
 
 // AsyncRecorder calls [Recorder] methods asynchronously and logs any errors which may occur.
 type AsyncRecorder struct {
