@@ -75,7 +75,12 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			return
 		}
 
-		log := logger.With(slog.F("route", r.URL.Path), slog.F("provider", p.Name()), slog.F("interception_id", interceptor.ID()))
+		log := logger.With(
+			slog.F("route", r.URL.Path),
+			slog.F("provider", p.Name()),
+			slog.F("interception_id", interceptor.ID()),
+			slog.F("user_agent", r.UserAgent()),
+		)
 
 		log.Debug(r.Context(), "interception started")
 		if err := interceptor.ProcessRequest(w, r); err != nil {

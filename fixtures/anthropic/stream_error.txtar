@@ -15,7 +15,8 @@ Simple request + error.
     }
   ],
   "model": "claude-sonnet-4-0",
-  "temperature": 1
+  "temperature": 1,
+  "stream": true
 }
 
 -- streaming --
@@ -31,12 +32,3 @@ data: {"type": "ping"}
 event: error
 data: {"type": "error", "error": {"type": "api_error", "message": "Overloaded"}}
 
--- non-streaming --
-{
-  "type": "error",
-  "error": {
-    "type": "api_error",
-    "message": "Overloaded"
-  },
-  "request_id": null
-}

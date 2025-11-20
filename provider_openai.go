@@ -8,8 +8,6 @@ import (
 	"os"
 
 	"github.com/google/uuid"
-	"github.com/openai/openai-go/v2"
-	"github.com/openai/openai-go/v2/option"
 )
 
 var _ Provider = &OpenAIProvider{}
@@ -25,7 +23,7 @@ const (
 	routeChatCompletions = "/openai/v1/chat/completions" // https://platform.openai.com/docs/api-reference/chat
 )
 
-func NewOpenAIProvider(cfg ProviderConfig) *OpenAIProvider {
+func NewOpenAIProvider(cfg OpenAIConfig) *OpenAIProvider {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1/"
 	}
@@ -99,12 +97,4 @@ func (p *OpenAIProvider) InjectAuthHeader(headers *http.Header) {
 	}
 
 	headers.Set(p.AuthHeader(), "Bearer "+p.key)
-}
-
-func newOpenAIClient(baseURL, key string) openai.Client {
-	var opts []option.RequestOption
-	opts = append(opts, option.WithAPIKey(key))
-	opts = append(opts, option.WithBaseURL(baseURL))
-
-	return openai.NewClient(opts...)
 }

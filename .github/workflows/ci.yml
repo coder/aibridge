@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  ci:
+    name: Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run tests
+        run: make test
+
+      - name: Run race detector tests
+        run: make test-race
+
+      - name: Run make fmt
+        run: make fmt
+
+      - name: Check for unstaged changes
+        run: |
+          if ! git diff --exit-code; then
+            echo "Error: make fmt resulted in unstaged changes"
+            echo "Please run 'make fmt' locally and commit the changes"
+            exit 1
+          fi

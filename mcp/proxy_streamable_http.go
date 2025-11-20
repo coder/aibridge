@@ -89,7 +89,11 @@ func (p *StreamableHTTPServerProxy) Init(ctx context.Context) error {
 }
 
 func (p *StreamableHTTPServerProxy) ListTools() []*Tool {
-	return maps.Values(p.tools)
+	tools := maps.Values(p.tools)
+	slices.SortStableFunc(tools, func(a, b *Tool) int {
+		return strings.Compare(a.ID, b.ID)
+	})
+	return tools
 }
 
 func (p *StreamableHTTPServerProxy) GetTool(name string) *Tool {
