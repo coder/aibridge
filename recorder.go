@@ -208,6 +208,18 @@ func (a *AsyncRecorder) RecordToolUsage(_ context.Context, req *ToolUsageRecord)
 		if err != nil {
 			a.logger.Warn(timedCtx, "failed to record usage", slog.F("type", "tool"), slog.Error(err), slog.F("payload", req))
 		}
+
+		if a.metrics != nil {
+			if req.Injected {
+				var srvURL string
+				if req.ServerURL != nil {
+					srvURL = *req.ServerURL
+				}
+				a.metrics.InjectedToolUseCount.WithLabelValues(a.provider, a.model, srvURL, req.Tool, fmt.Sprintf("%v", req.InvocationError != nil), a.initiatorID).Add(1)
+			} else {
+				a.metrics.NonInjectedToolUseCount.WithLabelValues(a.provider, a.model, req.Tool, a.initiatorID).Add(1)
+			}
+		}
 	}()
 
 	return nil // Caller is not interested in error.

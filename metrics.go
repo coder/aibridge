@@ -24,7 +24,8 @@ type Metrics struct {
 	TokenUseCount *prometheus.CounterVec
 
 	// Tool-related metrics.
-	ToolUseCount *prometheus.CounterVec
+	InjectedToolUseCount    *prometheus.CounterVec
+	NonInjectedToolUseCount *prometheus.CounterVec
 }
 
 // NewMetrics creates AND registers metrics. It will panic if a collector has already been registered.
@@ -36,10 +37,12 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		InterceptionCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "interceptions",
 			Name:      "total",
-		}, append(baseLabels, "status")),
+			Help:      "The count of intercepted requests",
+		}, append(baseLabels, "status")), // TODO: add route, http method?
 		InterceptionDuration: promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
 			Subsystem: "interceptions",
 			Name:      "duration",
+			Help:      "The total duration of intercepted requests",
 			// We can't control the duration (it's up to the provider), so this is just illustrative.
 			Buckets: []float64{1, 5, 10, 20, 30, 45, 60, 120},
 		}, baseLabels),
@@ -48,12 +51,26 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		PromptCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "prompts",
 			Name:      "total",
+			Help:      "The number of prompts issued by users (initiators)",
 		}, append(baseLabels, "initiator_id")),
 
 		// Token-related metrics.
 		TokenUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "token_usage",
 			Name:      "total",
+			Help:      "The number of tokens used by intercepted requests",
 		}, append(baseLabels, "type", "initiator_id")),
+
+		// Tool-related metrics.
+		InjectedToolUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+			Subsystem: "injected_tool_usage",
+			Name:      "total",
+			Help:      "The number of times an injected MCP tool was invoked by aibridge",
+		}, append(baseLabels, "server", "name", "failed", "initiator_id")),
+		NonInjectedToolUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+			Subsystem: "non_injected_tool_usage",
+			Name:      "total",
+			Help:      "The number of times an AI model determined a tool must be invoked by the client",
+		}, append(baseLabels, "name", "initiator_id")),
 	}
 }
