@@ -60,7 +60,7 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 		//
 		// We have to whitelist the known-safe routes because an API key with elevated privileges (i.e. admin) might be
 		// configured, so we should just reverse-proxy known-safe routes.
-		ftr := newPassthroughRouter(provider, logger.Named(fmt.Sprintf("passthrough.%s", provider.Name())))
+		ftr := newPassthroughRouter(provider, logger.Named(fmt.Sprintf("passthrough.%s", provider.Name())), metrics)
 		for _, path := range provider.PassthroughRoutes() {
 			prefix := fmt.Sprintf("/%s", provider.Name())
 			route := fmt.Sprintf("%s%s", prefix, path)

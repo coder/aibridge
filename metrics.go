@@ -16,6 +16,7 @@ type Metrics struct {
 	// Interception-related metrics.
 	InterceptionDuration *prometheus.HistogramVec
 	InterceptionCount    *prometheus.CounterVec
+	PassthroughCount     *prometheus.CounterVec
 
 	// Prompt-related metrics.
 	PromptCount *prometheus.CounterVec
@@ -38,7 +39,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Subsystem: "interceptions",
 			Name:      "total",
 			Help:      "The count of intercepted requests",
-		}, append(baseLabels, "status")), // TODO: add route, http method?
+		}, append(baseLabels, "status", "route", "method")),
 		InterceptionDuration: promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
 			Subsystem: "interceptions",
 			Name:      "duration",
@@ -46,6 +47,11 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			// We can't control the duration (it's up to the provider), so this is just illustrative.
 			Buckets: []float64{1, 5, 10, 20, 30, 45, 60, 120},
 		}, baseLabels),
+		PassthroughCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+			Subsystem: "passthrough",
+			Name:      "total",
+			Help:      "The count of requests which were not intercepted but passed through to the upstream",
+		}, []string{"provider", "route", "method"}),
 
 		// Prompt-related metrics.
 		PromptCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{

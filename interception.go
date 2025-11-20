@@ -85,12 +85,12 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 		log.Debug(r.Context(), "interception started")
 		if err := interceptor.ProcessRequest(w, r); err != nil {
 			if metrics != nil {
-				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed).Add(1)
+				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed, r.URL.Path, r.Method).Add(1)
 			}
 			log.Warn(r.Context(), "interception failed", slog.Error(err))
 		} else {
 			if metrics != nil {
-				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted).Add(1)
+				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted, r.URL.Path, r.Method).Add(1)
 			}
 			log.Debug(r.Context(), "interception ended")
 		}
