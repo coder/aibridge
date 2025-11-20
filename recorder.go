@@ -154,14 +154,6 @@ func (a *AsyncRecorder) RecordInterceptionEnded(ctx context.Context, req *Interc
 }
 
 func (a *AsyncRecorder) RecordPromptUsage(_ context.Context, req *PromptUsageRecord) error {
-	defer func() {
-		if a.metrics == nil {
-			return
-		}
-
-		a.metrics.PromptCount.WithLabelValues(a.provider, a.model, a.initiatorID).Add(1)
-	}()
-
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
@@ -171,6 +163,10 @@ func (a *AsyncRecorder) RecordPromptUsage(_ context.Context, req *PromptUsageRec
 		err := a.wrapped.RecordPromptUsage(timedCtx, req)
 		if err != nil {
 			a.logger.Warn(timedCtx, "failed to record usage", slog.F("type", "prompt"), slog.Error(err), slog.F("payload", req))
+		}
+
+		if a.metrics != nil && req.Prompt != "" { // TODO: will be irrelevant once https://github.com/coder/aibridge/issues/55 is fixed.
+			a.metrics.PromptCount.WithLabelValues(a.provider, a.model, a.initiatorID).Add(1)
 		}
 	}()
 
@@ -187,6 +183,14 @@ func (a *AsyncRecorder) RecordTokenUsage(_ context.Context, req *TokenUsageRecor
 		err := a.wrapped.RecordTokenUsage(timedCtx, req)
 		if err != nil {
 			a.logger.Warn(timedCtx, "failed to record usage", slog.F("type", "token"), slog.Error(err), slog.F("payload", req))
+		}
+
+		if a.metrics != nil {
+			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "input", a.initiatorID).Add(float64(req.Input))
+			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "output", a.initiatorID).Add(float64(req.Output))
+			for k, v := range req.ExtraTokenTypes {
+				a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, k, a.initiatorID).Add(float64(v))
+			}
 		}
 	}()
 

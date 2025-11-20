@@ -169,7 +169,7 @@ newStream:
 					MsgID:          message.ID,
 					Input:          start.Message.Usage.InputTokens,
 					Output:         start.Message.Usage.OutputTokens,
-					Metadata: Metadata{
+					ExtraTokenTypes: map[string]int64{
 						"web_search_requests":      start.Message.Usage.ServerToolUse.WebSearchRequests,
 						"cache_creation_input":     start.Message.Usage.CacheCreationInputTokens,
 						"cache_read_input":         start.Message.Usage.CacheReadInputTokens,

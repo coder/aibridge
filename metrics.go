@@ -28,7 +28,7 @@ type Metrics struct {
 }
 
 // NewMetrics creates AND registers metrics. It will panic if a collector has already been registered.
-// Note: we are not specifying namespace in the metrics; the provided register may specify a "namespace"
+// Note: we are not specifying namespace in the metrics; the provided registerer may specify a "namespace"
 // using [prometheus.WrapRegistererWithPrefix].
 func NewMetrics(reg prometheus.Registerer) *Metrics {
 	return &Metrics{
@@ -49,5 +49,11 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Subsystem: "prompts",
 			Name:      "total",
 		}, append(baseLabels, "initiator_id")),
+
+		// Token-related metrics.
+		TokenUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+			Subsystem: "token_usage",
+			Name:      "total",
+		}, append(baseLabels, "type", "initiator_id")),
 	}
 }

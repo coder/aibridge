@@ -22,11 +22,12 @@ type InterceptionRecordEnded struct {
 }
 
 type TokenUsageRecord struct {
-	InterceptionID string
-	MsgID          string
-	Input, Output  int64
-	Metadata       Metadata
-	CreatedAt      time.Time
+	InterceptionID  string
+	MsgID           string
+	Input, Output   int64
+	ExtraTokenTypes map[string]int64
+	Metadata        Metadata
+	CreatedAt       time.Time
 }
 
 type PromptUsageRecord struct {

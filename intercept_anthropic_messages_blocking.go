@@ -103,7 +103,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 			MsgID:          resp.ID,
 			Input:          resp.Usage.InputTokens,
 			Output:         resp.Usage.OutputTokens,
-			Metadata: Metadata{
+			ExtraTokenTypes: map[string]int64{
 				"web_search_requests":      resp.Usage.ServerToolUse.WebSearchRequests,
 				"cache_creation_input":     resp.Usage.CacheCreationInputTokens,
 				"cache_read_input":         resp.Usage.CacheReadInputTokens,
