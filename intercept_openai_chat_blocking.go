@@ -35,6 +35,10 @@ func (s *OpenAIBlockingChatInterception) Setup(logger slog.Logger, recorder Reco
 	s.OpenAIChatInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
+func (s *OpenAIBlockingChatInterception) Streaming() bool {
+	return false
+}
+
 func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
@@ -83,7 +87,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 			MsgID:          completion.ID,
 			Input:          calculateActualInputTokenUsage(lastUsage),
 			Output:         lastUsage.CompletionTokens,
-			Metadata: Metadata{
+			ExtraTokenTypes: map[string]int64{
 				"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,
 				"prompt_cached":                  lastUsage.PromptTokensDetails.CachedTokens,
 				"completion_accepted_prediction": lastUsage.CompletionTokensDetails.AcceptedPredictionTokens,

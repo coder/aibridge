@@ -38,6 +38,10 @@ func (s *AnthropicMessagesStreamingInterception) Setup(logger slog.Logger, recor
 	s.AnthropicMessagesInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
+func (s *AnthropicMessagesStreamingInterception) Streaming() bool {
+	return true
+}
+
 // ProcessRequest handles a request to /v1/messages.
 // This API has a state-machine behind it, which is described in https://docs.claude.com/en/docs/build-with-claude/streaming#event-types.
 //
@@ -169,7 +173,7 @@ newStream:
 					MsgID:          message.ID,
 					Input:          start.Message.Usage.InputTokens,
 					Output:         start.Message.Usage.OutputTokens,
-					Metadata: Metadata{
+					ExtraTokenTypes: map[string]int64{
 						"web_search_requests":      start.Message.Usage.ServerToolUse.WebSearchRequests,
 						"cache_creation_input":     start.Message.Usage.CacheCreationInputTokens,
 						"cache_read_input":         start.Message.Usage.CacheReadInputTokens,

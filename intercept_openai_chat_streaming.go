@@ -38,6 +38,10 @@ func (i *OpenAIStreamingChatInterception) Setup(logger slog.Logger, recorder Rec
 	i.OpenAIChatInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
+func (i *OpenAIStreamingChatInterception) Streaming() bool {
+	return true
+}
+
 // ProcessRequest handles a request to /v1/chat/completions.
 // See https://platform.openai.com/docs/api-reference/chat-streaming/streaming.
 //
@@ -161,7 +165,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 				MsgID:          processor.getMsgID(),
 				Input:          calculateActualInputTokenUsage(lastUsage),
 				Output:         lastUsage.CompletionTokens,
-				Metadata: Metadata{
+				ExtraTokenTypes: map[string]int64{
 					"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,
 					"prompt_cached":                  lastUsage.PromptTokensDetails.CachedTokens,
 					"completion_accepted_prediction": lastUsage.CompletionTokensDetails.AcceptedPredictionTokens,
