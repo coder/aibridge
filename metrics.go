@@ -14,9 +14,10 @@ const (
 
 type Metrics struct {
 	// Interception-related metrics.
-	InterceptionDuration *prometheus.HistogramVec
-	InterceptionCount    *prometheus.CounterVec
-	PassthroughCount     *prometheus.CounterVec
+	InterceptionDuration  *prometheus.HistogramVec
+	InterceptionCount     *prometheus.CounterVec
+	InterceptionsInflight *prometheus.GaugeVec
+	PassthroughCount      *prometheus.CounterVec
 
 	// Prompt-related metrics.
 	PromptCount *prometheus.CounterVec
@@ -38,45 +39,53 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		InterceptionCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "interceptions",
 			Name:      "total",
-			Help:      "The count of intercepted requests",
+			Help:      "The count of intercepted requests.",
 		}, append(baseLabels, "status", "route", "method")),
+		InterceptionsInflight: promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+			Subsystem: "interceptions",
+			Name:      "inflight",
+			Help:      "The number of intercepted requests which are being processed.",
+		}, append(baseLabels, "route")),
 		InterceptionDuration: promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
 			Subsystem: "interceptions",
 			Name:      "duration",
-			Help:      "The total duration of intercepted requests",
-			// We can't control the duration (it's up to the provider), so this is just illustrative.
-			Buckets: []float64{1, 5, 10, 20, 30, 45, 60, 120},
+			Help: "The total duration of intercepted requests. " +
+				"The majority of this time will be the upstream processing of the request. " +
+				"aibridge has no control over upstream processing time, so it's just an illustrative metric.",
+			// TODO: add docs around determining aibridge's *own* latency with distributed traces
+			//       once https://github.com/coder/aibridge/issues/26 lands.
+			Buckets: []float64{0.5, 2, 5, 15, 30, 60, 120},
 		}, baseLabels),
 		PassthroughCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "passthrough",
 			Name:      "total",
-			Help:      "The count of requests which were not intercepted but passed through to the upstream",
+			Help:      "The count of requests which were not intercepted but passed through to the upstream.",
 		}, []string{"provider", "route", "method"}),
 
 		// Prompt-related metrics.
 		PromptCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "prompts",
 			Name:      "total",
-			Help:      "The number of prompts issued by users (initiators)",
+			Help:      "The number of prompts issued by users (initiators).",
 		}, append(baseLabels, "initiator_id")),
 
 		// Token-related metrics.
 		TokenUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "token_usage",
 			Name:      "total",
-			Help:      "The number of tokens used by intercepted requests",
+			Help:      "The number of tokens used by intercepted requests.",
 		}, append(baseLabels, "type", "initiator_id")),
 
 		// Tool-related metrics.
 		InjectedToolUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "injected_tool_usage",
 			Name:      "total",
-			Help:      "The number of times an injected MCP tool was invoked by aibridge",
+			Help:      "The number of times an injected MCP tool was invoked by aibridge.",
 		}, append(baseLabels, "server", "name", "failed", "initiator_id")),
 		NonInjectedToolUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "non_injected_tool_usage",
 			Name:      "total",
-			Help:      "The number of times an AI model determined a tool must be invoked by the client",
+			Help:      "The number of times an AI model determined a tool must be invoked by the client.",
 		}, append(baseLabels, "name", "initiator_id")),
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"cdr.dev/slog"
@@ -75,26 +76,35 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			return
 		}
 
+		route := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", p.Name()))
 		log := logger.With(
-			slog.F("route", r.URL.Path),
+			slog.F("route", route),
 			slog.F("provider", p.Name()),
 			slog.F("interception_id", interceptor.ID()),
 			slog.F("user_agent", r.UserAgent()),
 		)
 
 		log.Debug(r.Context(), "interception started")
+		if metrics != nil {
+			metrics.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Add(1)
+		}
+
 		if err := interceptor.ProcessRequest(w, r); err != nil {
 			if metrics != nil {
-				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed, r.URL.Path, r.Method).Add(1)
+				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed, route, r.Method).Add(1)
 			}
 			log.Warn(r.Context(), "interception failed", slog.Error(err))
 		} else {
 			if metrics != nil {
-				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted, r.URL.Path, r.Method).Add(1)
+				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted, route, r.Method).Add(1)
 			}
 			log.Debug(r.Context(), "interception ended")
 		}
 		asyncRecorder.RecordInterceptionEnded(r.Context(), &InterceptionRecordEnded{ID: interceptor.ID().String()})
+
+		if metrics != nil {
+			metrics.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Sub(1)
+		}
 
 		// Ensure all recording have completed before completing request.
 		asyncRecorder.Wait()
