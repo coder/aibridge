@@ -38,6 +38,10 @@ func (s *AnthropicMessagesStreamingInterception) Setup(logger slog.Logger, recor
 	s.AnthropicMessagesInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
+func (s *AnthropicMessagesStreamingInterception) Streaming() bool {
+	return true
+}
+
 // ProcessRequest handles a request to /v1/messages.
 // This API has a state-machine behind it, which is described in https://docs.claude.com/en/docs/build-with-claude/streaming#event-types.
 //

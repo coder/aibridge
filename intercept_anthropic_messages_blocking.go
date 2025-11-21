@@ -35,6 +35,10 @@ func (s *AnthropicMessagesBlockingInterception) Setup(logger slog.Logger, record
 	s.AnthropicMessagesInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
+func (s *AnthropicMessagesBlockingInterception) Streaming() bool {
+	return false
+}
+
 func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")

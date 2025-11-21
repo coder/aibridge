@@ -19,11 +19,12 @@ type Interceptor interface {
 	// Setup injects some required dependencies. This MUST be called before using the interceptor
 	// to process requests.
 	Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier)
-
 	// Model returns the model in use for this [Interceptor].
 	Model() string
 	// ProcessRequest handles the HTTP request.
 	ProcessRequest(w http.ResponseWriter, r *http.Request) error
+	// Specifies whether an interceptor handles streaming or not.
+	Streaming() bool
 }
 
 var UnknownRoute = errors.New("unknown route")
@@ -82,6 +83,7 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			slog.F("provider", p.Name()),
 			slog.F("interception_id", interceptor.ID()),
 			slog.F("user_agent", r.UserAgent()),
+			slog.F("streaming", interceptor.Streaming()),
 		)
 
 		log.Debug(r.Context(), "interception started")
@@ -91,12 +93,12 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 
 		if err := interceptor.ProcessRequest(w, r); err != nil {
 			if metrics != nil {
-				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed, route, r.Method).Add(1)
+				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed, route, r.Method, actor.id).Add(1)
 			}
 			log.Warn(r.Context(), "interception failed", slog.Error(err))
 		} else {
 			if metrics != nil {
-				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted, route, r.Method).Add(1)
+				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted, route, r.Method, actor.id).Add(1)
 			}
 			log.Debug(r.Context(), "interception ended")
 		}

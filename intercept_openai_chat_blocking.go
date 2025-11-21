@@ -35,6 +35,10 @@ func (s *OpenAIBlockingChatInterception) Setup(logger slog.Logger, recorder Reco
 	s.OpenAIChatInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
+func (s *OpenAIBlockingChatInterception) Streaming() bool {
+	return false
+}
+
 func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")

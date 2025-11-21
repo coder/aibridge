@@ -38,6 +38,10 @@ func (i *OpenAIStreamingChatInterception) Setup(logger slog.Logger, recorder Rec
 	i.OpenAIChatInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
+func (i *OpenAIStreamingChatInterception) Streaming() bool {
+	return true
+}
+
 // ProcessRequest handles a request to /v1/chat/completions.
 // See https://platform.openai.com/docs/api-reference/chat-streaming/streaming.
 //
