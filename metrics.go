@@ -37,24 +37,24 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	return &Metrics{
 		// Interception-related metrics.
 
-		// Estimated cardinality: 2 providers, 5 models, 2 statuses, 2 routes, 3 methods = up to 120 PER INITIATOR.
+		// Pessimistic cardinality: 2 providers, 5 models, 2 statuses, 2 routes, 3 methods = up to 120 PER INITIATOR.
 		InterceptionCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "interceptions",
 			Name:      "total",
 			Help:      "The count of intercepted requests.",
 		}, append(baseLabels, "status", "route", "method", "initiator_id")),
-		// Estimated cardinality: 2 providers, 5 models, 2 routes = up to 20.
+		// Pessimistic cardinality: 2 providers, 5 models, 2 routes = up to 20.
 		// NOTE: route is not unbounded because this is only for intercepted routes.
 		InterceptionsInflight: promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 			Subsystem: "interceptions",
 			Name:      "inflight",
 			Help:      "The number of intercepted requests which are being processed.",
 		}, append(baseLabels, "route")),
-		// Estimated cardinality: 2 providers, 5 models, 7 buckets + 3 extra series (count, sum, +Inf) = up to 100.
+		// Pessimistic cardinality: 2 providers, 5 models, 7 buckets + 3 extra series (count, sum, +Inf) = up to 100.
 		InterceptionDuration: promauto.With(reg).NewHistogramVec(prometheus.HistogramOpts{
 			Subsystem: "interceptions",
-			Name:      "duration",
-			Help: "The total duration of intercepted requests. " +
+			Name:      "duration_seconds",
+			Help: "The total duration of intercepted requests, in seconds. " +
 				"The majority of this time will be the upstream processing of the request. " +
 				"aibridge has no control over upstream processing time, so it's just an illustrative metric.",
 			// TODO: add docs around determining aibridge's *own* latency with distributed traces
@@ -62,7 +62,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Buckets: []float64{0.5, 2, 5, 15, 30, 60, 120},
 		}, baseLabels),
 
-		// Estimated cardinality: 2 providers, 10 routes, 3 methods = up to 60.
+		// Pessimistic cardinality: 2 providers, 10 routes, 3 methods = up to 60.
 		// NOTE: route is not unbounded because PassthroughRoutes (see provider.go) is a static list.
 		PassthroughCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "passthrough",
@@ -72,7 +72,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 
 		// Prompt-related metrics.
 
-		// Estimated cardinality: 2 providers, 5 models = up to 10 PER INITIATOR.
+		// Pessimistic cardinality: 2 providers, 5 models = up to 10 PER INITIATOR.
 		PromptCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "prompts",
 			Name:      "total",
@@ -81,26 +81,26 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 
 		// Token-related metrics.
 
-		// Estimated cardinality: 2 providers, 5 models, 10 types = up to 100 PER INITIATOR.
+		// Pessimistic cardinality: 2 providers, 5 models, 10 types = up to 100 PER INITIATOR.
 		TokenUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
-			Subsystem: "token_usage",
+			Subsystem: "tokens",
 			Name:      "total",
 			Help:      "The number of tokens used by intercepted requests.",
 		}, append(baseLabels, "type", "initiator_id")),
 
 		// Tool-related metrics.
 
-		// Estimated cardinality: 2 providers, 5 models, 3 servers, 30 tools = up to 900 PER INITIATOR.
+		// Pessimistic cardinality: 2 providers, 5 models, 3 servers, 30 tools = up to 900 PER INITIATOR.
 		InjectedToolUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
-			Subsystem: "injected_tool_usage",
+			Subsystem: "injected_tool_invocations",
 			Name:      "total",
 			Help:      "The number of times an injected MCP tool was invoked by aibridge.",
 		}, append(baseLabels, "server", "name", "initiator_id")),
-		// Estimated cardinality: 2 providers, 5 models, 30 tools = up to 300 PER INITIATOR.
+		// Pessimistic cardinality: 2 providers, 5 models, 30 tools = up to 300 PER INITIATOR.
 		NonInjectedToolUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
-			Subsystem: "non_injected_tool_usage",
+			Subsystem: "non_injected_tool_selections",
 			Name:      "total",
-			Help:      "The number of times an AI model determined a tool must be invoked by the client.",
+			Help:      "The number of times an AI model selected a tool to be invoked by the client.",
 		}, append(baseLabels, "name", "initiator_id")),
 	}
 }

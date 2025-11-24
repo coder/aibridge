@@ -25,6 +25,9 @@ type TokenUsageRecord struct {
 	InterceptionID  string
 	MsgID           string
 	Input, Output   int64
+	// ExtraTokenTypes holds token types which *may* exist over and above input/output.
+	// These should ultimately get merged into [Metadata], but it's useful to keep these
+	// with their actual type (int64) since [Metadata] is a map[string]any.
 	ExtraTokenTypes map[string]int64
 	Metadata        Metadata
 	CreatedAt       time.Time
