@@ -208,7 +208,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	_, _ = io.ReadAll(resp.Body)
 
 	count := promtest.ToFloat64(metrics.NonInjectedToolUseCount.WithLabelValues(
-		aibridge.ProviderOpenAI, "gpt-4.1", "read_file", userID))
+		aibridge.ProviderOpenAI, "gpt-4.1", "read_file"))
 	require.Equal(t, 1.0, count)
 }
 
@@ -268,7 +268,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	actualServerURL := *recorder.toolUsages[0].ServerURL
 
 	count := promtest.ToFloat64(metrics.InjectedToolUseCount.WithLabelValues(
-		aibridge.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName, userID))
+		aibridge.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName))
 	require.Equal(t, 1.0, count)
 }
 

@@ -90,17 +90,17 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 
 		// Tool-related metrics.
 
-		// Pessimistic cardinality: 2 providers, 5 models, 3 servers, 30 tools = up to 900 PER INITIATOR.
+		// Pessimistic cardinality: 2 providers, 5 models, 3 servers, 30 tools = up to 900.
 		InjectedToolUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "injected_tool_invocations",
 			Name:      "total",
 			Help:      "The number of times an injected MCP tool was invoked by aibridge.",
-		}, append(baseLabels, "server", "name", "initiator_id")),
-		// Pessimistic cardinality: 2 providers, 5 models, 30 tools = up to 300 PER INITIATOR.
+		}, append(baseLabels, "server", "name")),
+		// Pessimistic cardinality: 2 providers, 5 models, 30 tools = up to 300.
 		NonInjectedToolUseCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "non_injected_tool_selections",
 			Name:      "total",
 			Help:      "The number of times an AI model selected a tool to be invoked by the client.",
-		}, append(baseLabels, "name", "initiator_id")),
+		}, append(baseLabels, "name")),
 	}
 }

@@ -215,9 +215,9 @@ func (a *AsyncRecorder) RecordToolUsage(_ context.Context, req *ToolUsageRecord)
 				if req.ServerURL != nil {
 					srvURL = *req.ServerURL
 				}
-				a.metrics.InjectedToolUseCount.WithLabelValues(a.provider, a.model, srvURL, req.Tool, a.initiatorID).Add(1)
+				a.metrics.InjectedToolUseCount.WithLabelValues(a.provider, a.model, srvURL, req.Tool).Add(1)
 			} else {
-				a.metrics.NonInjectedToolUseCount.WithLabelValues(a.provider, a.model, req.Tool, a.initiatorID).Add(1)
+				a.metrics.NonInjectedToolUseCount.WithLabelValues(a.provider, a.model, req.Tool).Add(1)
 			}
 		}
 	}()
