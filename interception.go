@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"cdr.dev/slog"
@@ -18,11 +19,12 @@ type Interceptor interface {
 	// Setup injects some required dependencies. This MUST be called before using the interceptor
 	// to process requests.
 	Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier)
-
 	// Model returns the model in use for this [Interceptor].
 	Model() string
 	// ProcessRequest handles the HTTP request.
 	ProcessRequest(w http.ResponseWriter, r *http.Request) error
+	// Specifies whether an interceptor handles streaming or not.
+	Streaming() bool
 }
 
 var UnknownRoute = errors.New("unknown route")
@@ -32,7 +34,7 @@ const recordingTimeout = time.Second * 5
 
 // newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
 // using [Provider] p, recording all usage events using [Recorder] recorder.
-func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) http.HandlerFunc {
+func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier, metrics *Metrics) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		interceptor, err := p.CreateInterceptor(w, r)
 		if err != nil {
@@ -41,9 +43,12 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			return
 		}
 
-		// Record usage in the background to not block request flow.
-		asyncRecorder := NewAsyncRecorder(logger, recorder, recordingTimeout)
-		interceptor.Setup(logger, asyncRecorder, mcpProxy)
+		if metrics != nil {
+			start := time.Now()
+			defer func() {
+				metrics.InterceptionDuration.WithLabelValues(p.Name(), interceptor.Model()).Observe(time.Since(start).Seconds())
+			}()
+		}
 
 		actor := actorFromContext(r.Context())
 		if actor == nil {
@@ -51,6 +56,14 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			http.Error(w, "no actor found", http.StatusBadRequest)
 			return
 		}
+
+		// Record usage in the background to not block request flow.
+		asyncRecorder := NewAsyncRecorder(logger, recorder, recordingTimeout)
+		asyncRecorder.WithMetrics(metrics)
+		asyncRecorder.WithProvider(p.Name())
+		asyncRecorder.WithModel(interceptor.Model())
+		asyncRecorder.WithInitiatorID(actor.id)
+		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
 		if err := recorder.RecordInterception(r.Context(), &InterceptionRecord{
 			ID:          interceptor.ID().String(),
@@ -64,20 +77,36 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			return
 		}
 
+		route := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", p.Name()))
 		log := logger.With(
-			slog.F("route", r.URL.Path),
+			slog.F("route", route),
 			slog.F("provider", p.Name()),
 			slog.F("interception_id", interceptor.ID()),
 			slog.F("user_agent", r.UserAgent()),
+			slog.F("streaming", interceptor.Streaming()),
 		)
 
 		log.Debug(r.Context(), "interception started")
+		if metrics != nil {
+			metrics.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Add(1)
+		}
+
 		if err := interceptor.ProcessRequest(w, r); err != nil {
+			if metrics != nil {
+				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed, route, r.Method, actor.id).Add(1)
+			}
 			log.Warn(r.Context(), "interception failed", slog.Error(err))
 		} else {
+			if metrics != nil {
+				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted, route, r.Method, actor.id).Add(1)
+			}
 			log.Debug(r.Context(), "interception ended")
 		}
 		asyncRecorder.RecordInterceptionEnded(r.Context(), &InterceptionRecordEnded{ID: interceptor.ID().String()})
+
+		if metrics != nil {
+			metrics.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Sub(1)
+		}
 
 		// Ensure all recording have completed before completing request.
 		asyncRecorder.Wait()

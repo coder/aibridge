@@ -12,8 +12,12 @@ import (
 
 // newPassthroughRouter returns a simple reverse-proxy implementation which will be used when a route is not handled specifically
 // by a [Provider].
-func newPassthroughRouter(provider Provider, logger slog.Logger) http.HandlerFunc {
+func newPassthroughRouter(provider Provider, logger slog.Logger, metrics *Metrics) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if metrics != nil {
+			metrics.PassthroughCount.WithLabelValues(provider.Name(), r.URL.Path, r.Method).Add(1)
+		}
+
 		upURL, err := url.Parse(provider.BaseURL())
 		if err != nil {
 			logger.Warn(r.Context(), "failed to parse provider base URL", slog.Error(err))

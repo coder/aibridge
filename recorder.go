@@ -104,12 +104,31 @@ type AsyncRecorder struct {
 	logger  slog.Logger
 	wrapped Recorder
 	timeout time.Duration
+	metrics *Metrics
+
+	provider, model, initiatorID string
 
 	wg sync.WaitGroup
 }
 
 func NewAsyncRecorder(logger slog.Logger, wrapped Recorder, timeout time.Duration) *AsyncRecorder {
 	return &AsyncRecorder{logger: logger, wrapped: wrapped, timeout: timeout}
+}
+
+func (a *AsyncRecorder) WithMetrics(metrics *Metrics) {
+	a.metrics = metrics
+}
+
+func (a *AsyncRecorder) WithProvider(provider string) {
+	a.provider = provider
+}
+
+func (a *AsyncRecorder) WithModel(model string) {
+	a.model = model
+}
+
+func (a *AsyncRecorder) WithInitiatorID(initiatorID string) {
+	a.initiatorID = initiatorID
 }
 
 // RecordInterception must NOT be called asynchronously.
@@ -145,6 +164,10 @@ func (a *AsyncRecorder) RecordPromptUsage(_ context.Context, req *PromptUsageRec
 		if err != nil {
 			a.logger.Warn(timedCtx, "failed to record usage", slog.F("type", "prompt"), slog.Error(err), slog.F("payload", req))
 		}
+
+		if a.metrics != nil && req.Prompt != "" { // TODO: will be irrelevant once https://github.com/coder/aibridge/issues/55 is fixed.
+			a.metrics.PromptCount.WithLabelValues(a.provider, a.model, a.initiatorID).Add(1)
+		}
 	}()
 
 	return nil // Caller is not interested in error.
@@ -161,6 +184,14 @@ func (a *AsyncRecorder) RecordTokenUsage(_ context.Context, req *TokenUsageRecor
 		if err != nil {
 			a.logger.Warn(timedCtx, "failed to record usage", slog.F("type", "token"), slog.Error(err), slog.F("payload", req))
 		}
+
+		if a.metrics != nil {
+			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "input", a.initiatorID).Add(float64(req.Input))
+			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "output", a.initiatorID).Add(float64(req.Output))
+			for k, v := range req.ExtraTokenTypes {
+				a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, k, a.initiatorID).Add(float64(v))
+			}
+		}
 	}()
 
 	return nil // Caller is not interested in error.
@@ -176,6 +207,18 @@ func (a *AsyncRecorder) RecordToolUsage(_ context.Context, req *ToolUsageRecord)
 		err := a.wrapped.RecordToolUsage(timedCtx, req)
 		if err != nil {
 			a.logger.Warn(timedCtx, "failed to record usage", slog.F("type", "tool"), slog.Error(err), slog.F("payload", req))
+		}
+
+		if a.metrics != nil {
+			if req.Injected {
+				var srvURL string
+				if req.ServerURL != nil {
+					srvURL = *req.ServerURL
+				}
+				a.metrics.InjectedToolUseCount.WithLabelValues(a.provider, a.model, srvURL, req.Tool).Add(1)
+			} else {
+				a.metrics.NonInjectedToolUseCount.WithLabelValues(a.provider, a.model, req.Tool).Add(1)
+			}
 		}
 	}()
 

@@ -35,6 +35,10 @@ func (s *AnthropicMessagesBlockingInterception) Setup(logger slog.Logger, record
 	s.AnthropicMessagesInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
+func (s *AnthropicMessagesBlockingInterception) Streaming() bool {
+	return false
+}
+
 func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
@@ -103,7 +107,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 			MsgID:          resp.ID,
 			Input:          resp.Usage.InputTokens,
 			Output:         resp.Usage.OutputTokens,
-			Metadata: Metadata{
+			ExtraTokenTypes: map[string]int64{
 				"web_search_requests":      resp.Usage.ServerToolUse.WebSearchRequests,
 				"cache_creation_input":     resp.Usage.CacheCreationInputTokens,
 				"cache_read_input":         resp.Usage.CacheReadInputTokens,
