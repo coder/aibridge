@@ -37,6 +37,10 @@ func TraceInterceptionAttributesFromContext(ctx context.Context) []attribute.Key
 }
 
 func EndSpanErr(span trace.Span, err *error) {
+	if span == nil {
+		return
+	}
+
 	if err != nil && *err != nil {
 		span.SetStatus(codes.Error, (*err).Error())
 	}

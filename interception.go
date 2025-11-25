@@ -30,8 +30,7 @@ type Interceptor interface {
 	ProcessRequest(w http.ResponseWriter, r *http.Request) error
 	// Specifies whether an interceptor handles streaming or not.
 	Streaming() bool
-
-	// TraceAttributes returns tacing attributes for this [Inteceptor]
+	// TraceAttributes returns tracing attributes for this [Interceptor]
 	TraceAttributes(context.Context) []attribute.KeyValue
 }
 
