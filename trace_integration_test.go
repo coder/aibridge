@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/aibtrace"
+	"github.com/coder/aibridge/mcp"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
@@ -47,15 +48,18 @@ func TestTraceAnthropic(t *testing.T) {
 		streaming         bool
 		bedrock           bool
 		expectTraceCounts []expectTrace
+		expectSpanCount   int
 	}{
 		{
 			name:              "trace_anthr_non_streaming",
 			expectTraceCounts: expectNonStreaming,
+			expectSpanCount:   9,
 		},
 		{
 			name:              "trace_bedrock_non_streaming",
 			bedrock:           true,
 			expectTraceCounts: expectNonStreaming,
+			expectSpanCount:   9,
 		},
 		{
 			name:      "trace_anthr_streaming",
@@ -71,6 +75,7 @@ func TestTraceAnthropic(t *testing.T) {
 				{"Intercept.RecordToolUsage", 1, codes.Unset},
 				{"Intercept.ProcessRequest.Upstream", 9, codes.Unset},
 			},
+			expectSpanCount: 18,
 		},
 		{
 			name:      "trace_bedrock_streaming",
@@ -85,6 +90,7 @@ func TestTraceAnthropic(t *testing.T) {
 				{"Intercept.RecordPromptUsage", 1, codes.Unset},
 				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
 			},
+			expectSpanCount: 7,
 		},
 	}
 
@@ -151,16 +157,18 @@ func TestTraceAnthropic(t *testing.T) {
 				attribute.Bool(aibtrace.IsBedrock, tc.bedrock),
 			}
 
-			verifyCommonTraceAttrs(t, sr, tc.expectTraceCounts, attrs)
+			require.Len(t, sr.Ended(), tc.expectSpanCount)
+			verifyTraces(t, sr, tc.expectTraceCounts, attrs)
 		})
 	}
 }
 
 func TestTraceAnthropicErr(t *testing.T) {
 	cases := []struct {
-		name      string
-		streaming bool
-		expect    []expectTrace
+		name            string
+		streaming       bool
+		expect          []expectTrace
+		expectSpanCount int
 	}{
 		{
 			name: "trace_anthr_non_streaming_err",
@@ -172,6 +180,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
 				{"Intercept.ProcessRequest.Upstream", 1, codes.Error},
 			},
+			expectSpanCount: 6,
 		},
 		{
 			name:      "trace_anthr_streaming_err",
@@ -186,6 +195,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
 				{"Intercept.ProcessRequest.Upstream", 3, codes.Unset},
 			},
+			expectSpanCount: 10,
 		},
 	}
 
@@ -249,17 +259,19 @@ func TestTraceAnthropicErr(t *testing.T) {
 				attribute.Bool(aibtrace.IsBedrock, false),
 			}
 
-			verifyCommonTraceAttrs(t, sr, tc.expect, attrs)
+			require.Len(t, sr.Ended(), tc.expectSpanCount)
+			verifyTraces(t, sr, tc.expect, attrs)
 		})
 	}
 }
 
 func TestTraceOpenAI(t *testing.T) {
 	cases := []struct {
-		name      string
-		fixture   []byte
-		streaming bool
-		expect    []expectTrace
+		name            string
+		fixture         []byte
+		streaming       bool
+		expect          []expectTrace
+		expectSpanCount int
 	}{
 		{
 			name:      "trace_openai_streaming",
@@ -275,6 +287,7 @@ func TestTraceOpenAI(t *testing.T) {
 				{"Intercept.RecordTokenUsage", 1, codes.Unset},
 				{"Intercept.ProcessRequest.Upstream", 242, codes.Unset},
 			},
+			expectSpanCount: 249,
 		},
 		{
 			name:      "trace_openai_non_streaming",
@@ -290,6 +303,7 @@ func TestTraceOpenAI(t *testing.T) {
 				{"Intercept.RecordTokenUsage", 1, codes.Unset},
 				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
 			},
+			expectSpanCount: 8,
 		},
 	}
 
@@ -339,16 +353,18 @@ func TestTraceOpenAI(t *testing.T) {
 				attribute.Bool(aibtrace.Streaming, tc.streaming),
 			}
 
-			verifyCommonTraceAttrs(t, sr, tc.expect, attrs)
+			require.Len(t, sr.Ended(), tc.expectSpanCount)
+			verifyTraces(t, sr, tc.expect, attrs)
 		})
 	}
 }
 
 func TestTraceOpenAIErr(t *testing.T) {
 	cases := []struct {
-		name      string
-		streaming bool
-		expect    []expectTrace
+		name            string
+		streaming       bool
+		expect          []expectTrace
+		expectSpanCount int
 	}{
 		{
 			name:      "trace_openai_streaming_err",
@@ -362,6 +378,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 				{"Intercept.RecordPromptUsage", 1, codes.Unset},
 				{"Intercept.ProcessRequest.Upstream", 5, codes.Unset},
 			},
+			expectSpanCount: 11,
 		},
 		{
 			name:      "trace_openai_non_streaming_err",
@@ -374,6 +391,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
 				{"Intercept.ProcessRequest.Upstream", 1, codes.Error},
 			},
+			expectSpanCount: 6,
 		},
 	}
 
@@ -435,7 +453,8 @@ func TestTraceOpenAIErr(t *testing.T) {
 				attribute.Bool(aibtrace.Streaming, tc.streaming),
 			}
 
-			verifyCommonTraceAttrs(t, sr, tc.expect, attrs)
+			require.Len(t, sr.Ended(), tc.expectSpanCount)
+			verifyTraces(t, sr, tc.expect, attrs)
 		})
 	}
 }
@@ -471,7 +490,8 @@ func TestTracePassthrough(t *testing.T) {
 	srv.Close()
 
 	spans := sr.Ended()
-	require.Equal(t, len(spans), 1)
+	require.Len(t, spans, 1)
+
 	assert.Equal(t, spans[0].Name(), "Passthrough")
 	attrs := []attribute.KeyValue{
 		attribute.String(aibtrace.PassthroughURL, "/v1/models"),
@@ -482,18 +502,36 @@ func TestTracePassthrough(t *testing.T) {
 	}
 }
 
+func TestNewServerProxyManagerTraces(t *testing.T) {
+	ctx := t.Context()
+
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	tracer := tp.Tracer(t.Name())
+	defer func() { _ = tp.Shutdown(t.Context()) }()
+
+	tools := setupMCPServerProxiesForTest(t)
+	mcpMgr := mcp.NewServerProxyManager(tools, tracer)
+	err := mcpMgr.Init(ctx)
+	require.NoError(t, err)
+
+	require.Len(t, sr.Ended(), 2)
+	verifyTraces(t, sr, []expectTrace{{"ServerProxyManager.Init", 1, codes.Unset}}, []attribute.KeyValue{})
+
+	for name := range tools {
+		tc := []expectTrace{{"ServerProxyManager.Init.Proxy", 1, codes.Unset}}
+		a := []attribute.KeyValue{attribute.String(aibtrace.MCPProxyName, name)}
+		verifyTraces(t, sr, tc, a)
+	}
+}
+
 func cmpAttrKeyVal(a attribute.KeyValue, b attribute.KeyValue) bool {
 	return a.Key < b.Key
 }
 
-func verifyCommonTraceAttrs(t *testing.T, spanRecorder *tracetest.SpanRecorder, expect []expectTrace, attrs []attribute.KeyValue) {
+// checks counts of traces with given name, status and attributes
+func verifyTraces(t *testing.T, spanRecorder *tracetest.SpanRecorder, expect []expectTrace, attrs []attribute.KeyValue) {
 	spans := spanRecorder.Ended()
-
-	totalCount := 0
-	for _, e := range expect {
-		totalCount += e.count
-	}
-	assert.Equal(t, totalCount, len(spans))
 
 	for _, e := range expect {
 		found := 0
@@ -502,7 +540,7 @@ func verifyCommonTraceAttrs(t *testing.T, spanRecorder *tracetest.SpanRecorder, 
 				continue
 			}
 			found++
-			if attrDiff := cmp.Diff(s.Attributes(), attrs, cmpopts.EquateComparable(attribute.KeyValue{}), cmpopts.SortSlices(cmpAttrKeyVal)); attrDiff != "" {
+			if attrDiff := cmp.Diff(s.Attributes(), attrs, cmpopts.EquateEmpty(), cmpopts.EquateComparable(attribute.KeyValue{}), cmpopts.SortSlices(cmpAttrKeyVal)); attrDiff != "" {
 				t.Errorf("unexpectet attrs for span named: %v, diff: %s", e.name, attrDiff)
 			}
 			assert.Equalf(t, e.status, s.Status().Code, "unexpected status for trace naned: %v got: %v want: %v", e.name, s.Status().Code, e.status)

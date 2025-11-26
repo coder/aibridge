@@ -18,6 +18,7 @@ const (
 	Model             = "model"
 	Streaming         = "streaming"
 	IsBedrock         = "aws_bedrock"
+	MCPProxyName      = "mcp_proxy_name"
 	MCPToolName       = "mcp_tool_name"
 	PassthroughURL    = "passthrough_url"
 	PassthroughMethod = "passthrough_method"

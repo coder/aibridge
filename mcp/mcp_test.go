@@ -13,6 +13,7 @@ import (
 
 	"cdr.dev/slog"
 	"cdr.dev/slog/sloggers/slogtest"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/goleak"
 
 	"github.com/coder/aibridge/mcp"
@@ -324,7 +325,7 @@ func TestToolInjectionOrder(t *testing.T) {
 	mgr := mcp.NewServerProxyManager(map[string]mcp.ServerProxier{
 		"coder":   proxy,
 		"shmoder": proxy2,
-	})
+	}, otel.GetTracerProvider().Tracer("test"))
 	require.NoError(t, mgr.Init(ctx))
 
 	// Then: the tools from both servers should be collectively sorted stably.

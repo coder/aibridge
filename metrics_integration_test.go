@@ -238,7 +238,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 
 	// Setup mocked MCP server & tools.
 	tools := setupMCPServerProxiesForTest(t)
-	mcpMgr := mcp.NewServerProxyManager(tools)
+	mcpMgr := mcp.NewServerProxyManager(tools, defaultTracer)
 	require.NoError(t, mcpMgr.Init(ctx))
 
 	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mcpMgr, metrics, defaultTracer, logger)
@@ -283,7 +283,7 @@ func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, m
 	}
 	wrappedRecorder := aibridge.NewRecorder(logger, tracer, clientFn)
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, mcp.NewServerProxyManager(nil), metrics, tracer, logger)
+	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, mcp.NewServerProxyManager(nil, defaultTracer), metrics, tracer, logger)
 	require.NoError(t, err)
 
 	srv := httptest.NewUnstartedServer(bridge)
