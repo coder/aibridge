@@ -165,7 +165,7 @@ func (a *AsyncRecorder) RecordInterceptionEnded(ctx context.Context, req *Interc
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		timedCtx, cancel := a.timedContext(ctx)
+		timedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.timeout)
 		defer cancel()
 
 		err := a.wrapped.RecordInterceptionEnded(timedCtx, req)
@@ -181,7 +181,7 @@ func (a *AsyncRecorder) RecordPromptUsage(ctx context.Context, req *PromptUsageR
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		timedCtx, cancel := a.timedContext(ctx)
+		timedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.timeout)
 		defer cancel()
 
 		err := a.wrapped.RecordPromptUsage(timedCtx, req)
@@ -201,7 +201,7 @@ func (a *AsyncRecorder) RecordTokenUsage(ctx context.Context, req *TokenUsageRec
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		timedCtx, cancel := a.timedContext(ctx)
+		timedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.timeout)
 		defer cancel()
 
 		err := a.wrapped.RecordTokenUsage(timedCtx, req)
@@ -225,7 +225,7 @@ func (a *AsyncRecorder) RecordToolUsage(ctx context.Context, req *ToolUsageRecor
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
-		timedCtx, cancel := a.timedContext(ctx)
+		timedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.timeout)
 		defer cancel()
 
 		err := a.wrapped.RecordToolUsage(timedCtx, req)
@@ -251,11 +251,4 @@ func (a *AsyncRecorder) RecordToolUsage(ctx context.Context, req *ToolUsageRecor
 
 func (a *AsyncRecorder) Wait() {
 	a.wg.Wait()
-}
-
-// returns detrached context with tracing information copied from provided context
-func (a *AsyncRecorder) timedContext(ctx context.Context) (context.Context, context.CancelFunc) {
-	timedCtx, cancel := context.WithTimeout(context.Background(), a.timeout)
-	timedCtx = aibtrace.WithTraceInterceptionAttributesInContext(timedCtx, aibtrace.TraceInterceptionAttributesFromContext(ctx))
-	return timedCtx, cancel
 }
