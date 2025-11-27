@@ -8,8 +8,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-type traceInterceptionAttrsContextKey struct{}
-type traceRequestBridgeAttrsContextKey struct{}
+type (
+	traceInterceptionAttrsContextKey  struct{}
+	traceRequestBridgeAttrsContextKey struct{}
+)
 
 const (
 	// trace attribute key constants
