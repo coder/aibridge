@@ -15,11 +15,11 @@ type SQLiteRecorder struct {
 	db     *sql.DB
 	logger slog.Logger
 
-	stmtInsertInterception    *sql.Stmt
-	stmtUpdateInterception    *sql.Stmt
-	stmtInsertTokenUsage      *sql.Stmt
-	stmtInsertPromptUsage     *sql.Stmt
-	stmtInsertToolUsage       *sql.Stmt
+	stmtInsertInterception *sql.Stmt
+	stmtUpdateInterception *sql.Stmt
+	stmtInsertTokenUsage   *sql.Stmt
+	stmtInsertPromptUsage  *sql.Stmt
+	stmtInsertToolUsage    *sql.Stmt
 }
 
 func NewSQLiteRecorder(db *sql.DB, logger slog.Logger) (*SQLiteRecorder, error) {
