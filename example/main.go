@@ -56,11 +56,11 @@ func main() {
 	var mcpProxy mcp.ServerProxier
 	deepwikiProxy, err := mcp.NewStreamableHTTPServerProxy(
 		logger.Named("mcp.deepwiki"),
-		"deepwiki",                     // server name (tools prefixed as bmcp_deepwiki_*)
-		"https://mcp.deepwiki.com/mcp", // no auth required for public repos
-		nil,                            // headers
+		"deepwiki",                           // server name (tools prefixed as bmcp_deepwiki_*)
+		"https://mcp.deepwiki.com/mcp",       // no auth required for public repos
+		nil,                                  // headers
 		regexp.MustCompile(`^ask_question$`), // allowlist: only ask_question tool
-		nil,                            // denylist
+		nil,                                  // denylist
 	)
 	if err != nil {
 		log.Fatalf("create deepwiki mcp proxy: %v", err)
