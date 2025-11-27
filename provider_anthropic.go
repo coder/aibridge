@@ -84,7 +84,7 @@ func (p *AnthropicProvider) CreateInterceptor(tracer trace.Tracer, w http.Respon
 		} else {
 			interceptor = NewAnthropicMessagesBlockingInterception(id, &req, p.cfg, p.bedrockCfg, tracer)
 		}
-		span.SetAttributes(interceptor.TraceAttributes(r.Context())...)
+		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
 	}
 

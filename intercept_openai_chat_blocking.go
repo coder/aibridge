@@ -44,8 +44,8 @@ func (s *OpenAIBlockingChatInterception) Streaming() bool {
 	return false
 }
 
-func (s *OpenAIBlockingChatInterception) TraceAttributes(ctx context.Context) []attribute.KeyValue {
-	return s.OpenAIChatInterceptionBase.baseTraceAttributes(ctx, false)
+func (s *OpenAIBlockingChatInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return s.OpenAIChatInterceptionBase.baseTraceAttributes(r, false)
 }
 
 func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
@@ -53,7 +53,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(r.Context())...))
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
 	defer aibtrace.EndSpanErr(span, &outErr)
 
 	svc := i.newCompletionsService(i.baseURL, i.key)
@@ -73,10 +73,11 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	}
 
 	for {
+		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
 		var opts []option.RequestOption
 		opts = append(opts, option.WithRequestTimeout(time.Second*60)) // TODO: configurable timeout
 
-		completion, err = i.traceChatCompletionsNew(ctx, svc, opts) // traces svc.New call
+		completion, err = i.traceChatCompletionsNew(ctx, svc, opts) // traces svc.New(ctx, i.req.ChatCompletionNewParams, opts...) call
 		if err != nil {
 			break
 		}
@@ -239,9 +240,9 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	return nil
 }
 
-func (i *OpenAIBlockingChatInterception) traceChatCompletionsNew(ctx context.Context, client openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {
-	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+func (i *OpenAIBlockingChatInterception) traceChatCompletionsNew(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {
+	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
 	defer aibtrace.EndSpanErr(span, &outErr)
 
-	return client.New(ctx, i.req.ChatCompletionNewParams, opts...)
+	return svc.New(ctx, i.req.ChatCompletionNewParams, opts...)
 }

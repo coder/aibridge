@@ -47,8 +47,8 @@ func (s *AnthropicMessagesStreamingInterception) Streaming() bool {
 	return true
 }
 
-func (s *AnthropicMessagesStreamingInterception) TraceAttributes(ctx context.Context) []attribute.KeyValue {
-	return s.AnthropicMessagesInterceptionBase.baseTraceAttributes(ctx, true)
+func (s *AnthropicMessagesStreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return s.AnthropicMessagesInterceptionBase.baseTraceAttributes(r, true)
 }
 
 // ProcessRequest handles a request to /v1/messages.
@@ -75,7 +75,7 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(r.Context())...))
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
 	defer aibtrace.EndSpanErr(span, &outErr)
 
 	// Allow us to interrupt watch via cancel.
@@ -129,19 +129,20 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 	isFirst := true
 newStream:
 	for {
+		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
 		if err := streamCtx.Err(); err != nil {
 			lastErr = fmt.Errorf("stream exit: %w", err)
 			break
 		}
 
-		stream := svc.NewStreaming(streamCtx, messages)
+		stream := i.traceNewStreaming(streamCtx, svc, messages) // traces svc.NewStreaming(streamCtx, messages)
 
 		var message anthropic.Message
 		var lastToolName string
 
 		pendingToolCalls := make(map[string]string)
 
-		for i.traceStreamNext(ctx, stream) { // traces stream.Next() call
+		for stream.Next() {
 			event := stream.Current()
 			if err := message.Accumulate(event); err != nil {
 				logger.Warn(ctx, "failed to accumulate streaming events", slog.Error(err), slog.F("event", event), slog.F("msg", message.RawJSON()))
@@ -521,9 +522,9 @@ func (s *AnthropicMessagesStreamingInterception) encodeForStream(payload []byte,
 	return buf.Bytes()
 }
 
-func (s *AnthropicMessagesStreamingInterception) traceStreamNext(ctx context.Context, stream *ssestream.Stream[anthropic.MessageStreamEventUnion]) bool {
-	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+func (s *AnthropicMessagesStreamingInterception) traceNewStreaming(ctx context.Context, svc anthropic.MessageService, messages anthropic.MessageNewParams) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
+	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
-	return stream.Next()
+	return svc.NewStreaming(ctx, messages)
 }

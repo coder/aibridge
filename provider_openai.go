@@ -85,7 +85,7 @@ func (p *OpenAIProvider) CreateInterceptor(tracer trace.Tracer, w http.ResponseW
 		} else {
 			interceptor = NewOpenAIBlockingChatInterception(id, &req, p.baseURL, p.key, tracer)
 		}
-		span.SetAttributes(interceptor.TraceAttributes(r.Context())...)
+		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
 	}
 

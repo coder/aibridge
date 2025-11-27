@@ -47,12 +47,13 @@ func (i *OpenAIChatInterceptionBase) Setup(logger slog.Logger, recorder Recorder
 	i.mcpProxy = mcpProxy
 }
 
-func (s *OpenAIChatInterceptionBase) baseTraceAttributes(ctx context.Context, streaming bool) []attribute.KeyValue {
+func (s *OpenAIChatInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String(aibtrace.Provider, ProviderOpenAI),
+		attribute.String(aibtrace.RequestPath, r.URL.Path),
 		attribute.String(aibtrace.InterceptionID, s.id.String()),
+		attribute.String(aibtrace.UserID, actorFromContext(r.Context()).id),
+		attribute.String(aibtrace.Provider, ProviderOpenAI),
 		attribute.String(aibtrace.Model, s.Model()),
-		attribute.String(aibtrace.UserID, actorFromContext(ctx).id),
 		attribute.Bool(aibtrace.Streaming, streaming),
 	}
 }

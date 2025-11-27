@@ -63,12 +63,13 @@ func (i *AnthropicMessagesInterceptionBase) Model() string {
 	return string(i.req.Model)
 }
 
-func (s *AnthropicMessagesInterceptionBase) baseTraceAttributes(ctx context.Context, streaming bool) []attribute.KeyValue {
+func (s *AnthropicMessagesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String(aibtrace.Provider, ProviderAnthropic),
+		attribute.String(aibtrace.RequestPath, r.URL.Path),
 		attribute.String(aibtrace.InterceptionID, s.id.String()),
+		attribute.String(aibtrace.UserID, actorFromContext(r.Context()).id),
+		attribute.String(aibtrace.Provider, ProviderAnthropic),
 		attribute.String(aibtrace.Model, s.Model()),
-		attribute.String(aibtrace.UserID, actorFromContext(ctx).id),
 		attribute.Bool(aibtrace.Streaming, streaming),
 		attribute.Bool(aibtrace.IsBedrock, s.bedrockCfg != nil),
 	}

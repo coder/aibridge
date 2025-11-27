@@ -46,8 +46,8 @@ func (i *OpenAIStreamingChatInterception) Streaming() bool {
 	return true
 }
 
-func (s *OpenAIStreamingChatInterception) TraceAttributes(ctx context.Context) []attribute.KeyValue {
-	return s.OpenAIChatInterceptionBase.baseTraceAttributes(ctx, true)
+func (s *OpenAIStreamingChatInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return s.OpenAIChatInterceptionBase.baseTraceAttributes(r, true)
 }
 
 // ProcessRequest handles a request to /v1/chat/completions.
@@ -67,7 +67,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(r.Context())...))
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
 	defer aibtrace.EndSpanErr(span, &outErr)
 
 	// Include token usage.
@@ -115,12 +115,13 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		interceptionErr error
 	)
 	for {
-		stream = svc.NewStreaming(streamCtx, i.req.ChatCompletionNewParams)
+		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
+		stream = i.traceNewStreaming(streamCtx, svc) // traces svc.NewStreaming(streamCtx, i.req.ChatCompletionNewParams) call
 		processor := newStreamProcessor(streamCtx, i.logger.Named("stream-processor"), i.getInjectedToolByName)
 
 		var toolCall *openai.FinishedChatCompletionToolCall
 
-		for i.traceStreamNext(ctx, stream) { // traces stream.Next() call
+		for stream.Next() {
 			chunk := stream.Current()
 
 			canRelay := processor.process(chunk)
@@ -347,11 +348,11 @@ func (i *OpenAIStreamingChatInterception) encodeForStream(payload []byte) []byte
 	return buf.Bytes()
 }
 
-func (i *OpenAIStreamingChatInterception) traceStreamNext(ctx context.Context, stream *ssestream.Stream[openai.ChatCompletionChunk]) bool {
-	_, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+func (i *OpenAIStreamingChatInterception) traceNewStreaming(ctx context.Context, svc openai.ChatCompletionService) *ssestream.Stream[openai.ChatCompletionChunk] {
+	_, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
-	return stream.Next()
+	return svc.NewStreaming(ctx, i.req.ChatCompletionNewParams)
 }
 
 type openAIStreamProcessor struct {

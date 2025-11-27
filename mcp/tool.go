@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -14,6 +15,7 @@ import (
 )
 
 const (
+	maxSpanInputAttrLen   = 100
 	injectedToolPrefix    = "bmcp" // "bridged MCP"
 	injectedToolDelimiter = "_"
 )
@@ -35,6 +37,7 @@ type Tool struct {
 	Description string
 	Params      map[string]any
 	Required    []string
+	Logger      slog.Logger
 }
 
 func (t *Tool) Call(ctx context.Context, tracer trace.Tracer, input any) (_ *mcp.CallToolResult, outErr error) {
@@ -46,10 +49,22 @@ func (t *Tool) Call(ctx context.Context, tracer trace.Tracer, input any) (_ *mcp
 	}
 
 	spanAttrs := append(
-		aibtrace.TraceInterceptionAttributesFromContext(ctx),
-		attribute.String(aibtrace.MCPToolName, t.Name),
+		aibtrace.InterceptionAttributesFromContext(ctx),
+		attribute.String(aibtrace.MCPServerName, t.ServerName),
+		attribute.String(aibtrace.MCPServerURL, t.ServerURL),
 	)
-	ctx, span := tracer.Start(ctx, "Intercept.RecordInterception.ToolCall", trace.WithAttributes(spanAttrs...))
+	inputJson, err := json.Marshal(input)
+	if err != nil {
+		t.Logger.Warn(ctx, "failed to marshal tool input, will be omitted from span attrs: %v", err)
+	} else {
+		strJson := string(inputJson)
+		if len(strJson) > maxSpanInputAttrLen {
+			strJson = strJson[:100]
+		}
+		spanAttrs = append(spanAttrs, attribute.String(aibtrace.MCPInput, strJson))
+	}
+
+	ctx, span := tracer.Start(ctx, "Intercept.ProcessRequest.ToolCall", trace.WithAttributes(spanAttrs...))
 	defer aibtrace.EndSpanErr(span, &outErr)
 
 	return t.Client.CallTool(ctx, mcp.CallToolRequest{

@@ -1,7 +1,6 @@
 package aibridge
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -31,7 +30,7 @@ type Interceptor interface {
 	// Specifies whether an interceptor handles streaming or not.
 	Streaming() bool
 	// TraceAttributes returns tracing attributes for this [Interceptor]
-	TraceAttributes(context.Context) []attribute.KeyValue
+	TraceAttributes(*http.Request) []attribute.KeyValue
 }
 
 var UnknownRoute = errors.New("unknown route")
@@ -68,9 +67,9 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			return
 		}
 
-		traceAttrs := interceptor.TraceAttributes(ctx)
+		traceAttrs := interceptor.TraceAttributes(r)
 		span.SetAttributes(traceAttrs...)
-		ctx = aibtrace.WithTraceInterceptionAttributesInContext(ctx, traceAttrs)
+		ctx = aibtrace.WithInterceptionAttributesInContext(ctx, traceAttrs)
 		r = r.WithContext(ctx)
 
 		// Record usage in the background to not block request flow.

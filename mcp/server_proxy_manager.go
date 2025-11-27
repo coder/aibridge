@@ -10,7 +10,6 @@ import (
 	"github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/utils"
 	"github.com/mark3labs/mcp-go/mcp"
-	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -54,11 +53,8 @@ func (s *ServerProxyManager) Init(ctx context.Context) (outErr error) {
 	defer aibtrace.EndSpanErr(span, &outErr)
 
 	cg := utils.NewConcurrentGroup()
-	for name, proxy := range s.proxiers {
+	for _, proxy := range s.proxiers {
 		cg.Go(func() error {
-			ctx, span := s.tracer.Start(ctx, "ServerProxyManager.Init.Proxy", trace.WithAttributes(attribute.String(aibtrace.MCPProxyName, name)))
-			defer aibtrace.EndSpanErr(span, &outErr)
-
 			return proxy.Init(ctx)
 		})
 	}

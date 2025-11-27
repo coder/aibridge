@@ -49,7 +49,7 @@ func TestMetrics_Interception(t *testing.T) {
 
 		metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 		provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), nil)
-		srv, _ := newTestSrv(t, ctx, provider, metrics, defaultTracer)
+		srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
 		req := createAnthropicMessagesReq(t, srv.URL, files[fixtureRequest])
 		resp, err := http.DefaultClient.Do(req)
@@ -90,7 +90,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := aibridge.NewAnthropicProvider(anthropicCfg(srv.URL, apiKey), nil)
-	bridgeSrv, _ := newTestSrv(t, ctx, provider, metrics, defaultTracer)
+	bridgeSrv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
 	// Make request in background.
 	doneCh := make(chan struct{})
@@ -142,7 +142,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))
-	srv, _ := newTestSrv(t, t.Context(), provider, metrics, defaultTracer)
+	srv, _ := newTestSrv(t, t.Context(), provider, metrics, testTracer)
 
 	req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/openai/v1/models", nil)
 	require.NoError(t, err)
@@ -171,7 +171,7 @@ func TestMetrics_PromptCount(t *testing.T) {
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
-	srv, _ := newTestSrv(t, ctx, provider, metrics, defaultTracer)
+	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
 	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
 	resp, err := http.DefaultClient.Do(req)
@@ -199,7 +199,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
-	srv, _ := newTestSrv(t, ctx, provider, metrics, defaultTracer)
+	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
 	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
 	resp, err := http.DefaultClient.Do(req)
@@ -237,11 +237,11 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), nil)
 
 	// Setup mocked MCP server & tools.
-	tools := setupMCPServerProxiesForTest(t)
-	mcpMgr := mcp.NewServerProxyManager(tools, defaultTracer)
+	tools := setupMCPServerProxiesForTest(t, testTracer)
+	mcpMgr := mcp.NewServerProxyManager(tools, testTracer)
 	require.NoError(t, mcpMgr.Init(ctx))
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mcpMgr, metrics, defaultTracer, logger)
+	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mcpMgr, metrics, testTracer, logger)
 	require.NoError(t, err)
 
 	srv := httptest.NewUnstartedServer(bridge)
@@ -283,7 +283,7 @@ func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, m
 	}
 	wrappedRecorder := aibridge.NewRecorder(logger, tracer, clientFn)
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, mcp.NewServerProxyManager(nil, defaultTracer), metrics, tracer, logger)
+	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, mcp.NewServerProxyManager(nil, testTracer), metrics, tracer, logger)
 	require.NoError(t, err)
 
 	srv := httptest.NewUnstartedServer(bridge)

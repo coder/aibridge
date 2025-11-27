@@ -40,8 +40,8 @@ func (i *AnthropicMessagesBlockingInterception) Setup(logger slog.Logger, record
 	i.AnthropicMessagesInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
-func (i *AnthropicMessagesBlockingInterception) TraceAttributes(ctx context.Context) []attribute.KeyValue {
-	return i.AnthropicMessagesInterceptionBase.baseTraceAttributes(ctx, false)
+func (i *AnthropicMessagesBlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return i.AnthropicMessagesInterceptionBase.baseTraceAttributes(r, false)
 }
 
 func (s *AnthropicMessagesBlockingInterception) Streaming() bool {
@@ -53,7 +53,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(r.Context())...))
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
 	defer aibtrace.EndSpanErr(span, &outErr)
 
 	i.injectTools()
@@ -87,7 +87,8 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 	var cumulativeUsage anthropic.Usage
 
 	for {
-		resp, err = i.traceNewMessage(ctx, svc, messages) // traces client.Messages.New(ctx, msgParams) call
+		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
+		resp, err = i.traceNewMessage(ctx, svc, messages) // traces svc.New(ctx, msgParams) call
 		if err != nil {
 			if isConnError(err) {
 				// Can't write a response, just error out.
@@ -297,7 +298,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 }
 
 func (i *AnthropicMessagesBlockingInterception) traceNewMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {
-	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.TraceInterceptionAttributesFromContext(ctx)...))
+	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
 	defer aibtrace.EndSpanErr(span, &outErr)
 
 	return svc.New(ctx, msgParams)
