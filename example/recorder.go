@@ -14,13 +14,67 @@ import (
 type SQLiteRecorder struct {
 	db     *sql.DB
 	logger slog.Logger
+
+	stmtInsertInterception    *sql.Stmt
+	stmtUpdateInterception    *sql.Stmt
+	stmtInsertTokenUsage      *sql.Stmt
+	stmtInsertPromptUsage     *sql.Stmt
+	stmtInsertToolUsage       *sql.Stmt
+}
+
+func NewSQLiteRecorder(db *sql.DB, logger slog.Logger) (*SQLiteRecorder, error) {
+	r := &SQLiteRecorder{db: db, logger: logger}
+
+	var err error
+	r.stmtInsertInterception, err = db.Prepare(`
+		INSERT INTO aibridge_interceptions (id, initiator_id, provider, model, started_at, metadata)
+		VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return nil, err
+	}
+
+	r.stmtUpdateInterception, err = db.Prepare(`
+		UPDATE aibridge_interceptions SET ended_at = ? WHERE id = ?`)
+	if err != nil {
+		return nil, err
+	}
+
+	r.stmtInsertTokenUsage, err = db.Prepare(`
+		INSERT INTO aibridge_token_usages (id, interception_id, provider_response_id, input_tokens, output_tokens, metadata, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return nil, err
+	}
+
+	r.stmtInsertPromptUsage, err = db.Prepare(`
+		INSERT INTO aibridge_user_prompts (id, interception_id, provider_response_id, prompt, metadata, created_at)
+		VALUES (?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return nil, err
+	}
+
+	r.stmtInsertToolUsage, err = db.Prepare(`
+		INSERT INTO aibridge_tool_usages (id, interception_id, provider_response_id, server_url, tool, input, injected, invocation_error, metadata, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+	if err != nil {
+		return nil, err
+	}
+
+	return r, nil
+}
+
+func (r *SQLiteRecorder) Close() error {
+	r.stmtInsertInterception.Close()
+	r.stmtUpdateInterception.Close()
+	r.stmtInsertTokenUsage.Close()
+	r.stmtInsertPromptUsage.Close()
+	r.stmtInsertToolUsage.Close()
+	return nil
 }
 
 func (r *SQLiteRecorder) RecordInterception(ctx context.Context, req *aibridge.InterceptionRecord) error {
 	metadata, _ := json.Marshal(req.Metadata)
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO aibridge_interceptions (id, initiator_id, provider, model, started_at, metadata)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err := r.stmtInsertInterception.ExecContext(ctx,
 		req.ID, req.InitiatorID, req.Provider, req.Model, req.StartedAt, string(metadata),
 	)
 	if err != nil {
@@ -30,10 +84,7 @@ func (r *SQLiteRecorder) RecordInterception(ctx context.Context, req *aibridge.I
 }
 
 func (r *SQLiteRecorder) RecordInterceptionEnded(ctx context.Context, req *aibridge.InterceptionRecordEnded) error {
-	_, err := r.db.ExecContext(ctx, `
-		UPDATE aibridge_interceptions SET ended_at = ? WHERE id = ?`,
-		req.EndedAt, req.ID,
-	)
+	_, err := r.stmtUpdateInterception.ExecContext(ctx, req.EndedAt, req.ID)
 	if err != nil {
 		r.logger.Warn(ctx, "failed to record interception end", slog.Error(err))
 	}
@@ -51,9 +102,7 @@ func (r *SQLiteRecorder) RecordTokenUsage(ctx context.Context, req *aibridge.Tok
 	}
 	metadata, _ := json.Marshal(merged)
 
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO aibridge_token_usages (id, interception_id, provider_response_id, input_tokens, output_tokens, metadata, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`,
+	_, err := r.stmtInsertTokenUsage.ExecContext(ctx,
 		uuid.NewString(), req.InterceptionID, req.MsgID, req.Input, req.Output, string(metadata), req.CreatedAt,
 	)
 	if err != nil {
@@ -64,9 +113,7 @@ func (r *SQLiteRecorder) RecordTokenUsage(ctx context.Context, req *aibridge.Tok
 
 func (r *SQLiteRecorder) RecordPromptUsage(ctx context.Context, req *aibridge.PromptUsageRecord) error {
 	metadata, _ := json.Marshal(req.Metadata)
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO aibridge_user_prompts (id, interception_id, provider_response_id, prompt, metadata, created_at)
-		VALUES (?, ?, ?, ?, ?, ?)`,
+	_, err := r.stmtInsertPromptUsage.ExecContext(ctx,
 		uuid.NewString(), req.InterceptionID, req.MsgID, req.Prompt, string(metadata), req.CreatedAt,
 	)
 	if err != nil {
@@ -90,9 +137,7 @@ func (r *SQLiteRecorder) RecordToolUsage(ctx context.Context, req *aibridge.Tool
 		invocationError = &errStr
 	}
 
-	_, err := r.db.ExecContext(ctx, `
-		INSERT INTO aibridge_tool_usages (id, interception_id, provider_response_id, server_url, tool, input, injected, invocation_error, metadata, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+	_, err := r.stmtInsertToolUsage.ExecContext(ctx,
 		uuid.NewString(), req.InterceptionID, req.MsgID, serverURL, req.Tool, string(input), req.Injected, invocationError, string(metadata), req.CreatedAt,
 	)
 	if err != nil {

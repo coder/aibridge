@@ -5,7 +5,6 @@ package main
 import (
 	"context"
 	"database/sql"
-	"log"
 	"net/http"
 	"os"
 	"regexp"
@@ -27,14 +26,20 @@ func main() {
 	// Initialize SQLite database with WAL mode for better concurrency.
 	db, err := sql.Open("sqlite", "aibridge.db?_journal_mode=WAL&_busy_timeout=5000")
 	if err != nil {
-		log.Fatalf("open database: %v", err)
+		logger.Fatal(ctx, "open database", slog.Error(err))
 	}
 	defer db.Close()
 	db.SetMaxOpenConns(1) // SQLite only supports one writer at a time.
 
 	if err := initSchema(db); err != nil {
-		log.Fatalf("init schema: %v", err)
+		logger.Fatal(ctx, "init schema", slog.Error(err))
 	}
+
+	recorder, err := NewSQLiteRecorder(db, logger)
+	if err != nil {
+		logger.Fatal(ctx, "create recorder", slog.Error(err))
+	}
+	defer recorder.Close()
 
 	// Configure providers.
 	providers := []aibridge.Provider{
@@ -63,25 +68,25 @@ func main() {
 		nil,                                  // denylist
 	)
 	if err != nil {
-		log.Fatalf("create deepwiki mcp proxy: %v", err)
+		logger.Fatal(ctx, "create deepwiki mcp proxy", slog.Error(err))
 	}
 
 	mcpProxy = mcp.NewServerProxyManager(map[string]mcp.ServerProxier{"deepwiki": deepwikiProxy})
 	if err := mcpProxy.Init(ctx); err != nil {
-		log.Printf("mcp init warning: %v", err)
+		logger.Warn(ctx, "mcp init warning", slog.Error(err))
 	}
 
 	// Create the bridge with SQLite recorder.
 	bridge, err := aibridge.NewRequestBridge(
 		ctx,
 		providers,
-		&SQLiteRecorder{db: db, logger: logger},
+		recorder,
 		mcpProxy,
 		metrics,
 		logger,
 	)
 	if err != nil {
-		log.Fatalf("create bridge: %v", err)
+		logger.Fatal(ctx, "create bridge", slog.Error(err))
 	}
 	defer bridge.Shutdown(ctx)
 
@@ -90,9 +95,9 @@ func main() {
 	mux.Handle("/metrics", promhttp.HandlerFor(reg, promhttp.HandlerOpts{}))
 	mux.Handle("/", actorMiddleware(bridge))
 
-	log.Println("listening on :8080")
+	logger.Info(ctx, "listening on :8080")
 	if err := http.ListenAndServe(":8080", mux); err != nil {
-		log.Fatal(err)
+		logger.Fatal(ctx, "http server error", slog.Error(err))
 	}
 }
 
