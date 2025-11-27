@@ -5,26 +5,26 @@ aibridge is an HTTP gateway that sits between AI clients and upstream AI provide
 ## Architecture
 
 ```
-┌─────────────────┐     ┌─────────────────────────────────────────────────────────────┐
-│    AI Client    │     │                          aibridge                           │
-│  (Claude Code,  │────▶│  ┌─────────────────┐    ┌─────────────┐                     │
-│   Cursor, etc.) │     │  │  RequestBridge  │───▶│  Providers  │                     │
-└─────────────────┘     │  │  (http.Handler) │    │  (Anthropic │                     │
-                        │  └─────────────────┘    │   OpenAI)   │                     │
-                        │                         └──────┬──────┘                     │
-                        │                                │                            │
-                        │                                ▼                            │
-                        │  ┌─────────────────┐    ┌─────────────┐    ┌─────────────┐  │
-                        │  │    Recorder     │◀───│ Interceptor │───▶│  Upstream   │  │
-                        │  │ (tokens, tools, │    │ (streaming/ │    │    API      │  │
-                        │  │  prompts)       │    │  blocking)  │    └─────────────┘  │
-                        │  └────────┬────────┘    └──────┬──────┘                     │
-                        │           │                    │                            │
-                        │           ▼             ┌──────▼──────┐                     │
-                        │  ┌ ─ ─ ─ ─ ─ ─ ─ ┐      │  MCP Proxy  │                     │
-                        │  │    Database   │      │   (tools)   │                     │
-                        │  └ ─ ─ ─ ─ ─ ─ ─ ┘      └─────────────┘                     │
-                        └─────────────────────────────────────────────────────────────┘
+┌─────────────────┐     ┌───────────────────────────────────────────┐
+│    AI Client    │     │                    aibridge               │
+│  (Claude Code,  │────▶│  ┌─────────────────┐    ┌─────────────┐   │
+│   Cursor, etc.) │     │  │  RequestBridge  │───▶│  Providers  │   │
+└─────────────────┘     │  │  (http.Handler) │    │  (Anthropic │   │
+                        │  └─────────────────┘    │   OpenAI)   │   │
+                        │                         └──────┬──────┘   │
+                        │                                │          │
+                        │                                ▼          │    ┌─────────────┐
+                        │  ┌─────────────────┐    ┌─────────────┐   │    │  Upstream   │
+                        │  │    Recorder     │◀───│ Interceptor │─── ───▶│    API      │
+                        │  │ (tokens, tools, │    │ (streaming/ │   │    │ (Anthropic  │
+                        │  │  prompts)       │    │  blocking)  │   │    │   OpenAI)   │
+                        │  └────────┬────────┘    └──────┬──────┘   │    └─────────────┘
+                        │           │                    │          │
+                        │           ▼             ┌──────▼──────┐   │
+                        │  ┌ ─ ─ ─ ─ ─ ─ ─ ┐      │  MCP Proxy  │   │
+                        │  │    Database   │      │   (tools)   │   │
+                        │  └ ─ ─ ─ ─ ─ ─ ─ ┘      └─────────────┘   │
+                        └───────────────────────────────────────────┘
 ```
 
 ### Components
