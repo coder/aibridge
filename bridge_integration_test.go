@@ -1214,6 +1214,7 @@ func TestErrorHandling(t *testing.T) {
 				resp, err := http.DefaultClient.Do(req)
 				t.Cleanup(func() { _ = resp.Body.Close() })
 				require.NoError(t, err)
+				bridgeSrv.Close()
 
 				tc.responseHandlerFn(resp)
 				recorderClient.verifyAllInterceptionsEnded(t)
