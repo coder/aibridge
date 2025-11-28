@@ -18,7 +18,7 @@ const (
 	RequestPath = "request_path"
 
 	InterceptionID = "interception_id"
-	UserID         = "user_id"
+	InitiatorID    = "user_id"
 	Provider       = "provider"
 	Model          = "model"
 	Streaming      = "streaming"

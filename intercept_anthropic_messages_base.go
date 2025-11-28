@@ -67,7 +67,7 @@ func (s *AnthropicMessagesInterceptionBase) baseTraceAttributes(r *http.Request,
 	return []attribute.KeyValue{
 		attribute.String(aibtrace.RequestPath, r.URL.Path),
 		attribute.String(aibtrace.InterceptionID, s.id.String()),
-		attribute.String(aibtrace.UserID, actorFromContext(r.Context()).id),
+		attribute.String(aibtrace.InitiatorID, actorFromContext(r.Context()).id),
 		attribute.String(aibtrace.Provider, ProviderAnthropic),
 		attribute.String(aibtrace.Model, s.Model()),
 		attribute.Bool(aibtrace.Streaming, streaming),

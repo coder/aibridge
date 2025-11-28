@@ -1,7 +1,6 @@
 package aibridge
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -120,7 +119,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 						InterceptionID: i.ID().String(),
 						MsgID:          completion.ID,
 						Tool:           toolCall.Function.Name,
-						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
+						Args:           toolCall.Function.Arguments,
 						Injected:       false,
 					})
 				}
@@ -151,20 +150,13 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 				appendedPrevMsg = true
 			}
 
-			var (
-				args map[string]string
-				buf  bytes.Buffer
-			)
-			_ = json.NewEncoder(&buf).Encode(tc.Function.Arguments)
-			_ = json.NewDecoder(&buf).Decode(&args)
-			res, err := tool.Call(ctx, i.tracer, args)
-
+			res, err := tool.Call(ctx, i.tracer, tc.Function.Arguments)
 			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           completion.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
-				Args:            i.unmarshalArgs(tc.Function.Arguments),
+				Args:            tc.Function.Arguments,
 				Injected:        true,
 				InvocationError: err,
 			})

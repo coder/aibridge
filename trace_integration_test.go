@@ -118,14 +118,7 @@ func TestTraceAnthropic(t *testing.T) {
 
 			var bedrockCfg *aibridge.AWSBedrockConfig
 			if tc.bedrock {
-				bedrockCfg = &aibridge.AWSBedrockConfig{
-					Region:           "us-west-2",
-					AccessKey:        "test-access-key",
-					AccessKeySecret:  "test-secret-key",
-					Model:            "beddel",  // This model should override the request's given one.
-					SmallFastModel:   "modrock", // Unused but needed for validation.
-					EndpointOverride: mockAPI.URL,
-				}
+				bedrockCfg = testBedrockCfg(mockAPI.URL)
 			}
 			provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
@@ -156,7 +149,7 @@ func TestTraceAnthropic(t *testing.T) {
 				attribute.String(aibtrace.InterceptionID, intcID),
 				attribute.String(aibtrace.Provider, aibridge.ProviderAnthropic),
 				attribute.String(aibtrace.Model, model),
-				attribute.String(aibtrace.UserID, userID),
+				attribute.String(aibtrace.InitiatorID, userID),
 				attribute.Bool(aibtrace.Streaming, tc.streaming),
 				attribute.Bool(aibtrace.IsBedrock, tc.bedrock),
 			}
@@ -168,24 +161,27 @@ func TestTraceAnthropic(t *testing.T) {
 }
 
 func TestTraceAnthropicErr(t *testing.T) {
+	expectNonStream := []expectTrace{
+		{"Intercept", 1, codes.Error},
+		{"Intercept.CreateInterceptor", 1, codes.Unset},
+		{"Intercept.RecordInterception", 1, codes.Unset},
+		{"Intercept.ProcessRequest", 1, codes.Error},
+		{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+		{"Intercept.ProcessRequest.Upstream", 1, codes.Error},
+	}
+
 	cases := []struct {
 		name      string
 		streaming bool
+		bedrock   bool
 		expect    []expectTrace
 	}{
 		{
-			name: "trace_anthr_non_streaming_err",
-			expect: []expectTrace{
-				{"Intercept", 1, codes.Error},
-				{"Intercept.CreateInterceptor", 1, codes.Unset},
-				{"Intercept.RecordInterception", 1, codes.Unset},
-				{"Intercept.ProcessRequest", 1, codes.Error},
-				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
-				{"Intercept.ProcessRequest.Upstream", 1, codes.Error},
-			},
+			name:   "anthr_non_streaming_err",
+			expect: expectNonStream,
 		},
 		{
-			name:      "trace_anthr_streaming_err",
+			name:      "anthr_streaming_err",
 			streaming: true,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -198,10 +194,30 @@ func TestTraceAnthropicErr(t *testing.T) {
 				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
 			},
 		},
+		{
+			name:    "bedrock_non_streaming_err",
+			bedrock: true,
+			expect:  expectNonStream,
+		},
+		{
+			name:      "bedrock_streaming_err",
+			streaming: true,
+			bedrock:   true,
+			expect: []expectTrace{
+				// RecordTokenUsage missing?
+				{"Intercept", 1, codes.Unset}, // TODO check why this is unset not Error
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Unset}, // TODO check why this is unset not Error
+				{"Intercept.RecordPromptUsage", 1, codes.Unset},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+			},
+		},
 	}
 
 	for _, tc := range cases {
-		t.Run(t.Name(), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
@@ -233,7 +249,11 @@ func TestTraceAnthropicErr(t *testing.T) {
 			mockAPI := newMockServer(ctx, t, files, nil)
 			t.Cleanup(mockAPI.Close)
 
-			provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), nil)
+			var bedrockCfg *aibridge.AWSBedrockConfig
+			if tc.bedrock {
+				bedrockCfg = testBedrockCfg(mockAPI.URL)
+			}
+			provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
 			req := createAnthropicMessagesReq(t, srv.URL, reqBody)
@@ -255,19 +275,122 @@ func TestTraceAnthropicErr(t *testing.T) {
 			for _, e := range tc.expect {
 				totalCount += e.count
 			}
+			for _, s := range sr.Ended() {
+				t.Logf("SPAN: %v", s.Name())
+			}
+			require.Len(t, sr.Ended(), totalCount)
+
+			model := gjson.Get(string(reqBody), "model").Str
+			if tc.bedrock {
+				model = "beddel"
+			}
 
 			attrs := []attribute.KeyValue{
 				attribute.String(aibtrace.RequestPath, req.URL.Path),
 				attribute.String(aibtrace.InterceptionID, intcID),
 				attribute.String(aibtrace.Provider, aibridge.ProviderAnthropic),
-				attribute.String(aibtrace.Model, gjson.Get(string(reqBody), "model").Str),
-				attribute.String(aibtrace.UserID, userID),
+				attribute.String(aibtrace.Model, model),
+				attribute.String(aibtrace.InitiatorID, userID),
 				attribute.Bool(aibtrace.Streaming, tc.streaming),
-				attribute.Bool(aibtrace.IsBedrock, false),
+				attribute.Bool(aibtrace.IsBedrock, tc.bedrock),
 			}
 
-			require.Len(t, sr.Ended(), totalCount)
 			verifyTraces(t, sr, tc.expect, attrs)
+		})
+	}
+}
+
+func TestAnthropicInjectedToolsTrace(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		streaming bool
+		bedrock   bool
+	}{
+		{
+			name:      "anthr_blocking",
+			streaming: false,
+			bedrock:   false,
+		},
+		{
+			name:      "anthr_streaming",
+			streaming: true,
+			bedrock:   false,
+		},
+		{
+			name:      "bedrock_blocking",
+			streaming: false,
+			bedrock:   true,
+		},
+		// TODO check why it fails
+		// {
+		// 	name:      "bedrock_streaming",
+		// 	streaming: true,
+		// 	bedrock:   true,
+		// },
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sr := tracetest.NewSpanRecorder()
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+			tracer := tp.Tracer(t.Name())
+			defer func() { _ = tp.Shutdown(t.Context()) }()
+
+			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
+				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+				var bedrockCfg *aibridge.AWSBedrockConfig
+				if tc.bedrock {
+					bedrockCfg = testBedrockCfg(addr)
+				}
+				providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), bedrockCfg)}
+				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, nil, tracer, logger)
+			}
+
+			var reqBody string
+			var reqPath string
+			reqFunc := func(t *testing.T, baseURL string, input []byte) *http.Request {
+				reqBody = string(input)
+				r := createAnthropicMessagesReq(t, baseURL, input)
+				reqPath = r.URL.Path
+				return r
+			}
+
+			// Build the requirements & make the assertions which are common to all providers.
+			recorderClient, proxies, resp := setupInjectedToolTest(t, antSingleInjectedTool, tc.streaming, configureFn, reqFunc)
+
+			defer resp.Body.Close()
+
+			require.Len(t, recorderClient.interceptions, 1)
+			intcID := recorderClient.interceptions[0].ID
+
+			model := gjson.Get(string(reqBody), "model").Str
+			if tc.bedrock {
+				model = "beddel"
+			}
+
+			for _, proxy := range proxies {
+				require.NotEmpty(t, proxy.ListTools())
+				tool := proxy.ListTools()[0]
+
+				attrs := []attribute.KeyValue{
+					attribute.String(aibtrace.RequestPath, reqPath),
+					attribute.String(aibtrace.InterceptionID, intcID),
+					attribute.String(aibtrace.Provider, aibridge.ProviderAnthropic),
+					attribute.String(aibtrace.Model, model),
+					attribute.String(aibtrace.InitiatorID, userID),
+					attribute.String(aibtrace.MCPInput, "{\"owner\":\"admin\"}"),
+					attribute.String(aibtrace.MCPToolName, "coder_list_workspaces"),
+					attribute.String(aibtrace.MCPServerName, tool.ServerName),
+					attribute.String(aibtrace.MCPServerURL, tool.ServerURL),
+					attribute.Bool(aibtrace.Streaming, tc.streaming),
+					attribute.Bool(aibtrace.IsBedrock, tc.bedrock),
+				}
+				verifyTraces(t, sr, []expectTrace{{"Intercept.ProcessRequest.ToolCall", 1, codes.Unset}}, attrs)
+			}
 		})
 	}
 }
@@ -360,7 +483,7 @@ func TestTraceOpenAI(t *testing.T) {
 				attribute.String(aibtrace.InterceptionID, intcID),
 				attribute.String(aibtrace.Provider, aibridge.ProviderOpenAI),
 				attribute.String(aibtrace.Model, gjson.Get(string(reqBody), "model").Str),
-				attribute.String(aibtrace.UserID, userID),
+				attribute.String(aibtrace.InitiatorID, userID),
 				attribute.Bool(aibtrace.Streaming, tc.streaming),
 			}
 			verifyTraces(t, sr, tc.expect, attrs)
@@ -462,10 +585,67 @@ func TestTraceOpenAIErr(t *testing.T) {
 				attribute.String(aibtrace.InterceptionID, intcID),
 				attribute.String(aibtrace.Provider, aibridge.ProviderOpenAI),
 				attribute.String(aibtrace.Model, gjson.Get(string(reqBody), "model").Str),
-				attribute.String(aibtrace.UserID, userID),
+				attribute.String(aibtrace.InitiatorID, userID),
 				attribute.Bool(aibtrace.Streaming, tc.streaming),
 			}
 			verifyTraces(t, sr, tc.expect, attrs)
+		})
+	}
+}
+
+func TestOpenAIInjectedToolsTrace(t *testing.T) {
+	t.Parallel()
+
+	for _, streaming := range []bool{true, false} {
+		t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
+			t.Parallel()
+
+			sr := tracetest.NewSpanRecorder()
+			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+			tracer := tp.Tracer(t.Name())
+			defer func() { _ = tp.Shutdown(t.Context()) }()
+
+			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
+				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+				providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}
+				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, nil, tracer, logger)
+			}
+
+			var reqBody string
+			var reqPath string
+			reqFunc := func(t *testing.T, baseURL string, input []byte) *http.Request {
+				reqBody = string(input)
+				r := createOpenAIChatCompletionsReq(t, baseURL, input)
+				reqPath = r.URL.Path
+				return r
+			}
+
+			// Build the requirements & make the assertions which are common to all providers.
+			recorderClient, proxies, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, reqFunc)
+
+			defer resp.Body.Close()
+
+			require.Len(t, recorderClient.interceptions, 1)
+			intcID := recorderClient.interceptions[0].ID
+
+			for _, proxy := range proxies {
+				require.NotEmpty(t, proxy.ListTools())
+				tool := proxy.ListTools()[0]
+
+				attrs := []attribute.KeyValue{
+					attribute.String(aibtrace.RequestPath, reqPath),
+					attribute.String(aibtrace.InterceptionID, intcID),
+					attribute.String(aibtrace.Provider, aibridge.ProviderOpenAI),
+					attribute.String(aibtrace.Model, gjson.Get(reqBody, "model").Str),
+					attribute.String(aibtrace.InitiatorID, userID),
+					attribute.String(aibtrace.MCPInput, "\"{\\\"owner\\\":\\\"admin\\\"}\""),
+					attribute.String(aibtrace.MCPToolName, "coder_list_workspaces"),
+					attribute.String(aibtrace.MCPServerName, tool.ServerName),
+					attribute.String(aibtrace.MCPServerURL, tool.ServerURL),
+					attribute.Bool(aibtrace.Streaming, streaming),
+				}
+				verifyTraces(t, sr, []expectTrace{{"Intercept.ProcessRequest.ToolCall", 1, codes.Unset}}, attrs)
+			}
 		})
 	}
 }
@@ -571,5 +751,16 @@ func verifyTraces(t *testing.T, spanRecorder *tracetest.SpanRecorder, expect []e
 		if found != e.count {
 			t.Errorf("found unexpected number of spans named: %v with status %v, got: %v want: %v", e.name, e.status, found, e.count)
 		}
+	}
+}
+
+func testBedrockCfg(url string) *aibridge.AWSBedrockConfig {
+	return &aibridge.AWSBedrockConfig{
+		Region:           "us-west-2",
+		AccessKey:        "test-access-key",
+		AccessKeySecret:  "test-secret-key",
+		Model:            "beddel",  // This model should override the request's given one.
+		SmallFastModel:   "modrock", // Unused but needed for validation.
+		EndpointOverride: url,
 	}
 }

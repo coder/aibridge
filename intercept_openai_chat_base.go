@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
 	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
@@ -51,7 +50,7 @@ func (s *OpenAIChatInterceptionBase) baseTraceAttributes(r *http.Request, stream
 	return []attribute.KeyValue{
 		attribute.String(aibtrace.RequestPath, r.URL.Path),
 		attribute.String(aibtrace.InterceptionID, s.id.String()),
-		attribute.String(aibtrace.UserID, actorFromContext(r.Context()).id),
+		attribute.String(aibtrace.InitiatorID, actorFromContext(r.Context()).id),
 		attribute.String(aibtrace.Provider, ProviderOpenAI),
 		attribute.String(aibtrace.Model, s.Model()),
 		attribute.Bool(aibtrace.Streaming, streaming),
@@ -103,18 +102,6 @@ func (i *OpenAIChatInterceptionBase) injectTools() {
 
 		i.req.Tools = append(i.req.Tools, fn)
 	}
-}
-
-func (i *OpenAIChatInterceptionBase) unmarshalArgs(in string) (args ToolArgs) {
-	if len(strings.TrimSpace(in)) == 0 {
-		return args // An empty string will fail JSON unmarshaling.
-	}
-
-	if err := json.Unmarshal([]byte(in), &args); err != nil {
-		i.logger.Warn(context.Background(), "failed to unmarshal tool args", slog.Error(err))
-	}
-
-	return args
 }
 
 // writeUpstreamError marshals and writes a given error.

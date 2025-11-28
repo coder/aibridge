@@ -20,14 +20,16 @@ import (
 var _ ServerProxier = &StreamableHTTPServerProxy{}
 
 type StreamableHTTPServerProxy struct {
+	client *client.Client
+	logger slog.Logger
+	tracer trace.Tracer
+
+	allowlistPattern *regexp.Regexp
+	denylistPattern  *regexp.Regexp
+
 	serverName string
 	serverURL  string
-	client     *client.Client
-	logger     slog.Logger
-	tracer     trace.Tracer
 	tools      map[string]*Tool
-
-	allowlistPattern, denylistPattern *regexp.Regexp
 }
 
 func NewStreamableHTTPServerProxy(logger slog.Logger, tracer trace.Tracer, serverName, serverURL string, headers map[string]string, allowlist, denylist *regexp.Regexp) (*StreamableHTTPServerProxy, error) {

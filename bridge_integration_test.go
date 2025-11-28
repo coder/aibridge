@@ -442,9 +442,9 @@ func TestOpenAIChatCompletions(t *testing.T) {
 
 				require.Len(t, recorderClient.toolUsages, 1)
 				assert.Equal(t, "read_file", recorderClient.toolUsages[0].Tool)
-				require.IsType(t, map[string]any{}, recorderClient.toolUsages[0].Args)
+				require.IsType(t, "", recorderClient.toolUsages[0].Args)
 				require.Contains(t, recorderClient.toolUsages[0].Args, "path")
-				assert.Equal(t, "README.md", recorderClient.toolUsages[0].Args.(map[string]any)["path"])
+				assert.Equal(t, "README.md", gjson.Get(recorderClient.toolUsages[0].Args.(string), "path").Str)
 
 				require.Len(t, recorderClient.userPrompts, 1)
 				assert.Equal(t, "how large is the README.md file in my current path", recorderClient.userPrompts[0].Prompt)
@@ -765,7 +765,7 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, resp := setupInjectedToolTest(t, antSingleInjectedTool, streaming, configureFn, createAnthropicMessagesReq)
+			recorderClient, _, resp := setupInjectedToolTest(t, antSingleInjectedTool, streaming, configureFn, createAnthropicMessagesReq)
 
 			// Ensure expected tool was invoked with expected input.
 			require.Len(t, recorderClient.toolUsages, 1)
@@ -847,16 +847,13 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
+			recorderClient, _, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
 
 			// Ensure expected tool was invoked with expected input.
 			require.Len(t, recorderClient.toolUsages, 1)
 			require.Equal(t, mockToolName, recorderClient.toolUsages[0].Tool)
-			expected, err := json.Marshal(map[string]any{"owner": "admin"})
-			require.NoError(t, err)
-			actual, err := json.Marshal(recorderClient.toolUsages[0].Args)
-			require.NoError(t, err)
-			require.EqualValues(t, expected, actual)
+			expected := "{\"owner\":\"admin\"}"
+			require.EqualValues(t, expected, recorderClient.toolUsages[0].Args)
 
 			var (
 				content *openai.ChatCompletionChoice
@@ -932,7 +929,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 
 // setupInjectedToolTest abstracts the common aspects required for the Test*InjectedTools tests.
 // Kinda fugly right now, we can refactor this later.
-func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configureFn func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error), createRequestFn func(*testing.T, string, []byte) *http.Request) (*mockRecorderClient, *http.Response) {
+func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configureFn func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error), createRequestFn func(*testing.T, string, []byte) *http.Request) (*mockRecorderClient, map[string]mcp.ServerProxier, *http.Response) {
 	t.Helper()
 
 	arc := txtar.Parse(fixture)
@@ -1008,7 +1005,7 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 		return mockSrv.callCount.Load() == 2
 	}, time.Second*10, time.Millisecond*50)
 
-	return recorderClient, resp
+	return recorderClient, tools, resp
 }
 
 func TestErrorHandling(t *testing.T) {
