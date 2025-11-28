@@ -543,6 +543,8 @@ func TestNewServerProxyManagerTraces(t *testing.T) {
 		attribute.String(aibtrace.MCPServerName, serverName),
 	}
 	verifyTraces(t, sr, []expectTrace{{"StreamableHTTPServerProxy.Init", 1, codes.Unset}}, attrs)
+
+	attrs = append(attrs, attribute.Int(aibtrace.MCPToolCount, len(proxy.ListTools())))
 	verifyTraces(t, sr, []expectTrace{{"StreamableHTTPServerProxy.Init.fetchTools", 1, codes.Unset}}, attrs)
 }
 

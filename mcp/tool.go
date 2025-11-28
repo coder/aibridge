@@ -50,6 +50,7 @@ func (t *Tool) Call(ctx context.Context, tracer trace.Tracer, input any) (_ *mcp
 
 	spanAttrs := append(
 		aibtrace.InterceptionAttributesFromContext(ctx),
+		attribute.String(aibtrace.MCPToolName, t.Name),
 		attribute.String(aibtrace.MCPServerName, t.ServerName),
 		attribute.String(aibtrace.MCPServerURL, t.ServerURL),
 	)

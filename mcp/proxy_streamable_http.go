@@ -154,6 +154,7 @@ func (p *StreamableHTTPServerProxy) fetchTools(ctx context.Context) (_ map[strin
 			Logger:      p.logger,
 		}
 	}
+	span.SetAttributes(append(p.traceAttributes(), attribute.Int(aibtrace.MCPToolCount, len(out)))...)
 	return out, nil
 }
 

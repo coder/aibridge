@@ -32,6 +32,7 @@ const (
 	MCPToolName   = "mcp_tool_name"
 	MCPServerName = "mcp_server_name"
 	MCPServerURL  = "mcp_server_url"
+	MCPToolCount  = "mcp_tool_count"
 
 	APIKeyID = "api_key_id"
 )
