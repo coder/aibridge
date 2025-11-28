@@ -11,10 +11,14 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog"
 )
@@ -25,12 +29,13 @@ type AnthropicMessagesStreamingInterception struct {
 	AnthropicMessagesInterceptionBase
 }
 
-func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig) *AnthropicMessagesStreamingInterception {
+func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig, tracer trace.Tracer) *AnthropicMessagesStreamingInterception {
 	return &AnthropicMessagesStreamingInterception{AnthropicMessagesInterceptionBase: AnthropicMessagesInterceptionBase{
 		id:         id,
 		req:        req,
 		cfg:        cfg,
 		bedrockCfg: bedrockCfg,
+		tracer:     tracer,
 	}}
 }
 
@@ -40,6 +45,10 @@ func (s *AnthropicMessagesStreamingInterception) Setup(logger slog.Logger, recor
 
 func (s *AnthropicMessagesStreamingInterception) Streaming() bool {
 	return true
+}
+
+func (s *AnthropicMessagesStreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return s.AnthropicMessagesInterceptionBase.baseTraceAttributes(r, true)
 }
 
 // ProcessRequest handles a request to /v1/messages.
@@ -61,13 +70,16 @@ func (s *AnthropicMessagesStreamingInterception) Streaming() bool {
 // b) if the tool is injected, it will be invoked by the [mcp.ServerProxier] in the remote MCP server, and its
 // results relayed to the SERVER. The response from the server will be handled synchronously, and this loop
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
-func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
+func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
 
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
+	defer aibtrace.EndSpanErr(span, &outErr)
+
 	// Allow us to interrupt watch via cancel.
-	ctx, cancel := context.WithCancel(r.Context())
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
@@ -117,12 +129,13 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 	isFirst := true
 newStream:
 	for {
+		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
 		if err := streamCtx.Err(); err != nil {
 			lastErr = fmt.Errorf("stream exit: %w", err)
 			break
 		}
 
-		stream := svc.NewStreaming(streamCtx, messages)
+		stream := i.traceNewStreaming(streamCtx, svc, messages) // traces svc.NewStreaming(streamCtx, messages)
 
 		var message anthropic.Message
 		var lastToolName string
@@ -269,7 +282,7 @@ newStream:
 							continue
 						}
 
-						res, err := tool.Call(streamCtx, input)
+						res, err := tool.Call(streamCtx, i.tracer, input)
 
 						_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 							InterceptionID:  i.ID().String(),
@@ -507,4 +520,11 @@ func (s *AnthropicMessagesStreamingInterception) encodeForStream(payload []byte,
 	buf.Write(payload)
 	buf.WriteString("\n\n")
 	return buf.Bytes()
+}
+
+func (s *AnthropicMessagesStreamingInterception) traceNewStreaming(ctx context.Context, svc anthropic.MessageService, messages anthropic.MessageNewParams) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
+	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
+	defer span.End()
+
+	return svc.NewStreaming(ctx, messages)
 }

@@ -1,17 +1,20 @@
 package aibridge
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog"
 )
@@ -22,12 +25,13 @@ type OpenAIBlockingChatInterception struct {
 	OpenAIChatInterceptionBase
 }
 
-func NewOpenAIBlockingChatInterception(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string) *OpenAIBlockingChatInterception {
+func NewOpenAIBlockingChatInterception(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string, tracer trace.Tracer) *OpenAIBlockingChatInterception {
 	return &OpenAIBlockingChatInterception{OpenAIChatInterceptionBase: OpenAIChatInterceptionBase{
 		id:      id,
 		req:     req,
 		baseURL: baseURL,
 		key:     key,
+		tracer:  tracer,
 	}}
 }
 
@@ -39,12 +43,18 @@ func (s *OpenAIBlockingChatInterception) Streaming() bool {
 	return false
 }
 
-func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
+func (s *OpenAIBlockingChatInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return s.OpenAIChatInterceptionBase.baseTraceAttributes(r, false)
+}
+
+func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx := r.Context()
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
+	defer aibtrace.EndSpanErr(span, &outErr)
+
 	svc := i.newCompletionsService(i.baseURL, i.key)
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
@@ -62,10 +72,11 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	}
 
 	for {
+		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
 		var opts []option.RequestOption
 		opts = append(opts, option.WithRequestTimeout(time.Second*60)) // TODO: configurable timeout
 
-		completion, err = svc.New(ctx, i.req.ChatCompletionNewParams, opts...)
+		completion, err = i.traceChatCompletionsNew(ctx, svc, opts) // traces svc.New(ctx, i.req.ChatCompletionNewParams, opts...) call
 		if err != nil {
 			break
 		}
@@ -108,7 +119,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 						InterceptionID: i.ID().String(),
 						MsgID:          completion.ID,
 						Tool:           toolCall.Function.Name,
-						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
+						Args:           toolCall.Function.Arguments,
 						Injected:       false,
 					})
 				}
@@ -139,20 +150,13 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 				appendedPrevMsg = true
 			}
 
-			var (
-				args map[string]string
-				buf  bytes.Buffer
-			)
-			_ = json.NewEncoder(&buf).Encode(tc.Function.Arguments)
-			_ = json.NewDecoder(&buf).Decode(&args)
-			res, err := tool.Call(ctx, args)
-
+			res, err := tool.Call(ctx, i.tracer, tc.Function.Arguments)
 			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           completion.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
-				Args:            i.unmarshalArgs(tc.Function.Arguments),
+				Args:            tc.Function.Arguments,
 				Injected:        true,
 				InvocationError: err,
 			})
@@ -226,4 +230,11 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	_, _ = w.Write(out)
 
 	return nil
+}
+
+func (i *OpenAIBlockingChatInterception) traceChatCompletionsNew(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {
+	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
+	defer aibtrace.EndSpanErr(span, &outErr)
+
+	return svc.New(ctx, i.req.ChatCompletionNewParams, opts...)
 }

@@ -1,6 +1,7 @@
 package aibridge
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,7 +11,10 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp" // TODO: abstract this away so callers need no knowledge of underlying lib.
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
 
 	"cdr.dev/slog"
@@ -22,29 +26,35 @@ type AnthropicMessagesBlockingInterception struct {
 	AnthropicMessagesInterceptionBase
 }
 
-func NewAnthropicMessagesBlockingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig) *AnthropicMessagesBlockingInterception {
+func NewAnthropicMessagesBlockingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig, tracer trace.Tracer) *AnthropicMessagesBlockingInterception {
 	return &AnthropicMessagesBlockingInterception{AnthropicMessagesInterceptionBase: AnthropicMessagesInterceptionBase{
 		id:         id,
 		req:        req,
 		cfg:        cfg,
 		bedrockCfg: bedrockCfg,
+		tracer:     tracer,
 	}}
 }
 
-func (s *AnthropicMessagesBlockingInterception) Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) {
-	s.AnthropicMessagesInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+func (i *AnthropicMessagesBlockingInterception) Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) {
+	i.AnthropicMessagesInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+}
+
+func (i *AnthropicMessagesBlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return i.AnthropicMessagesInterceptionBase.baseTraceAttributes(r, false)
 }
 
 func (s *AnthropicMessagesBlockingInterception) Streaming() bool {
 	return false
 }
 
-func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
+func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx := r.Context()
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
+	defer aibtrace.EndSpanErr(span, &outErr)
 
 	i.injectTools()
 
@@ -77,7 +87,8 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 	var cumulativeUsage anthropic.Usage
 
 	for {
-		resp, err = svc.New(ctx, messages)
+		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
+		resp, err = i.traceNewMessage(ctx, svc, messages) // traces svc.New(ctx, msgParams) call
 		if err != nil {
 			if isConnError(err) {
 				// Can't write a response, just error out.
@@ -166,7 +177,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 				continue
 			}
 
-			res, err := tool.Call(ctx, tc.Input)
+			res, err := tool.Call(ctx, i.tracer, tc.Input)
 
 			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
@@ -284,4 +295,11 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 	_, _ = w.Write(out)
 
 	return nil
+}
+
+func (i *AnthropicMessagesBlockingInterception) traceNewMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {
+	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
+	defer aibtrace.EndSpanErr(span, &outErr)
+
+	return svc.New(ctx, msgParams)
 }

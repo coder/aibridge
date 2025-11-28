@@ -4,23 +4,27 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"strings"
 
+	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
 	"github.com/openai/openai-go/v2/shared"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog"
 )
 
 type OpenAIChatInterceptionBase struct {
-	id  uuid.UUID
-	req *ChatCompletionNewParamsWrapper
+	id      uuid.UUID
+	req     *ChatCompletionNewParamsWrapper
+	baseURL string
+	key     string
 
-	baseURL, key string
-	logger       slog.Logger
+	tracer trace.Tracer
+	logger slog.Logger
 
 	recorder Recorder
 	mcpProxy mcp.ServerProxier
@@ -40,6 +44,17 @@ func (i *OpenAIChatInterceptionBase) Setup(logger slog.Logger, recorder Recorder
 	i.logger = logger
 	i.recorder = recorder
 	i.mcpProxy = mcpProxy
+}
+
+func (s *OpenAIChatInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String(aibtrace.RequestPath, r.URL.Path),
+		attribute.String(aibtrace.InterceptionID, s.id.String()),
+		attribute.String(aibtrace.InitiatorID, actorFromContext(r.Context()).id),
+		attribute.String(aibtrace.Provider, ProviderOpenAI),
+		attribute.String(aibtrace.Model, s.Model()),
+		attribute.Bool(aibtrace.Streaming, streaming),
+	}
 }
 
 func (i *OpenAIChatInterceptionBase) Model() string {
@@ -87,18 +102,6 @@ func (i *OpenAIChatInterceptionBase) injectTools() {
 
 		i.req.Tools = append(i.req.Tools, fn)
 	}
-}
-
-func (i *OpenAIChatInterceptionBase) unmarshalArgs(in string) (args ToolArgs) {
-	if len(strings.TrimSpace(in)) == 0 {
-		return args // An empty string will fail JSON unmarshaling.
-	}
-
-	if err := json.Unmarshal([]byte(in), &args); err != nil {
-		i.logger.Warn(context.Background(), "failed to unmarshal tool args", slog.Error(err))
-	}
-
-	return args
 }
 
 // writeUpstreamError marshals and writes a given error.

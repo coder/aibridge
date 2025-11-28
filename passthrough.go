@@ -8,19 +8,28 @@ import (
 	"time"
 
 	"cdr.dev/slog"
+	"github.com/coder/aibridge/aibtrace"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // newPassthroughRouter returns a simple reverse-proxy implementation which will be used when a route is not handled specifically
 // by a [Provider].
-func newPassthroughRouter(provider Provider, logger slog.Logger, metrics *Metrics) http.HandlerFunc {
+func newPassthroughRouter(provider Provider, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if metrics != nil {
 			metrics.PassthroughCount.WithLabelValues(provider.Name(), r.URL.Path, r.Method).Add(1)
 		}
 
+		ctx, span := tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
+			attribute.String(aibtrace.PassthroughURL, r.URL.Path),
+			attribute.String(aibtrace.PassthroughMethod, r.Method),
+		))
+		defer span.End()
+
 		upURL, err := url.Parse(provider.BaseURL())
 		if err != nil {
-			logger.Warn(r.Context(), "failed to parse provider base URL", slog.Error(err))
+			logger.Warn(ctx, "failed to parse provider base URL", slog.Error(err))
 			http.Error(w, "request error", http.StatusBadGateway)
 			return
 		}
