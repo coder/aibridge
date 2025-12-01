@@ -1,5 +1,5 @@
 // This is an example server demonstrating aibridge usage.
-// Run with: go run ./example
+// Run with: go run *.go
 package main
 
 import (
@@ -102,7 +102,7 @@ func main() {
 }
 
 // actorMiddleware injects actor identity into request context.
-// In production, extract user ID from auth headers/tokens.
+// In production, the user ID should be extracted from auth headers/tokens.
 func actorMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		userID := r.Header.Get("X-User-ID")

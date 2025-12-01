@@ -3,7 +3,7 @@ package main
 import "database/sql"
 
 // initSchema creates the aibridge tables following the coder/coder data model.
-// See: https://github.com/coder/coder
+// See: https://github.com/coder/coder/blob/c87c33f7dda82eb91ee8ba9504f749101bb367d6/coderd/database/dump.sql#L1052-L1115
 func initSchema(db *sql.DB) error {
 	schema := `
 	CREATE TABLE IF NOT EXISTS aibridge_interceptions (
