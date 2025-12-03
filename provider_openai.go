@@ -14,7 +14,7 @@ var _ Provider = &OpenAIProvider{}
 
 // OpenAIProvider allows for interactions with the OpenAI API.
 type OpenAIProvider struct {
-	baseURL, key string
+	cfg *OpenAIConfig
 }
 
 const (
@@ -23,18 +23,21 @@ const (
 	routeChatCompletions = "/openai/v1/chat/completions" // https://platform.openai.com/docs/api-reference/chat
 )
 
-func NewOpenAIProvider(cfg OpenAIConfig) *OpenAIProvider {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = "https://api.openai.com/v1/"
+func NewOpenAIProvider(cfg *OpenAIConfig) *OpenAIProvider {
+	if cfg == nil {
+		panic("ProviderConfig cannot be nil")
 	}
 
-	if cfg.Key == "" {
-		cfg.Key = os.Getenv("OPENAI_API_KEY")
+	if cfg.BaseURL() == "" {
+		cfg.SetBaseURL("https://api.openai.com/v1/")
+	}
+
+	if cfg.Key() == "" {
+		cfg.SetKey(os.Getenv("OPENAI_API_KEY"))
 	}
 
 	return &OpenAIProvider{
-		baseURL: cfg.BaseURL,
-		key:     cfg.Key,
+		cfg: cfg,
 	}
 }
 
@@ -74,9 +77,9 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 		}
 
 		if req.Stream {
-			return NewOpenAIStreamingChatInterception(id, &req, p.baseURL, p.key), nil
+			return NewOpenAIStreamingChatInterception(id, &req, p.cfg), nil
 		} else {
-			return NewOpenAIBlockingChatInterception(id, &req, p.baseURL, p.key), nil
+			return NewOpenAIBlockingChatInterception(id, &req, p.cfg), nil
 		}
 	}
 
@@ -84,7 +87,7 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 }
 
 func (p *OpenAIProvider) BaseURL() string {
-	return p.baseURL
+	return p.cfg.BaseURL()
 }
 
 func (p *OpenAIProvider) AuthHeader() string {
@@ -96,5 +99,5 @@ func (p *OpenAIProvider) InjectAuthHeader(headers *http.Header) {
 		headers = &http.Header{}
 	}
 
-	headers.Set(p.AuthHeader(), "Bearer "+p.key)
+	headers.Set(p.AuthHeader(), "Bearer "+p.cfg.Key())
 }

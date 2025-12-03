@@ -19,17 +19,11 @@ type OpenAIChatInterceptionBase struct {
 	id  uuid.UUID
 	req *ChatCompletionNewParamsWrapper
 
-	baseURL, key string
-	logger       slog.Logger
+	cfg    *OpenAIConfig
+	logger slog.Logger
 
 	recorder Recorder
 	mcpProxy mcp.ServerProxier
-}
-
-func (i *OpenAIChatInterceptionBase) newCompletionsService(baseURL, key string) openai.ChatCompletionService {
-	opts := []option.RequestOption{option.WithAPIKey(key), option.WithBaseURL(baseURL)}
-
-	return openai.NewChatCompletionService(opts...)
 }
 
 func (i *OpenAIChatInterceptionBase) ID() uuid.UUID {
@@ -124,4 +118,18 @@ func (i *OpenAIChatInterceptionBase) writeUpstreamError(w http.ResponseWriter, o
 	} else {
 		_, _ = w.Write(out)
 	}
+}
+
+func (i *OpenAIChatInterceptionBase) newChatCompletionService() openai.ChatCompletionService {
+	var opts []option.RequestOption
+	opts = append(opts, option.WithAPIKey(i.cfg.Key()))
+	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL()))
+
+	if i.cfg.IsUpstreamLoggingEnabled() {
+		if middleware := createLoggingMiddleware(i.logger, i.cfg, ProviderOpenAI, i.id.String(), i.Model()); middleware != nil {
+			opts = append(opts, option.WithMiddleware(middleware))
+		}
+	}
+
+	return openai.NewChatCompletionService(opts...)
 }
