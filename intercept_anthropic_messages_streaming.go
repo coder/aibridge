@@ -135,7 +135,7 @@ newStream:
 			break
 		}
 
-		stream := i.traceNewStreaming(streamCtx, svc, messages) // traces svc.NewStreaming(streamCtx, messages)
+		stream := i.newStream(streamCtx, svc, messages)
 
 		var message anthropic.Message
 		var lastToolName string
@@ -522,7 +522,8 @@ func (s *AnthropicMessagesStreamingInterception) encodeForStream(payload []byte,
 	return buf.Bytes()
 }
 
-func (s *AnthropicMessagesStreamingInterception) traceNewStreaming(ctx context.Context, svc anthropic.MessageService, messages anthropic.MessageNewParams) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
+// newStream traces svc.NewStreaming(streamCtx, messages)
+func (s *AnthropicMessagesStreamingInterception) newStream(ctx context.Context, svc anthropic.MessageService, messages anthropic.MessageNewParams) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
 	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 

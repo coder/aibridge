@@ -116,7 +116,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 	)
 	for {
 		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
-		stream = i.traceNewStreaming(streamCtx, svc) // traces svc.NewStreaming(streamCtx, i.req.ChatCompletionNewParams) call
+		stream = i.newStream(streamCtx, svc)
 		processor := newStreamProcessor(streamCtx, i.logger.Named("stream-processor"), i.getInjectedToolByName)
 
 		var toolCall *openai.FinishedChatCompletionToolCall
@@ -346,7 +346,8 @@ func (i *OpenAIStreamingChatInterception) encodeForStream(payload []byte) []byte
 	return buf.Bytes()
 }
 
-func (i *OpenAIStreamingChatInterception) traceNewStreaming(ctx context.Context, svc openai.ChatCompletionService) *ssestream.Stream[openai.ChatCompletionChunk] {
+// newStream traces svc.NewStreaming(streamCtx, i.req.ChatCompletionNewParams) call
+func (i *OpenAIStreamingChatInterception) newStream(ctx context.Context, svc openai.ChatCompletionService) *ssestream.Stream[openai.ChatCompletionChunk] {
 	_, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
