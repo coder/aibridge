@@ -64,9 +64,26 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 		return
 	}
 
+	// Clear any existing cache breakpoints if there are tools to inject
+	// so that we set the cache breakpoint on the last tool.
+	injectableToolCount := len(i.mcpProxy.ListTools())
+	var prevCacheTTL *anthropic.CacheControlEphemeralTTL
+
+	if injectableToolCount > 0 {
+		for _, tool := range i.req.Tools {
+			if tool.OfTool != nil && tool.OfTool.CacheControl.Type != "" {
+				prevCacheTTL = &tool.OfTool.CacheControl.TTL
+				// Unset.
+				tool.OfTool.CacheControl = anthropic.CacheControlEphemeralParam{}
+			}
+		}
+	}
+
 	// Inject tools.
-	for _, tool := range i.mcpProxy.ListTools() {
-		i.req.Tools = append(i.req.Tools, anthropic.ToolUnionParam{
+	for j := range injectableToolCount {
+		tool := i.mcpProxy.ListTools()[j]
+
+		injectedTool := anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: tool.Params,
@@ -76,7 +93,17 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 				Description: anthropic.String(tool.Description),
 				Type:        anthropic.ToolTypeCustom,
 			},
-		})
+		}
+
+		// If a cache breakpoint was set previously and we unset it,
+		// and this is the final tool definition,
+		// then add
+		if prevCacheTTL != nil && j == injectableToolCount-1 {
+			injectedTool.OfTool.CacheControl = anthropic.NewCacheControlEphemeralParam()
+			injectedTool.OfTool.CacheControl.TTL = *prevCacheTTL
+		}
+
+		i.req.Tools = append(i.req.Tools, injectedTool)
 	}
 
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
