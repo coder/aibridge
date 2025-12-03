@@ -442,9 +442,9 @@ func TestOpenAIChatCompletions(t *testing.T) {
 
 				require.Len(t, recorderClient.toolUsages, 1)
 				assert.Equal(t, "read_file", recorderClient.toolUsages[0].Tool)
-				require.IsType(t, "", recorderClient.toolUsages[0].Args)
+				require.IsType(t, map[string]any{}, recorderClient.toolUsages[0].Args)
 				require.Contains(t, recorderClient.toolUsages[0].Args, "path")
-				assert.Equal(t, "README.md", gjson.Get(recorderClient.toolUsages[0].Args.(string), "path").Str)
+				assert.Equal(t, "README.md", recorderClient.toolUsages[0].Args.(map[string]any)["path"])
 
 				require.Len(t, recorderClient.userPrompts, 1)
 				assert.Equal(t, "how large is the README.md file in my current path", recorderClient.userPrompts[0].Prompt)
@@ -852,7 +852,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			// Ensure expected tool was invoked with expected input.
 			require.Len(t, recorderClient.toolUsages, 1)
 			require.Equal(t, mockToolName, recorderClient.toolUsages[0].Tool)
-			expected := "{\"owner\":\"admin\"}"
+			expected := map[string]any{"owner": "admin"}
 			require.EqualValues(t, expected, recorderClient.toolUsages[0].Args)
 
 			var (

@@ -119,7 +119,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 						InterceptionID: i.ID().String(),
 						MsgID:          completion.ID,
 						Tool:           toolCall.Function.Name,
-						Args:           toolCall.Function.Arguments,
+						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
 						Injected:       false,
 					})
 				}
@@ -150,13 +150,14 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 				appendedPrevMsg = true
 			}
 
-			res, err := tool.Call(ctx, i.tracer, tc.Function.Arguments)
+			args := i.unmarshalArgs(tc.Function.Arguments)
+			res, err := tool.Call(ctx, i.tracer, args)
 			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           completion.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
-				Args:            tc.Function.Arguments,
+				Args:            args,
 				Injected:        true,
 				InvocationError: err,
 			})

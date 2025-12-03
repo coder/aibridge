@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/tracing"
@@ -102,6 +103,18 @@ func (i *OpenAIChatInterceptionBase) injectTools() {
 
 		i.req.Tools = append(i.req.Tools, fn)
 	}
+}
+
+func (i *OpenAIChatInterceptionBase) unmarshalArgs(in string) (args ToolArgs) {
+	if len(strings.TrimSpace(in)) == 0 {
+		return args // An empty string will fail JSON unmarshaling.
+	}
+
+	if err := json.Unmarshal([]byte(in), &args); err != nil {
+		i.logger.Warn(context.Background(), "failed to unmarshal tool args", slog.Error(err))
+	}
+
+	return args
 }
 
 // writeUpstreamError marshals and writes a given error.

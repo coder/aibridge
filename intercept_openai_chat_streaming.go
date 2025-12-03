@@ -154,7 +154,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 				InterceptionID: i.ID().String(),
 				MsgID:          processor.getMsgID(),
 				Tool:           toolCall.Name,
-				Args:           toolCall.Arguments,
+				Args:           i.unmarshalArgs(toolCall.Arguments),
 				Injected:       false,
 			})
 			toolCall = nil
@@ -241,13 +241,14 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		i.req.Messages = append(i.req.Messages, processor.getLastCompletion().ToParam())
 
 		id := toolCall.ID
-		toolRes, toolErr := tool.Call(streamCtx, i.tracer, toolCall.Arguments)
+		args := i.unmarshalArgs(toolCall.Arguments)
+		toolRes, toolErr := tool.Call(streamCtx, i.tracer, args)
 		_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 			InterceptionID:  i.ID().String(),
 			MsgID:           processor.getMsgID(),
 			ServerURL:       &tool.ServerURL,
 			Tool:            tool.Name,
-			Args:            toolCall.Arguments,
+			Args:            args,
 			Injected:        true,
 			InvocationError: toolErr,
 		})

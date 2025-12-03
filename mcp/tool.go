@@ -54,6 +54,9 @@ func (t *Tool) Call(ctx context.Context, tracer trace.Tracer, input any) (_ *mcp
 		attribute.String(tracing.MCPServerName, t.ServerName),
 		attribute.String(tracing.MCPServerURL, t.ServerURL),
 	)
+	ctx, span := tracer.Start(ctx, "Intercept.ProcessRequest.ToolCall", trace.WithAttributes(spanAttrs...))
+	defer tracing.EndSpanErr(span, &outErr)
+
 	inputJson, err := json.Marshal(input)
 	if err != nil {
 		t.Logger.Warn(ctx, "failed to marshal tool input, will be omitted from span attrs: %v", err)
@@ -62,11 +65,8 @@ func (t *Tool) Call(ctx context.Context, tracer trace.Tracer, input any) (_ *mcp
 		if len(strJson) > maxSpanInputAttrLen {
 			strJson = strJson[:100]
 		}
-		spanAttrs = append(spanAttrs, attribute.String(tracing.MCPInput, strJson))
+		span.SetAttributes(attribute.String(tracing.MCPInput, strJson))
 	}
-
-	ctx, span := tracer.Start(ctx, "Intercept.ProcessRequest.ToolCall", trace.WithAttributes(spanAttrs...))
-	defer tracing.EndSpanErr(span, &outErr)
 
 	return t.Client.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{

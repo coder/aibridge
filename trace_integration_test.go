@@ -638,7 +638,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 					attribute.String(tracing.Provider, aibridge.ProviderOpenAI),
 					attribute.String(tracing.Model, gjson.Get(reqBody, "model").Str),
 					attribute.String(tracing.InitiatorID, userID),
-					attribute.String(tracing.MCPInput, "\"{\\\"owner\\\":\\\"admin\\\"}\""),
+					attribute.String(tracing.MCPInput, "{\"owner\":\"admin\"}"),
 					attribute.String(tracing.MCPToolName, "coder_list_workspaces"),
 					attribute.String(tracing.MCPServerName, tool.ServerName),
 					attribute.String(tracing.MCPServerURL, tool.ServerURL),
