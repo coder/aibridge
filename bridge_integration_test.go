@@ -1743,16 +1743,10 @@ func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
 	return server.NewStreamableHTTPServer(s), acc
 }
 
-func openaiCfg(url, key string) aibridge.OpenAIConfig {
-	return aibridge.OpenAIConfig{
-		BaseURL: url,
-		Key:     key,
-	}
+func openaiCfg(url, key string) *aibridge.OpenAIConfig {
+	return aibridge.NewProviderConfig(url, key, "")
 }
 
-func anthropicCfg(url, key string) aibridge.AnthropicConfig {
-	return aibridge.AnthropicConfig{
-		BaseURL: url,
-		Key:     key,
-	}
+func anthropicCfg(url, key string) *aibridge.AnthropicConfig {
+	return aibridge.NewProviderConfig(url, key, "")
 }

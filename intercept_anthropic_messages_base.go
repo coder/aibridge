@@ -27,7 +27,7 @@ type AnthropicMessagesInterceptionBase struct {
 	id  uuid.UUID
 	req *MessageNewParamsWrapper
 
-	cfg        AnthropicConfig
+	cfg        *AnthropicConfig
 	bedrockCfg *AWSBedrockConfig
 
 	tracer trace.Tracer
@@ -98,7 +98,6 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
 	i.req.ToolChoice = anthropic.ToolChoiceUnionParam{
 		OfAny: &anthropic.ToolChoiceAnyParam{
-			Type:                   "auto",
 			DisableParallelToolUse: anthropic.Bool(true),
 		},
 	}
@@ -113,8 +112,14 @@ func (i *AnthropicMessagesInterceptionBase) isSmallFastModel() bool {
 }
 
 func (i *AnthropicMessagesInterceptionBase) newMessagesService(ctx context.Context, opts ...option.RequestOption) (anthropic.MessageService, error) {
-	opts = append(opts, option.WithAPIKey(i.cfg.Key))
-	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
+	opts = append(opts, option.WithAPIKey(i.cfg.Key()))
+	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL()))
+
+	if i.cfg.IsUpstreamLoggingEnabled() {
+		if middleware := createLoggingMiddleware(i.logger, i.cfg, ProviderAnthropic, i.id.String(), i.Model()); middleware != nil {
+			opts = append(opts, option.WithMiddleware(middleware))
+		}
+	}
 
 	if i.bedrockCfg != nil {
 		ctx, cancel := context.WithTimeout(ctx, time.Second*30)

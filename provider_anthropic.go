@@ -21,7 +21,7 @@ var _ Provider = &AnthropicProvider{}
 
 // AnthropicProvider allows for interactions with the Anthropic API.
 type AnthropicProvider struct {
-	cfg        AnthropicConfig
+	cfg        *AnthropicConfig
 	bedrockCfg *AWSBedrockConfig
 }
 
@@ -31,12 +31,16 @@ const (
 	routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
 )
 
-func NewAnthropicProvider(cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig) *AnthropicProvider {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = "https://api.anthropic.com/"
+func NewAnthropicProvider(cfg *AnthropicConfig, bedrockCfg *AWSBedrockConfig) *AnthropicProvider {
+	if cfg == nil {
+		panic("ProviderConfig cannot be nil")
 	}
-	if cfg.Key == "" {
-		cfg.Key = os.Getenv("ANTHROPIC_API_KEY")
+
+	if cfg.BaseURL() == "" {
+		cfg.SetBaseURL("https://api.anthropic.com/")
+	}
+	if cfg.Key() == "" {
+		cfg.SetKey(os.Getenv("ANTHROPIC_API_KEY"))
 	}
 
 	return &AnthropicProvider{
@@ -93,7 +97,7 @@ func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Req
 }
 
 func (p *AnthropicProvider) BaseURL() string {
-	return p.cfg.BaseURL
+	return p.cfg.BaseURL()
 }
 
 func (p *AnthropicProvider) AuthHeader() string {
@@ -105,7 +109,7 @@ func (p *AnthropicProvider) InjectAuthHeader(headers *http.Header) {
 		headers = &http.Header{}
 	}
 
-	headers.Set(p.AuthHeader(), p.cfg.Key)
+	headers.Set(p.AuthHeader(), p.cfg.Key())
 }
 
 func getAnthropicErrorResponse(err error) *AnthropicErrorResponse {
