@@ -1,7 +1,6 @@
 package aibridge
 
 import (
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
@@ -10,6 +9,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp" // TODO: abstract this away so callers need no knowledge of underlying lib.
+	"github.com/tidwall/sjson"
 
 	"github.com/coder/aibridge/mcp"
 
@@ -268,20 +268,21 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 		return nil
 	}
 
-	resp.Usage = cumulativeUsage
-
 	// Overwrite response identifier since proxy obscures injected tool call invocations.
-	resp.ID = i.ID().String()
-
-	out, err := json.Marshal(resp)
+	sj, err := sjson.Set(resp.RawJSON(), "id", i.ID().String())
 	if err != nil {
-		http.Error(w, "error marshaling response", http.StatusInternalServerError)
-		return fmt.Errorf("failed to marshal response: %w", err)
+		return fmt.Errorf("marshal response id failed: %w", err)
+	}
+
+	// Overwrite the response's usage with the cumulative usage across any inner loops which invokes injected MCP tools.
+	sj, err = sjson.Set(sj, "usage", cumulativeUsage)
+	if err != nil {
+		return fmt.Errorf("marshal response usage failed: %w", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(out)
+	_, _ = w.Write([]byte(sj))
 
 	return nil
 }
