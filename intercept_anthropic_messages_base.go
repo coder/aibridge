@@ -80,11 +80,12 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 	}
 
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
-	i.req.ToolChoice = anthropic.ToolChoiceUnionParam{
-		OfAny: &anthropic.ToolChoiceAnyParam{
-			Type:                   "auto",
-			DisableParallelToolUse: anthropic.Bool(true),
-		},
+	if i.req.ToolChoice.OfAny != nil {
+		i.req.ToolChoice.OfAny.DisableParallelToolUse = anthropic.Bool(true)
+	} else if i.req.ToolChoice.OfAuto != nil {
+		i.req.ToolChoice.OfAuto.DisableParallelToolUse = anthropic.Bool(true)
+	} else if i.req.ToolChoice.OfTool != nil {
+		i.req.ToolChoice.OfTool.DisableParallelToolUse = anthropic.Bool(true)
 	}
 }
 
