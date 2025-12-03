@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"cdr.dev/slog"
-	"github.com/coder/aibridge/aibtrace"
+	"github.com/coder/aibridge/tracing"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
@@ -60,7 +60,7 @@ func (p *StreamableHTTPServerProxy) Name() string {
 
 func (p *StreamableHTTPServerProxy) Init(ctx context.Context) (outErr error) {
 	ctx, span := p.tracer.Start(ctx, "StreamableHTTPServerProxy.Init", trace.WithAttributes(p.traceAttributes()...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	defer tracing.EndSpanErr(span, &outErr)
 
 	if err := p.client.Start(ctx); err != nil {
 		return fmt.Errorf("start client: %w", err)
@@ -134,7 +134,7 @@ func (p *StreamableHTTPServerProxy) CallTool(ctx context.Context, name string, i
 
 func (p *StreamableHTTPServerProxy) fetchTools(ctx context.Context) (_ map[string]*Tool, outErr error) {
 	ctx, span := p.tracer.Start(ctx, "StreamableHTTPServerProxy.Init.fetchTools", trace.WithAttributes(p.traceAttributes()...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	defer tracing.EndSpanErr(span, &outErr)
 
 	tools, err := p.client.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
@@ -156,7 +156,7 @@ func (p *StreamableHTTPServerProxy) fetchTools(ctx context.Context) (_ map[strin
 			Logger:      p.logger,
 		}
 	}
-	span.SetAttributes(append(p.traceAttributes(), attribute.Int(aibtrace.MCPToolCount, len(out)))...)
+	span.SetAttributes(append(p.traceAttributes(), attribute.Int(tracing.MCPToolCount, len(out)))...)
 	return out, nil
 }
 
@@ -172,8 +172,8 @@ func (p *StreamableHTTPServerProxy) Shutdown(ctx context.Context) error {
 
 func (p *StreamableHTTPServerProxy) traceAttributes() []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String(aibtrace.MCPProxyName, p.Name()),
-		attribute.String(aibtrace.MCPServerName, p.serverName),
-		attribute.String(aibtrace.MCPServerURL, p.serverURL),
+		attribute.String(tracing.MCPProxyName, p.Name()),
+		attribute.String(tracing.MCPServerName, p.serverName),
+		attribute.String(tracing.MCPServerURL, p.serverURL),
 	}
 }

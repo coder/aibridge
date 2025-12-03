@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"cdr.dev/slog"
-	"github.com/coder/aibridge/aibtrace"
+	"github.com/coder/aibridge/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -22,8 +22,8 @@ func newPassthroughRouter(provider Provider, logger slog.Logger, metrics *Metric
 		}
 
 		ctx, span := tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
-			attribute.String(aibtrace.PassthroughURL, r.URL.Path),
-			attribute.String(aibtrace.PassthroughMethod, r.Method),
+			attribute.String(tracing.PassthroughURL, r.URL.Path),
+			attribute.String(tracing.PassthroughMethod, r.Method),
 		))
 		defer span.End()
 

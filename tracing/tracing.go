@@ -1,4 +1,4 @@
-package aibtrace
+package tracing
 
 import (
 	"context"

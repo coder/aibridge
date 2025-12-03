@@ -14,8 +14,8 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 
 	"cdr.dev/slog"
 )
@@ -53,8 +53,8 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	i.injectTools()
 
@@ -298,8 +298,8 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 }
 
 func (i *AnthropicMessagesBlockingInterception) traceNewMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {
-	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	return svc.New(ctx, msgParams)
 }

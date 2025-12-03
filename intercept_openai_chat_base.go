@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
@@ -48,12 +48,12 @@ func (i *OpenAIChatInterceptionBase) Setup(logger slog.Logger, recorder Recorder
 
 func (s *OpenAIChatInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String(aibtrace.RequestPath, r.URL.Path),
-		attribute.String(aibtrace.InterceptionID, s.id.String()),
-		attribute.String(aibtrace.InitiatorID, actorFromContext(r.Context()).id),
-		attribute.String(aibtrace.Provider, ProviderOpenAI),
-		attribute.String(aibtrace.Model, s.Model()),
-		attribute.Bool(aibtrace.Streaming, streaming),
+		attribute.String(tracing.RequestPath, r.URL.Path),
+		attribute.String(tracing.InterceptionID, s.id.String()),
+		attribute.String(tracing.InitiatorID, actorFromContext(r.Context()).id),
+		attribute.String(tracing.Provider, ProviderOpenAI),
+		attribute.String(tracing.Model, s.Model()),
+		attribute.Bool(tracing.Streaming, streaming),
 	}
 }
 

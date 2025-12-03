@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"cdr.dev/slog"
-	"github.com/coder/aibridge/aibtrace"
+	"github.com/coder/aibridge/tracing"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -49,10 +49,10 @@ func (t *Tool) Call(ctx context.Context, tracer trace.Tracer, input any) (_ *mcp
 	}
 
 	spanAttrs := append(
-		aibtrace.InterceptionAttributesFromContext(ctx),
-		attribute.String(aibtrace.MCPToolName, t.Name),
-		attribute.String(aibtrace.MCPServerName, t.ServerName),
-		attribute.String(aibtrace.MCPServerURL, t.ServerURL),
+		tracing.InterceptionAttributesFromContext(ctx),
+		attribute.String(tracing.MCPToolName, t.Name),
+		attribute.String(tracing.MCPServerName, t.ServerName),
+		attribute.String(tracing.MCPServerURL, t.ServerURL),
 	)
 	inputJson, err := json.Marshal(input)
 	if err != nil {
@@ -62,11 +62,11 @@ func (t *Tool) Call(ctx context.Context, tracer trace.Tracer, input any) (_ *mcp
 		if len(strJson) > maxSpanInputAttrLen {
 			strJson = strJson[:100]
 		}
-		spanAttrs = append(spanAttrs, attribute.String(aibtrace.MCPInput, strJson))
+		spanAttrs = append(spanAttrs, attribute.String(tracing.MCPInput, strJson))
 	}
 
 	ctx, span := tracer.Start(ctx, "Intercept.ProcessRequest.ToolCall", trace.WithAttributes(spanAttrs...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	defer tracing.EndSpanErr(span, &outErr)
 
 	return t.Client.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{

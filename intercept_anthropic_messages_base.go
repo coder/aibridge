@@ -14,8 +14,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
-	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -65,13 +65,13 @@ func (i *AnthropicMessagesInterceptionBase) Model() string {
 
 func (s *AnthropicMessagesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
-		attribute.String(aibtrace.RequestPath, r.URL.Path),
-		attribute.String(aibtrace.InterceptionID, s.id.String()),
-		attribute.String(aibtrace.InitiatorID, actorFromContext(r.Context()).id),
-		attribute.String(aibtrace.Provider, ProviderAnthropic),
-		attribute.String(aibtrace.Model, s.Model()),
-		attribute.Bool(aibtrace.Streaming, streaming),
-		attribute.Bool(aibtrace.IsBedrock, s.bedrockCfg != nil),
+		attribute.String(tracing.RequestPath, r.URL.Path),
+		attribute.String(tracing.InterceptionID, s.id.String()),
+		attribute.String(tracing.InitiatorID, actorFromContext(r.Context()).id),
+		attribute.String(tracing.Provider, ProviderAnthropic),
+		attribute.String(tracing.Model, s.Model()),
+		attribute.Bool(tracing.Streaming, streaming),
+		attribute.Bool(tracing.IsBedrock, s.bedrockCfg != nil),
 	}
 }
 

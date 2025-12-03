@@ -11,7 +11,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
-	aibtrace "github.com/coder/aibridge/aibtrace"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -64,7 +64,7 @@ func (p *AnthropicProvider) PassthroughRoutes() []string {
 func (p *AnthropicProvider) CreateInterceptor(tracer trace.Tracer, w http.ResponseWriter, r *http.Request) (_ Interceptor, outErr error) {
 	id := uuid.New()
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
-	defer aibtrace.EndSpanErr(span, &outErr)
+	defer tracing.EndSpanErr(span, &outErr)
 
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {

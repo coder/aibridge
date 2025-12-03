@@ -11,8 +11,8 @@ import (
 	"cdr.dev/slog"
 	"cdr.dev/slog/sloggers/slogtest"
 	"github.com/coder/aibridge"
-	"github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/go-cmp/cmp"
 	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
@@ -145,13 +145,13 @@ func TestTraceAnthropic(t *testing.T) {
 			}
 
 			attrs := []attribute.KeyValue{
-				attribute.String(aibtrace.RequestPath, req.URL.Path),
-				attribute.String(aibtrace.InterceptionID, intcID),
-				attribute.String(aibtrace.Provider, aibridge.ProviderAnthropic),
-				attribute.String(aibtrace.Model, model),
-				attribute.String(aibtrace.InitiatorID, userID),
-				attribute.Bool(aibtrace.Streaming, tc.streaming),
-				attribute.Bool(aibtrace.IsBedrock, tc.bedrock),
+				attribute.String(tracing.RequestPath, req.URL.Path),
+				attribute.String(tracing.InterceptionID, intcID),
+				attribute.String(tracing.Provider, aibridge.ProviderAnthropic),
+				attribute.String(tracing.Model, model),
+				attribute.String(tracing.InitiatorID, userID),
+				attribute.Bool(tracing.Streaming, tc.streaming),
+				attribute.Bool(tracing.IsBedrock, tc.bedrock),
 			}
 
 			require.Len(t, sr.Ended(), totalCount)
@@ -286,13 +286,13 @@ func TestTraceAnthropicErr(t *testing.T) {
 			}
 
 			attrs := []attribute.KeyValue{
-				attribute.String(aibtrace.RequestPath, req.URL.Path),
-				attribute.String(aibtrace.InterceptionID, intcID),
-				attribute.String(aibtrace.Provider, aibridge.ProviderAnthropic),
-				attribute.String(aibtrace.Model, model),
-				attribute.String(aibtrace.InitiatorID, userID),
-				attribute.Bool(aibtrace.Streaming, tc.streaming),
-				attribute.Bool(aibtrace.IsBedrock, tc.bedrock),
+				attribute.String(tracing.RequestPath, req.URL.Path),
+				attribute.String(tracing.InterceptionID, intcID),
+				attribute.String(tracing.Provider, aibridge.ProviderAnthropic),
+				attribute.String(tracing.Model, model),
+				attribute.String(tracing.InitiatorID, userID),
+				attribute.Bool(tracing.Streaming, tc.streaming),
+				attribute.Bool(tracing.IsBedrock, tc.bedrock),
 			}
 
 			verifyTraces(t, sr, tc.expect, attrs)
@@ -377,17 +377,17 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 				tool := proxy.ListTools()[0]
 
 				attrs := []attribute.KeyValue{
-					attribute.String(aibtrace.RequestPath, reqPath),
-					attribute.String(aibtrace.InterceptionID, intcID),
-					attribute.String(aibtrace.Provider, aibridge.ProviderAnthropic),
-					attribute.String(aibtrace.Model, model),
-					attribute.String(aibtrace.InitiatorID, userID),
-					attribute.String(aibtrace.MCPInput, "{\"owner\":\"admin\"}"),
-					attribute.String(aibtrace.MCPToolName, "coder_list_workspaces"),
-					attribute.String(aibtrace.MCPServerName, tool.ServerName),
-					attribute.String(aibtrace.MCPServerURL, tool.ServerURL),
-					attribute.Bool(aibtrace.Streaming, tc.streaming),
-					attribute.Bool(aibtrace.IsBedrock, tc.bedrock),
+					attribute.String(tracing.RequestPath, reqPath),
+					attribute.String(tracing.InterceptionID, intcID),
+					attribute.String(tracing.Provider, aibridge.ProviderAnthropic),
+					attribute.String(tracing.Model, model),
+					attribute.String(tracing.InitiatorID, userID),
+					attribute.String(tracing.MCPInput, "{\"owner\":\"admin\"}"),
+					attribute.String(tracing.MCPToolName, "coder_list_workspaces"),
+					attribute.String(tracing.MCPServerName, tool.ServerName),
+					attribute.String(tracing.MCPServerURL, tool.ServerURL),
+					attribute.Bool(tracing.Streaming, tc.streaming),
+					attribute.Bool(tracing.IsBedrock, tc.bedrock),
 				}
 				verifyTraces(t, sr, []expectTrace{{"Intercept.ProcessRequest.ToolCall", 1, codes.Unset}}, attrs)
 			}
@@ -479,12 +479,12 @@ func TestTraceOpenAI(t *testing.T) {
 			require.Len(t, sr.Ended(), totalCount)
 
 			attrs := []attribute.KeyValue{
-				attribute.String(aibtrace.RequestPath, req.URL.Path),
-				attribute.String(aibtrace.InterceptionID, intcID),
-				attribute.String(aibtrace.Provider, aibridge.ProviderOpenAI),
-				attribute.String(aibtrace.Model, gjson.Get(string(reqBody), "model").Str),
-				attribute.String(aibtrace.InitiatorID, userID),
-				attribute.Bool(aibtrace.Streaming, tc.streaming),
+				attribute.String(tracing.RequestPath, req.URL.Path),
+				attribute.String(tracing.InterceptionID, intcID),
+				attribute.String(tracing.Provider, aibridge.ProviderOpenAI),
+				attribute.String(tracing.Model, gjson.Get(string(reqBody), "model").Str),
+				attribute.String(tracing.InitiatorID, userID),
+				attribute.Bool(tracing.Streaming, tc.streaming),
 			}
 			verifyTraces(t, sr, tc.expect, attrs)
 		})
@@ -581,12 +581,12 @@ func TestTraceOpenAIErr(t *testing.T) {
 			require.Len(t, sr.Ended(), totalCount)
 
 			attrs := []attribute.KeyValue{
-				attribute.String(aibtrace.RequestPath, req.URL.Path),
-				attribute.String(aibtrace.InterceptionID, intcID),
-				attribute.String(aibtrace.Provider, aibridge.ProviderOpenAI),
-				attribute.String(aibtrace.Model, gjson.Get(string(reqBody), "model").Str),
-				attribute.String(aibtrace.InitiatorID, userID),
-				attribute.Bool(aibtrace.Streaming, tc.streaming),
+				attribute.String(tracing.RequestPath, req.URL.Path),
+				attribute.String(tracing.InterceptionID, intcID),
+				attribute.String(tracing.Provider, aibridge.ProviderOpenAI),
+				attribute.String(tracing.Model, gjson.Get(string(reqBody), "model").Str),
+				attribute.String(tracing.InitiatorID, userID),
+				attribute.Bool(tracing.Streaming, tc.streaming),
 			}
 			verifyTraces(t, sr, tc.expect, attrs)
 		})
@@ -633,16 +633,16 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 				tool := proxy.ListTools()[0]
 
 				attrs := []attribute.KeyValue{
-					attribute.String(aibtrace.RequestPath, reqPath),
-					attribute.String(aibtrace.InterceptionID, intcID),
-					attribute.String(aibtrace.Provider, aibridge.ProviderOpenAI),
-					attribute.String(aibtrace.Model, gjson.Get(reqBody, "model").Str),
-					attribute.String(aibtrace.InitiatorID, userID),
-					attribute.String(aibtrace.MCPInput, "\"{\\\"owner\\\":\\\"admin\\\"}\""),
-					attribute.String(aibtrace.MCPToolName, "coder_list_workspaces"),
-					attribute.String(aibtrace.MCPServerName, tool.ServerName),
-					attribute.String(aibtrace.MCPServerURL, tool.ServerURL),
-					attribute.Bool(aibtrace.Streaming, streaming),
+					attribute.String(tracing.RequestPath, reqPath),
+					attribute.String(tracing.InterceptionID, intcID),
+					attribute.String(tracing.Provider, aibridge.ProviderOpenAI),
+					attribute.String(tracing.Model, gjson.Get(reqBody, "model").Str),
+					attribute.String(tracing.InitiatorID, userID),
+					attribute.String(tracing.MCPInput, "\"{\\\"owner\\\":\\\"admin\\\"}\""),
+					attribute.String(tracing.MCPToolName, "coder_list_workspaces"),
+					attribute.String(tracing.MCPServerName, tool.ServerName),
+					attribute.String(tracing.MCPServerURL, tool.ServerURL),
+					attribute.Bool(tracing.Streaming, streaming),
 				}
 				verifyTraces(t, sr, []expectTrace{{"Intercept.ProcessRequest.ToolCall", 1, codes.Unset}}, attrs)
 			}
@@ -685,8 +685,8 @@ func TestTracePassthrough(t *testing.T) {
 
 	assert.Equal(t, spans[0].Name(), "Passthrough")
 	attrs := []attribute.KeyValue{
-		attribute.String(aibtrace.PassthroughURL, "/v1/models"),
-		attribute.String(aibtrace.PassthroughMethod, "GET"),
+		attribute.String(tracing.PassthroughURL, "/v1/models"),
+		attribute.String(tracing.PassthroughMethod, "GET"),
 	}
 	if attrDiff := cmp.Diff(spans[0].Attributes(), attrs, cmpopts.EquateComparable(attribute.KeyValue{}), cmpopts.SortSlices(cmpAttrKeyVal)); attrDiff != "" {
 		t.Errorf("unexpectet attrs diff: %s", attrDiff)
@@ -718,13 +718,13 @@ func TestNewServerProxyManagerTraces(t *testing.T) {
 	verifyTraces(t, sr, []expectTrace{{"ServerProxyManager.Init", 1, codes.Unset}}, []attribute.KeyValue{})
 
 	attrs := []attribute.KeyValue{
-		attribute.String(aibtrace.MCPProxyName, proxy.Name()),
-		attribute.String(aibtrace.MCPServerURL, mcpSrv.URL),
-		attribute.String(aibtrace.MCPServerName, serverName),
+		attribute.String(tracing.MCPProxyName, proxy.Name()),
+		attribute.String(tracing.MCPServerURL, mcpSrv.URL),
+		attribute.String(tracing.MCPServerName, serverName),
 	}
 	verifyTraces(t, sr, []expectTrace{{"StreamableHTTPServerProxy.Init", 1, codes.Unset}}, attrs)
 
-	attrs = append(attrs, attribute.Int(aibtrace.MCPToolCount, len(proxy.ListTools())))
+	attrs = append(attrs, attribute.Int(tracing.MCPToolCount, len(proxy.ListTools())))
 	verifyTraces(t, sr, []expectTrace{{"StreamableHTTPServerProxy.Init.fetchTools", 1, codes.Unset}}, attrs)
 }
 

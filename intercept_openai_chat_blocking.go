@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
@@ -52,8 +52,8 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	svc := i.newCompletionsService(i.baseURL, i.key)
 	logger := i.logger.With(slog.F("model", i.req.Model))
@@ -233,8 +233,8 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 }
 
 func (i *OpenAIBlockingChatInterception) traceChatCompletionsNew(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {
-	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	return svc.New(ctx, i.req.ChatCompletionNewParams, opts...)
 }

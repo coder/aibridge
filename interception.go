@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"cdr.dev/slog"
-	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -69,7 +69,7 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 
 		traceAttrs := interceptor.TraceAttributes(r)
 		span.SetAttributes(traceAttrs...)
-		ctx = aibtrace.WithInterceptionAttributesInContext(ctx, traceAttrs)
+		ctx = tracing.WithInterceptionAttributesInContext(ctx, traceAttrs)
 		r = r.WithContext(ctx)
 
 		// Record usage in the background to not block request flow.

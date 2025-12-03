@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"os"
 
-	aibtrace "github.com/coder/aibridge/aibtrace"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -65,7 +65,7 @@ func (p *OpenAIProvider) CreateInterceptor(tracer trace.Tracer, w http.ResponseW
 	id := uuid.New()
 
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
-	defer aibtrace.EndSpanErr(span, &outErr)
+	defer tracing.EndSpanErr(span, &outErr)
 
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {

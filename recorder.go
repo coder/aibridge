@@ -8,7 +8,7 @@ import (
 
 	"cdr.dev/slog"
 
-	aibtrace "github.com/coder/aibridge/aibtrace"
+	"github.com/coder/aibridge/tracing"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -26,8 +26,8 @@ type RecorderWrapper struct {
 }
 
 func (r *RecorderWrapper) RecordInterception(ctx context.Context, req *InterceptionRecord) (outErr error) {
-	ctx, span := r.tracer.Start(ctx, "Intercept.RecordInterception", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := r.tracer.Start(ctx, "Intercept.RecordInterception", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	client, err := r.clientFn()
 	if err != nil {
@@ -44,8 +44,8 @@ func (r *RecorderWrapper) RecordInterception(ctx context.Context, req *Intercept
 }
 
 func (r *RecorderWrapper) RecordInterceptionEnded(ctx context.Context, req *InterceptionRecordEnded) (outErr error) {
-	ctx, span := r.tracer.Start(ctx, "Intercept.RecordInterceptionEnded", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := r.tracer.Start(ctx, "Intercept.RecordInterceptionEnded", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	client, err := r.clientFn()
 	if err != nil {
@@ -62,8 +62,8 @@ func (r *RecorderWrapper) RecordInterceptionEnded(ctx context.Context, req *Inte
 }
 
 func (r *RecorderWrapper) RecordPromptUsage(ctx context.Context, req *PromptUsageRecord) (outErr error) {
-	ctx, span := r.tracer.Start(ctx, "Intercept.RecordPromptUsage", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := r.tracer.Start(ctx, "Intercept.RecordPromptUsage", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	client, err := r.clientFn()
 	if err != nil {
@@ -80,8 +80,8 @@ func (r *RecorderWrapper) RecordPromptUsage(ctx context.Context, req *PromptUsag
 }
 
 func (r *RecorderWrapper) RecordTokenUsage(ctx context.Context, req *TokenUsageRecord) (outErr error) {
-	ctx, span := r.tracer.Start(ctx, "Intercept.RecordTokenUsage", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := r.tracer.Start(ctx, "Intercept.RecordTokenUsage", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	client, err := r.clientFn()
 	if err != nil {
@@ -98,8 +98,8 @@ func (r *RecorderWrapper) RecordTokenUsage(ctx context.Context, req *TokenUsageR
 }
 
 func (r *RecorderWrapper) RecordToolUsage(ctx context.Context, req *ToolUsageRecord) (outErr error) {
-	ctx, span := r.tracer.Start(ctx, "Intercept.RecordToolUsage", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := r.tracer.Start(ctx, "Intercept.RecordToolUsage", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	client, err := r.clientFn()
 	if err != nil {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/coder/aibridge/aibtrace"
+	"github.com/coder/aibridge/tracing"
 	"github.com/coder/aibridge/utils"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel/trace"
@@ -50,7 +50,7 @@ func (s *ServerProxyManager) addTools(tools []*Tool) {
 // Init concurrently initializes all of its [ServerProxier]s.
 func (s *ServerProxyManager) Init(ctx context.Context) (outErr error) {
 	ctx, span := s.tracer.Start(ctx, "ServerProxyManager.Init")
-	defer aibtrace.EndSpanErr(span, &outErr)
+	defer tracing.EndSpanErr(span, &outErr)
 
 	cg := utils.NewConcurrentGroup()
 	for _, proxy := range s.proxiers {

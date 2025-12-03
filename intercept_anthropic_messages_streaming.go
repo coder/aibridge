@@ -13,8 +13,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
-	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel/attribute"
@@ -75,8 +75,8 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	// Allow us to interrupt watch via cancel.
 	ctx, cancel := context.WithCancel(ctx)
@@ -523,7 +523,7 @@ func (s *AnthropicMessagesStreamingInterception) encodeForStream(payload []byte,
 }
 
 func (s *AnthropicMessagesStreamingInterception) traceNewStreaming(ctx context.Context, svc anthropic.MessageService, messages anthropic.MessageNewParams) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
-	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
+	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
 	return svc.NewStreaming(ctx, messages)

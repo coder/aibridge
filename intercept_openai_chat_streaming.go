@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	aibtrace "github.com/coder/aibridge/aibtrace"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/packages/ssestream"
@@ -67,8 +67,8 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		return fmt.Errorf("developer error: req is nil")
 	}
 
-	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(r.Context())...))
-	defer aibtrace.EndSpanErr(span, &outErr)
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
+	defer tracing.EndSpanErr(span, &outErr)
 
 	// Include token usage.
 	i.req.StreamOptions.IncludeUsage = openai.Bool(true)
@@ -347,7 +347,7 @@ func (i *OpenAIStreamingChatInterception) encodeForStream(payload []byte) []byte
 }
 
 func (i *OpenAIStreamingChatInterception) traceNewStreaming(ctx context.Context, svc openai.ChatCompletionService) *ssestream.Stream[openai.ChatCompletionChunk] {
-	_, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(aibtrace.InterceptionAttributesFromContext(ctx)...))
+	_, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
 	return svc.NewStreaming(ctx, i.req.ChatCompletionNewParams)
