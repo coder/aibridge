@@ -28,6 +28,7 @@ var _ Interceptor = &AnthropicMessagesStreamingInterception{}
 
 type AnthropicMessagesStreamingInterception struct {
 	AnthropicMessagesInterceptionBase
+	contentBlockIndex int
 }
 
 func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig, tracer trace.Tracer) *AnthropicMessagesStreamingInterception {
@@ -496,6 +497,22 @@ func (s *AnthropicMessagesStreamingInterception) marshalEvent(event anthropic.Me
 	sj, err = sjson.Set(sj, "usage.output_tokens", event.Usage.OutputTokens)
 	if err != nil {
 		return nil, fmt.Errorf("marshal event usage failed: %w", err)
+	}
+
+	// Rewrite index for content block events to maintain continuous sequence
+	if event.Type == "content_block_start" ||
+		event.Type == "content_block_delta" ||
+		event.Type == "content_block_stop" {
+
+		sj, err = sjson.Set(sj, "index", s.contentBlockIndex)
+		if err != nil {
+			return nil, fmt.Errorf("marshal event index failed: %w", err)
+		}
+
+		// Increment after content_block_stop so next block gets new index
+		if event.Type == "content_block_stop" {
+			s.contentBlockIndex++
+		}
 	}
 
 	return s.encodeForStream([]byte(sj), event.Type), nil
