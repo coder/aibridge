@@ -612,7 +612,7 @@ func TestSimple(t *testing.T) {
 					// multiple messages in response to a single request.
 					id, err := tc.getResponseIDFunc(streaming, resp)
 					require.NoError(t, err, "failed to retrieve response ID")
-					require.Nil(t, uuid.Validate(id), "id is not a UUID")
+					require.Nilf(t, uuid.Validate(id), "%s is not a valid UUID", id)
 
 					require.GreaterOrEqual(t, len(recorderClient.tokenUsages), 1)
 					require.Equal(t, recorderClient.tokenUsages[0].MsgID, tc.expectedMsgID)

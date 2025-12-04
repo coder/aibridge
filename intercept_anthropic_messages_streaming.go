@@ -17,6 +17,7 @@ import (
 	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
+	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
@@ -403,8 +404,7 @@ newStream:
 			}
 
 			// Overwrite response identifier since proxy obscures injected tool call invocations.
-			event.Message.ID = i.ID().String()
-			payload, err := i.marshal(event)
+			payload, err := i.marshalEvent(event)
 			if err != nil {
 				logger.Warn(ctx, "failed to marshal event", slog.Error(err), slog.F("event", event.RawJSON()))
 				lastErr = fmt.Errorf("marshal event: %w", err)
@@ -485,6 +485,20 @@ newStream:
 	}
 
 	return interceptionErr
+}
+
+func (s *AnthropicMessagesStreamingInterception) marshalEvent(event anthropic.MessageStreamEventUnion) ([]byte, error) {
+	sj, err := sjson.Set(event.RawJSON(), "message.id", s.ID().String())
+	if err != nil {
+		return nil, fmt.Errorf("marshal event id failed: %w", err)
+	}
+
+	sj, err = sjson.Set(sj, "usage.output_tokens", event.Usage.OutputTokens)
+	if err != nil {
+		return nil, fmt.Errorf("marshal event usage failed: %w", err)
+	}
+
+	return s.encodeForStream([]byte(sj), event.Type), nil
 }
 
 func (s *AnthropicMessagesStreamingInterception) marshal(payload any) ([]byte, error) {
