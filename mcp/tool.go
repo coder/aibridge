@@ -40,7 +40,7 @@ type Tool struct {
 	Logger      slog.Logger
 }
 
-func (t *Tool) Call(ctx context.Context, tracer trace.Tracer, input any) (_ *mcp.CallToolResult, outErr error) {
+func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp.CallToolResult, outErr error) {
 	if t == nil {
 		return nil, errors.New("nil tool")
 	}

@@ -24,8 +24,8 @@ type OpenAIChatInterceptionBase struct {
 	baseURL string
 	key     string
 
-	tracer trace.Tracer
 	logger slog.Logger
+	tracer trace.Tracer
 
 	recorder Recorder
 	mcpProxy mcp.ServerProxier

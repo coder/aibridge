@@ -61,7 +61,7 @@ func (p *OpenAIProvider) PassthroughRoutes() []string {
 	}
 }
 
-func (p *OpenAIProvider) CreateInterceptor(tracer trace.Tracer, w http.ResponseWriter, r *http.Request) (_ Interceptor, outErr error) {
+func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ Interceptor, outErr error) {
 	id := uuid.New()
 
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")

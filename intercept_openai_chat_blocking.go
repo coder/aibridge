@@ -151,7 +151,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 			}
 
 			args := i.unmarshalArgs(tc.Function.Arguments)
-			res, err := tool.Call(ctx, i.tracer, args)
+			res, err := tool.Call(ctx, args, i.tracer)
 			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           completion.ID,

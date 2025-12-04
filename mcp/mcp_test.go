@@ -309,9 +309,9 @@ func TestToolInjectionOrder(t *testing.T) {
 
 	tracer := otel.Tracer("forTesting")
 	// When: creating two MCP server proxies, both listing the same tools by name but under different server namespaces.
-	proxy, err := mcp.NewStreamableHTTPServerProxy(logger, tracer, "coder", mcpSrv.URL, nil, nil, nil)
+	proxy, err := mcp.NewStreamableHTTPServerProxy("coder", mcpSrv.URL, nil, nil, nil, logger, tracer)
 	require.NoError(t, err)
-	proxy2, err := mcp.NewStreamableHTTPServerProxy(logger, tracer, "shmoder", mcpSrv.URL, nil, nil, nil)
+	proxy2, err := mcp.NewStreamableHTTPServerProxy("shmoder", mcpSrv.URL, nil, nil, nil, logger, tracer)
 	require.NoError(t, err)
 
 	// Then: initialize both proxies.

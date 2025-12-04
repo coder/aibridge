@@ -40,12 +40,12 @@ const recordingTimeout = time.Second * 5
 
 // newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
 // using [Provider] p, recording all usage events using [Recorder] recorder.
-func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier, metrics *Metrics, tracer trace.Tracer) http.HandlerFunc {
+func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := tracer.Start(r.Context(), "Intercept")
 		defer span.End()
 
-		interceptor, err := p.CreateInterceptor(tracer, w, r.WithContext(ctx))
+		interceptor, err := p.CreateInterceptor(w, r.WithContext(ctx), tracer)
 		if err != nil {
 			span.SetStatus(codes.Error, fmt.Sprintf("failed to create interceptor: %v", err))
 			logger.Warn(ctx, "failed to create interceptor", slog.Error(err), slog.F("path", r.URL.Path))

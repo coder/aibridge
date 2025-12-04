@@ -32,7 +32,7 @@ type StreamableHTTPServerProxy struct {
 	tools      map[string]*Tool
 }
 
-func NewStreamableHTTPServerProxy(logger slog.Logger, tracer trace.Tracer, serverName, serverURL string, headers map[string]string, allowlist, denylist *regexp.Regexp) (*StreamableHTTPServerProxy, error) {
+func NewStreamableHTTPServerProxy(serverName, serverURL string, headers map[string]string, allowlist, denylist *regexp.Regexp, logger slog.Logger, tracer trace.Tracer) (*StreamableHTTPServerProxy, error) {
 	var opts []transport.StreamableHTTPCOption
 	if headers != nil {
 		opts = append(opts, transport.WithHTTPHeaders(headers))

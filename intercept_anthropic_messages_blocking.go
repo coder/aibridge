@@ -177,7 +177,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 				continue
 			}
 
-			res, err := tool.Call(ctx, i.tracer, tc.Input)
+			res, err := tool.Call(ctx, tc.Input, i.tracer)
 
 			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
 				InterceptionID:  i.ID().String(),

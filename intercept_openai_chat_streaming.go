@@ -242,7 +242,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 
 		id := toolCall.ID
 		args := i.unmarshalArgs(toolCall.Arguments)
-		toolRes, toolErr := tool.Call(streamCtx, i.tracer, args)
+		toolRes, toolErr := tool.Call(streamCtx, args, i.tracer)
 		_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 			InterceptionID:  i.ID().String(),
 			MsgID:           processor.getMsgID(),

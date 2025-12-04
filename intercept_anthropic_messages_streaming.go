@@ -282,7 +282,7 @@ newStream:
 							continue
 						}
 
-						res, err := tool.Call(streamCtx, i.tracer, input)
+						res, err := tool.Call(streamCtx, input, i.tracer)
 
 						_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 							InterceptionID:  i.ID().String(),

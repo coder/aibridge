@@ -333,7 +333,7 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 					bedrockCfg = testBedrockCfg(addr)
 				}
 				providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), bedrockCfg)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, nil, tracer, logger)
+				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, tracer)
 			}
 
 			var reqBody string
@@ -594,7 +594,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, nil, tracer, logger)
+				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, tracer)
 			}
 
 			var reqBody string
@@ -692,7 +692,7 @@ func TestNewServerProxyManagerTraces(t *testing.T) {
 	t.Cleanup(mcpSrv.Close)
 
 	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-	proxy, err := mcp.NewStreamableHTTPServerProxy(logger, tracer, serverName, mcpSrv.URL, nil, nil, nil)
+	proxy, err := mcp.NewStreamableHTTPServerProxy(serverName, mcpSrv.URL, nil, nil, nil, logger, tracer)
 	require.NoError(t, err)
 	tools := map[string]mcp.ServerProxier{"unusedValue": proxy}
 

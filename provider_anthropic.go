@@ -61,7 +61,7 @@ func (p *AnthropicProvider) PassthroughRoutes() []string {
 	}
 }
 
-func (p *AnthropicProvider) CreateInterceptor(tracer trace.Tracer, w http.ResponseWriter, r *http.Request) (_ Interceptor, outErr error) {
+func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ Interceptor, outErr error) {
 	id := uuid.New()
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
 	defer tracing.EndSpanErr(span, &outErr)
