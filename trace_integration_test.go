@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -13,8 +15,6 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/tracing"
-	"github.com/google/go-cmp/cmp"
-	"github.com/google/go-cmp/cmp/cmpopts"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -670,13 +670,12 @@ func TestTracePassthrough(t *testing.T) {
 	require.Len(t, spans, 1)
 
 	assert.Equal(t, spans[0].Name(), "Passthrough")
-	attrs := []attribute.KeyValue{
-		attribute.String(tracing.PassthroughURL, "/v1/models"),
+	want := []attribute.KeyValue{
 		attribute.String(tracing.PassthroughMethod, "GET"),
+		attribute.String(tracing.PassthroughURL, "/v1/models"),
 	}
-	if attrDiff := cmp.Diff(spans[0].Attributes(), attrs, cmpopts.EquateComparable(attribute.KeyValue{}), cmpopts.SortSlices(cmpAttrKeyVal)); attrDiff != "" {
-		t.Errorf("unexpectet attrs diff: %s", attrDiff)
-	}
+	got := slices.SortedFunc(slices.Values(spans[0].Attributes()), cmpAttrKeyVal)
+	require.Equal(t, want, got)
 }
 
 func TestNewServerProxyManagerTraces(t *testing.T) {
@@ -714,8 +713,8 @@ func TestNewServerProxyManagerTraces(t *testing.T) {
 	verifyTraces(t, sr, []expectTrace{{"StreamableHTTPServerProxy.Init.fetchTools", 1, codes.Unset}}, attrs)
 }
 
-func cmpAttrKeyVal(a attribute.KeyValue, b attribute.KeyValue) bool {
-	return a.Key < b.Key
+func cmpAttrKeyVal(a attribute.KeyValue, b attribute.KeyValue) int {
+	return strings.Compare(string(a.Key), string(b.Key))
 }
 
 // checks counts of traces with given name, status and attributes
@@ -729,9 +728,9 @@ func verifyTraces(t *testing.T, spanRecorder *tracetest.SpanRecorder, expect []e
 				continue
 			}
 			found++
-			if attrDiff := cmp.Diff(s.Attributes(), attrs, cmpopts.EquateEmpty(), cmpopts.EquateComparable(attribute.KeyValue{}), cmpopts.SortSlices(cmpAttrKeyVal)); attrDiff != "" {
-				t.Errorf("unexpectet attrs for span named: %v, diff: %s", e.name, attrDiff)
-			}
+			want := slices.SortedFunc(slices.Values(attrs), cmpAttrKeyVal)
+			got := slices.SortedFunc(slices.Values(s.Attributes()), cmpAttrKeyVal)
+			require.Equal(t, want, got)
 			assert.Equalf(t, e.status, s.Status().Code, "unexpected status for trace naned: %v got: %v want: %v", e.name, s.Status().Code, e.status)
 		}
 		if found != e.count {

@@ -76,7 +76,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		var opts []option.RequestOption
 		opts = append(opts, option.WithRequestTimeout(time.Second*60)) // TODO: configurable timeout
 
-		completion, err = i.traceChatCompletionsNew(ctx, svc, opts) // traces svc.New(ctx, i.req.ChatCompletionNewParams, opts...) call
+		completion, err = i.newChatCompletion(ctx, svc, opts)
 		if err != nil {
 			break
 		}
@@ -233,7 +233,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	return nil
 }
 
-func (i *OpenAIBlockingChatInterception) traceChatCompletionsNew(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {
+func (i *OpenAIBlockingChatInterception) newChatCompletion(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {
 	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer tracing.EndSpanErr(span, &outErr)
 

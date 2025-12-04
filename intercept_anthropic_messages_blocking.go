@@ -88,7 +88,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 
 	for {
 		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
-		resp, err = i.traceNewMessage(ctx, svc, messages) // traces svc.New(ctx, msgParams) call
+		resp, err = i.newMessage(ctx, svc, messages)
 		if err != nil {
 			if isConnError(err) {
 				// Can't write a response, just error out.
@@ -298,7 +298,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 	return nil
 }
 
-func (i *AnthropicMessagesBlockingInterception) traceNewMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {
+func (i *AnthropicMessagesBlockingInterception) newMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {
 	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer tracing.EndSpanErr(span, &outErr)
 

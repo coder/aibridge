@@ -974,11 +974,11 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 
 	recorderClient := &mockRecorderClient{}
 
-	// Setup MCP tools.
-	tools := setupMCPServerProxiesForTest(t, testTracer)
+	// Setup MCP proxies.
+	proxies := setupMCPServerProxiesForTest(t, testTracer)
 
 	// Configure the bridge with injected tools.
-	mcpMgr := mcp.NewServerProxyManager(tools, testTracer)
+	mcpMgr := mcp.NewServerProxyManager(proxies, testTracer)
 	require.NoError(t, mcpMgr.Init(ctx))
 	b, err := configureFn(mockSrv.URL, recorderClient, mcpMgr)
 	require.NoError(t, err)
@@ -1005,7 +1005,7 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 		return mockSrv.callCount.Load() == 2
 	}, time.Second*10, time.Millisecond*50)
 
-	return recorderClient, tools, resp
+	return recorderClient, proxies, resp
 }
 
 func TestErrorHandling(t *testing.T) {

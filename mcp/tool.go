@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	maxSpanInputAttrLen   = 100
+	maxSpanInputAttrLen   = 100    // truncates tool.Call span input attribute to first `maxSpanInputAttrLen` letters
 	injectedToolPrefix    = "bmcp" // "bridged MCP"
 	injectedToolDelimiter = "_"
 )
@@ -63,7 +63,7 @@ func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp
 	} else {
 		strJson := string(inputJson)
 		if len(strJson) > maxSpanInputAttrLen {
-			strJson = strJson[:100]
+			strJson = strJson[:maxSpanInputAttrLen]
 		}
 		span.SetAttributes(attribute.String(tracing.MCPInput, strJson))
 	}
