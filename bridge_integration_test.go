@@ -1555,7 +1555,7 @@ func newMockServer(ctx context.Context, t *testing.T, files archiveFileMap, resp
 		var reqMsg msg
 		require.NoError(t, json.Unmarshal(body, &reqMsg))
 
-		if !reqMsg.Stream {
+		if !reqMsg.Stream && !strings.HasSuffix(r.URL.Path, "invoke-with-response-stream") {
 			resp := files[fixtureNonStreamingResponse]
 			if responseMutatorFn != nil {
 				resp = responseMutatorFn(ms.callCount.Load(), resp)

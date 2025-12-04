@@ -45,6 +45,18 @@ func TestTraceAnthropic(t *testing.T) {
 		{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
 	}
 
+	expectStreaming := []expectTrace{
+		{"Intercept", 1, codes.Unset},
+		{"Intercept.CreateInterceptor", 1, codes.Unset},
+		{"Intercept.RecordInterception", 1, codes.Unset},
+		{"Intercept.ProcessRequest", 1, codes.Unset},
+		{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+		{"Intercept.RecordPromptUsage", 1, codes.Unset},
+		{"Intercept.RecordTokenUsage", 2, codes.Unset},
+		{"Intercept.RecordToolUsage", 1, codes.Unset},
+		{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+	}
+
 	cases := []struct {
 		name      string
 		streaming bool
@@ -63,31 +75,13 @@ func TestTraceAnthropic(t *testing.T) {
 		{
 			name:      "trace_anthr_streaming",
 			streaming: true,
-			expect: []expectTrace{
-				{"Intercept", 1, codes.Unset},
-				{"Intercept.CreateInterceptor", 1, codes.Unset},
-				{"Intercept.RecordInterception", 1, codes.Unset},
-				{"Intercept.ProcessRequest", 1, codes.Unset},
-				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
-				{"Intercept.RecordPromptUsage", 1, codes.Unset},
-				{"Intercept.RecordTokenUsage", 2, codes.Unset},
-				{"Intercept.RecordToolUsage", 1, codes.Unset},
-				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
-			},
+			expect:    expectStreaming,
 		},
 		{
 			name:      "trace_bedrock_streaming",
 			streaming: true,
 			bedrock:   true,
-			expect: []expectTrace{
-				{"Intercept", 1, codes.Unset},
-				{"Intercept.CreateInterceptor", 1, codes.Unset},
-				{"Intercept.RecordInterception", 1, codes.Unset},
-				{"Intercept.ProcessRequest", 1, codes.Unset},
-				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
-				{"Intercept.RecordPromptUsage", 1, codes.Unset},
-				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
-			},
+			expect:    expectStreaming,
 		},
 	}
 
@@ -170,6 +164,17 @@ func TestTraceAnthropicErr(t *testing.T) {
 		{"Intercept.ProcessRequest.Upstream", 1, codes.Error},
 	}
 
+	expectStreaming := []expectTrace{
+		{"Intercept", 1, codes.Error},
+		{"Intercept.CreateInterceptor", 1, codes.Unset},
+		{"Intercept.RecordInterception", 1, codes.Unset},
+		{"Intercept.ProcessRequest", 1, codes.Error},
+		{"Intercept.RecordPromptUsage", 1, codes.Unset},
+		{"Intercept.RecordTokenUsage", 1, codes.Unset},
+		{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+		{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+	}
+
 	cases := []struct {
 		name      string
 		streaming bool
@@ -183,16 +188,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 		{
 			name:      "anthr_streaming_err",
 			streaming: true,
-			expect: []expectTrace{
-				{"Intercept", 1, codes.Error},
-				{"Intercept.CreateInterceptor", 1, codes.Unset},
-				{"Intercept.RecordInterception", 1, codes.Unset},
-				{"Intercept.ProcessRequest", 1, codes.Error},
-				{"Intercept.RecordPromptUsage", 1, codes.Unset},
-				{"Intercept.RecordTokenUsage", 1, codes.Unset},
-				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
-				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
-			},
+			expect:    expectStreaming,
 		},
 		{
 			name:    "bedrock_non_streaming_err",
@@ -203,16 +199,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 			name:      "bedrock_streaming_err",
 			streaming: true,
 			bedrock:   true,
-			expect: []expectTrace{
-				// RecordTokenUsage missing?
-				{"Intercept", 1, codes.Unset}, // TODO check why this is unset not Error
-				{"Intercept.CreateInterceptor", 1, codes.Unset},
-				{"Intercept.RecordInterception", 1, codes.Unset},
-				{"Intercept.ProcessRequest", 1, codes.Unset}, // TODO check why this is unset not Error
-				{"Intercept.RecordPromptUsage", 1, codes.Unset},
-				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
-				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
-			},
+			expect:    expectStreaming,
 		},
 	}
 
@@ -323,12 +310,11 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 			streaming: false,
 			bedrock:   true,
 		},
-		// TODO check why it fails
-		// {
-		// 	name:      "bedrock_streaming",
-		// 	streaming: true,
-		// 	bedrock:   true,
-		// },
+		{
+			name:      "bedrock_streaming",
+			streaming: true,
+			bedrock:   true,
+		},
 	}
 
 	for _, tc := range tests {
