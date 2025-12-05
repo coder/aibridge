@@ -26,6 +26,7 @@ require (
 	github.com/openai/openai-go/v2 v2.7.0
 )
 
+// Tracing-related libs.
 require (
 	go.opentelemetry.io/otel v1.38.0
 	go.opentelemetry.io/otel/sdk v1.38.0
