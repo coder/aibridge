@@ -725,11 +725,12 @@ func TestFallthrough(t *testing.T) {
 }
 
 // setupMCPServerProxiesForTest creates a mock MCP server, initializes the MCP bridge, and returns the tools
-func setupMCPServerProxiesForTest(t *testing.T, tracer trace.Tracer) map[string]mcp.ServerProxier {
+func setupMCPServerProxiesForTest(t *testing.T, tracer trace.Tracer) (map[string]mcp.ServerProxier, *callAccumulator) {
 	t.Helper()
 
 	// Setup Coder MCP integration
-	mcpSrv := httptest.NewServer(createMockMCPSrv(t))
+	srv, acc := createMockMCPSrv(t)
+	mcpSrv := httptest.NewServer(srv)
 	t.Cleanup(mcpSrv.Close)
 
 	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -743,7 +744,7 @@ func setupMCPServerProxiesForTest(t *testing.T, tracer trace.Tracer) map[string]
 	tools := proxy.ListTools()
 	require.NotEmpty(t, tools)
 
-	return map[string]mcp.ServerProxier{proxy.Name(): proxy}
+	return map[string]mcp.ServerProxier{proxy.Name(): proxy}, acc
 }
 
 type (
@@ -765,7 +766,7 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, resp := setupInjectedToolTest(t, antSingleInjectedTool, streaming, configureFn, createAnthropicMessagesReq)
+			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, antSingleInjectedTool, streaming, configureFn, createAnthropicMessagesReq)
 
 			// Ensure expected tool was invoked with expected input.
 			require.Len(t, recorderClient.toolUsages, 1)
@@ -773,6 +774,11 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			expected, err := json.Marshal(map[string]any{"owner": "admin"})
 			require.NoError(t, err)
 			actual, err := json.Marshal(recorderClient.toolUsages[0].Args)
+			require.NoError(t, err)
+			require.EqualValues(t, expected, actual)
+			invocations := mcpCalls.getCallsByTool(mockToolName)
+			require.Len(t, invocations, 1)
+			actual, err = json.Marshal(invocations[0])
 			require.NoError(t, err)
 			require.EqualValues(t, expected, actual)
 
@@ -847,13 +853,21 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
+			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
 
 			// Ensure expected tool was invoked with expected input.
 			require.Len(t, recorderClient.toolUsages, 1)
 			require.Equal(t, mockToolName, recorderClient.toolUsages[0].Tool)
-			expected := map[string]any{"owner": "admin"}
-			require.EqualValues(t, expected, recorderClient.toolUsages[0].Args)
+			expected, err := json.Marshal(map[string]any{"owner": "admin"})
+			require.NoError(t, err)
+			actual, err := json.Marshal(recorderClient.toolUsages[0].Args)
+			require.NoError(t, err)
+			require.EqualValues(t, expected, actual)
+			invocations := mcpCalls.getCallsByTool(mockToolName)
+			require.Len(t, invocations, 1)
+			actual, err = json.Marshal(invocations[0])
+			require.NoError(t, err)
+			require.EqualValues(t, expected, actual)
 
 			var (
 				content *openai.ChatCompletionChoice
@@ -929,7 +943,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 
 // setupInjectedToolTest abstracts the common aspects required for the Test*InjectedTools tests.
 // Kinda fugly right now, we can refactor this later.
-func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configureFn func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error), createRequestFn func(*testing.T, string, []byte) *http.Request) (*mockRecorderClient, map[string]mcp.ServerProxier, *http.Response) {
+func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configureFn configureFunc, createRequestFn func(*testing.T, string, []byte) *http.Request) (*mockRecorderClient, *callAccumulator, map[string]mcp.ServerProxier, *http.Response) {
 	t.Helper()
 
 	arc := txtar.Parse(fixture)
@@ -974,11 +988,11 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 
 	recorderClient := &mockRecorderClient{}
 
-	// Setup MCP proxies.
-	proxies := setupMCPServerProxiesForTest(t, testTracer)
+	// Setup MCP mcpProxiers.
+	mcpProxiers, acc := setupMCPServerProxiesForTest(t, testTracer)
 
 	// Configure the bridge with injected tools.
-	mcpMgr := mcp.NewServerProxyManager(proxies, testTracer)
+	mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
 	require.NoError(t, mcpMgr.Init(ctx))
 	b, err := configureFn(mockSrv.URL, recorderClient, mcpMgr)
 	require.NoError(t, err)
@@ -1005,7 +1019,7 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 		return mockSrv.callCount.Load() == 2
 	}, time.Second*10, time.Millisecond*50)
 
-	return recorderClient, proxies, resp
+	return recorderClient, acc, mcpProxiers, resp
 }
 
 func TestErrorHandling(t *testing.T) {
@@ -1263,10 +1277,10 @@ func TestStableRequestEncoding(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// Setup MCP tools.
-			tools := setupMCPServerProxiesForTest(t, testTracer)
+			mcpProxiers, _ := setupMCPServerProxiesForTest(t, testTracer)
 
 			// Configure the bridge with injected tools.
-			mcpMgr := mcp.NewServerProxyManager(tools, testTracer)
+			mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
 			require.NoError(t, mcpMgr.Init(ctx))
 
 			arc := txtar.Parse(tc.fixture)
@@ -1675,7 +1689,36 @@ func (m *mockRecorderClient) verifyAllInterceptionsEnded(t *testing.T) {
 
 const mockToolName = "coder_list_workspaces"
 
-func createMockMCPSrv(t *testing.T) http.Handler {
+// callAccumulator tracks all tool invocations by name and each instance's arguments.
+type callAccumulator struct {
+	calls   map[string][]any
+	callsMu sync.Mutex
+}
+
+func newCallAccumulator() *callAccumulator {
+	return &callAccumulator{
+		calls: make(map[string][]any),
+	}
+}
+
+func (a *callAccumulator) addCall(tool string, args any) {
+	a.callsMu.Lock()
+	defer a.callsMu.Unlock()
+
+	a.calls[tool] = append(a.calls[tool], args)
+}
+
+func (a *callAccumulator) getCallsByTool(name string) []any {
+	a.callsMu.Lock()
+	defer a.callsMu.Unlock()
+
+	// Protect against concurrent access of the slice.
+	result := make([]any, len(a.calls[name]))
+	copy(result, a.calls[name])
+	return result
+}
+
+func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
 	t.Helper()
 
 	s := server.NewMCPServer(
@@ -1684,16 +1727,20 @@ func createMockMCPSrv(t *testing.T) http.Handler {
 		server.WithToolCapabilities(true),
 	)
 
+	// Accumulate tool calls & their arguments.
+	acc := newCallAccumulator()
+
 	for _, name := range []string{mockToolName, "coder_list_templates", "coder_template_version_parameters", "coder_get_authenticated_user", "coder_create_workspace_build"} {
 		tool := mcplib.NewTool(name,
 			mcplib.WithDescription(fmt.Sprintf("Mock of the %s tool", name)),
 		)
 		s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+			acc.addCall(request.Params.Name, request.Params.Arguments)
 			return mcplib.NewToolResultText("mock"), nil
 		})
 	}
 
-	return server.NewStreamableHTTPServer(s)
+	return server.NewStreamableHTTPServer(s), acc
 }
 
 func openaiCfg(url, key string) aibridge.OpenAIConfig {

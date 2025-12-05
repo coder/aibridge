@@ -346,7 +346,7 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, proxies, resp := setupInjectedToolTest(t, antSingleInjectedTool, tc.streaming, configureFn, reqFunc)
+			recorderClient, _, proxies, resp := setupInjectedToolTest(t, antSingleInjectedTool, tc.streaming, configureFn, reqFunc)
 
 			defer resp.Body.Close()
 
@@ -607,7 +607,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, proxies, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, reqFunc)
+			recorderClient, _, proxies, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, reqFunc)
 
 			defer resp.Body.Close()
 
@@ -687,7 +687,8 @@ func TestNewServerProxyManagerTraces(t *testing.T) {
 	defer func() { _ = tp.Shutdown(t.Context()) }()
 
 	serverName := "serverName"
-	mcpSrv := httptest.NewServer(createMockMCPSrv(t))
+	srv, _ := createMockMCPSrv(t)
+	mcpSrv := httptest.NewServer(srv)
 	t.Cleanup(mcpSrv.Close)
 
 	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
