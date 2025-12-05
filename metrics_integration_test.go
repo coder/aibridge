@@ -236,8 +236,8 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), nil)
 
 	// Setup mocked MCP server & tools.
-	tools, _ := setupMCPServerProxiesForTest(t)
-	mcpMgr := mcp.NewServerProxyManager(tools)
+	mcpProxiers, _ := setupMCPServerProxiesForTest(t)
+	mcpMgr := mcp.NewServerProxyManager(mcpProxiers)
 	require.NoError(t, mcpMgr.Init(ctx))
 
 	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mcpMgr, metrics, logger)

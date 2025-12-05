@@ -1270,10 +1270,10 @@ func TestStableRequestEncoding(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// Setup MCP tools.
-			tools, _ := setupMCPServerProxiesForTest(t)
+			mcpProxiers, _ := setupMCPServerProxiesForTest(t)
 
 			// Configure the bridge with injected tools.
-			mcpMgr := mcp.NewServerProxyManager(tools)
+			mcpMgr := mcp.NewServerProxyManager(mcpProxiers)
 			require.NoError(t, mcpMgr.Init(ctx))
 
 			arc := txtar.Parse(tc.fixture)
