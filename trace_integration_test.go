@@ -346,7 +346,7 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, proxies, resp := setupInjectedToolTest(t, antSingleInjectedTool, tc.streaming, configureFn, reqFunc)
+			recorderClient, mcpMock, resp := setupInjectedToolTest(t, antSingleInjectedTool, tc.streaming, configureFn, reqFunc)
 
 			defer resp.Body.Close()
 
@@ -358,7 +358,7 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 				model = "beddel"
 			}
 
-			for _, proxy := range proxies {
+			for _, proxy := range mcpMock.Proxies {
 				require.NotEmpty(t, proxy.ListTools())
 				tool := proxy.ListTools()[0]
 
@@ -607,14 +607,14 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, proxies, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, reqFunc)
+			recorderClient, mcpMock, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, reqFunc)
 
 			defer resp.Body.Close()
 
 			require.Len(t, recorderClient.interceptions, 1)
 			intcID := recorderClient.interceptions[0].ID
 
-			for _, proxy := range proxies {
+			for _, proxy := range mcpMock.Proxies {
 				require.NotEmpty(t, proxy.ListTools())
 				tool := proxy.ListTools()[0]
 
@@ -687,7 +687,7 @@ func TestNewServerProxyManagerTraces(t *testing.T) {
 	defer func() { _ = tp.Shutdown(t.Context()) }()
 
 	serverName := "serverName"
-	srv, _ := createMockMCPSrv(t)
+	srv := createMockMCPSrvHandler(t)
 	mcpSrv := httptest.NewServer(srv)
 	t.Cleanup(mcpSrv.Close)
 
