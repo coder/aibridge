@@ -9,6 +9,7 @@ import (
 
 	"cdr.dev/slog"
 	"github.com/coder/aibridge/mcp"
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/hashicorp/go-multierror"
 )
@@ -47,20 +48,20 @@ var _ http.Handler = &RequestBridge{}
 // A [Recorder] is also required to record prompt, tool, and token use.
 //
 // mcpProxy will be closed when the [RequestBridge] is closed.
-func NewRequestBridge(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, metrics *Metrics, logger slog.Logger) (*RequestBridge, error) {
+func NewRequestBridge(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) (*RequestBridge, error) {
 	mux := http.NewServeMux()
 
 	for _, provider := range providers {
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range provider.BridgedRoutes() {
-			mux.HandleFunc(path, newInterceptionProcessor(provider, logger, recorder, mcpProxy, metrics))
+			mux.HandleFunc(path, newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer))
 		}
 
 		// Any requests which passthrough to this will be reverse-proxied to the upstream.
 		//
 		// We have to whitelist the known-safe routes because an API key with elevated privileges (i.e. admin) might be
 		// configured, so we should just reverse-proxy known-safe routes.
-		ftr := newPassthroughRouter(provider, logger.Named(fmt.Sprintf("passthrough.%s", provider.Name())), metrics)
+		ftr := newPassthroughRouter(provider, logger.Named(fmt.Sprintf("passthrough.%s", provider.Name())), metrics, tracer)
 		for _, path := range provider.PassthroughRoutes() {
 			prefix := fmt.Sprintf("/%s", provider.Name())
 			route := fmt.Sprintf("%s%s", prefix, path)

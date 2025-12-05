@@ -11,7 +11,10 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ Provider = &AnthropicProvider{}
@@ -58,13 +61,15 @@ func (p *AnthropicProvider) PassthroughRoutes() []string {
 	}
 }
 
-func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request) (Interceptor, error) {
+func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ Interceptor, outErr error) {
+	id := uuid.New()
+	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
+	defer tracing.EndSpanErr(span, &outErr)
+
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
-
-	id := uuid.New()
 
 	switch r.URL.Path {
 	case routeMessages:
@@ -73,13 +78,17 @@ func (p *AnthropicProvider) CreateInterceptor(w http.ResponseWriter, r *http.Req
 			return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 		}
 
+		var interceptor Interceptor
 		if req.Stream {
-			return NewAnthropicMessagesStreamingInterception(id, &req, p.cfg, p.bedrockCfg), nil
+			interceptor = NewAnthropicMessagesStreamingInterception(id, &req, p.cfg, p.bedrockCfg, tracer)
+		} else {
+			interceptor = NewAnthropicMessagesBlockingInterception(id, &req, p.cfg, p.bedrockCfg, tracer)
 		}
-
-		return NewAnthropicMessagesBlockingInterception(id, &req, p.cfg, p.bedrockCfg), nil
+		span.SetAttributes(interceptor.TraceAttributes(r)...)
+		return interceptor, nil
 	}
 
+	span.SetStatus(codes.Error, "unknown route: "+r.URL.Path)
 	return nil, UnknownRoute
 }
 

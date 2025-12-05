@@ -15,7 +15,10 @@ import (
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog"
 )
@@ -27,6 +30,7 @@ type AnthropicMessagesInterceptionBase struct {
 	cfg        AnthropicConfig
 	bedrockCfg *AWSBedrockConfig
 
+	tracer trace.Tracer
 	logger slog.Logger
 
 	recorder Recorder
@@ -57,6 +61,18 @@ func (i *AnthropicMessagesInterceptionBase) Model() string {
 	}
 
 	return string(i.req.Model)
+}
+
+func (s *AnthropicMessagesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String(tracing.RequestPath, r.URL.Path),
+		attribute.String(tracing.InterceptionID, s.id.String()),
+		attribute.String(tracing.InitiatorID, actorFromContext(r.Context()).id),
+		attribute.String(tracing.Provider, ProviderAnthropic),
+		attribute.String(tracing.Model, s.Model()),
+		attribute.Bool(tracing.Streaming, streaming),
+		attribute.Bool(tracing.IsBedrock, s.bedrockCfg != nil),
+	}
 }
 
 func (i *AnthropicMessagesInterceptionBase) injectTools() {

@@ -7,8 +7,10 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/coder/aibridge/tracing"
 	"github.com/coder/aibridge/utils"
 	"github.com/mark3labs/mcp-go/mcp"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ ServerProxier = &ServerProxyManager{}
@@ -18,14 +20,18 @@ var _ ServerProxier = &ServerProxyManager{}
 // for the purpose of injection into bridged requests and invocation.
 type ServerProxyManager struct {
 	proxiers map[string]ServerProxier
+	tracer   trace.Tracer
 
 	// Protects access to the tools map.
 	toolsMu sync.RWMutex
 	tools   map[string]*Tool
 }
 
-func NewServerProxyManager(proxiers map[string]ServerProxier) *ServerProxyManager {
-	return &ServerProxyManager{proxiers: proxiers}
+func NewServerProxyManager(proxiers map[string]ServerProxier, tracer trace.Tracer) *ServerProxyManager {
+	return &ServerProxyManager{
+		proxiers: proxiers,
+		tracer:   tracer,
+	}
 }
 
 func (s *ServerProxyManager) addTools(tools []*Tool) {
@@ -42,7 +48,10 @@ func (s *ServerProxyManager) addTools(tools []*Tool) {
 }
 
 // Init concurrently initializes all of its [ServerProxier]s.
-func (s *ServerProxyManager) Init(ctx context.Context) error {
+func (s *ServerProxyManager) Init(ctx context.Context) (outErr error) {
+	ctx, span := s.tracer.Start(ctx, "ServerProxyManager.Init")
+	defer tracing.EndSpanErr(span, &outErr)
+
 	cg := utils.NewConcurrentGroup()
 	for _, proxy := range s.proxiers {
 		cg.Go(func() error {

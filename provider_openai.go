@@ -7,7 +7,10 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 var _ Provider = &OpenAIProvider{}
@@ -58,13 +61,16 @@ func (p *OpenAIProvider) PassthroughRoutes() []string {
 	}
 }
 
-func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request) (Interceptor, error) {
+func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ Interceptor, outErr error) {
+	id := uuid.New()
+
+	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
+	defer tracing.EndSpanErr(span, &outErr)
+
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
 		return nil, fmt.Errorf("read body: %w", err)
 	}
-
-	id := uuid.New()
 
 	switch r.URL.Path {
 	case routeChatCompletions:
@@ -73,13 +79,17 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 
+		var interceptor Interceptor
 		if req.Stream {
-			return NewOpenAIStreamingChatInterception(id, &req, p.baseURL, p.key), nil
+			interceptor = NewOpenAIStreamingChatInterception(id, &req, p.baseURL, p.key, tracer)
 		} else {
-			return NewOpenAIBlockingChatInterception(id, &req, p.baseURL, p.key), nil
+			interceptor = NewOpenAIBlockingChatInterception(id, &req, p.baseURL, p.key, tracer)
 		}
+		span.SetAttributes(interceptor.TraceAttributes(r)...)
+		return interceptor, nil
 	}
 
+	span.SetStatus(codes.Error, "unknown route: "+r.URL.Path)
 	return nil, UnknownRoute
 }
 

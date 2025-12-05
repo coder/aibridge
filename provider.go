@@ -2,6 +2,8 @@ package aibridge
 
 import (
 	"net/http"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Provider describes an AI provider client's behaviour.
@@ -14,7 +16,7 @@ type Provider interface {
 
 	// CreateInterceptor starts a new [Interceptor] which is responsible for intercepting requests,
 	// communicating with the upstream provider and formulating a response to be sent to the requesting client.
-	CreateInterceptor(w http.ResponseWriter, r *http.Request) (Interceptor, error)
+	CreateInterceptor(http.ResponseWriter, *http.Request, trace.Tracer) (Interceptor, error)
 
 	// BridgedRoutes returns a slice of [http.ServeMux]-compatible routes which will have special handling.
 	// See https://pkg.go.dev/net/http#hdr-Patterns-ServeMux.

@@ -8,25 +8,31 @@ import (
 	"strings"
 
 	"cdr.dev/slog"
+	"github.com/coder/aibridge/tracing"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/exp/maps"
 )
 
 var _ ServerProxier = &StreamableHTTPServerProxy{}
 
 type StreamableHTTPServerProxy struct {
+	client *client.Client
+	logger slog.Logger
+	tracer trace.Tracer
+
+	allowlistPattern *regexp.Regexp
+	denylistPattern  *regexp.Regexp
+
 	serverName string
 	serverURL  string
-	client     *client.Client
-	logger     slog.Logger
 	tools      map[string]*Tool
-
-	allowlistPattern, denylistPattern *regexp.Regexp
 }
 
-func NewStreamableHTTPServerProxy(logger slog.Logger, serverName, serverURL string, headers map[string]string, allowlist, denylist *regexp.Regexp) (*StreamableHTTPServerProxy, error) {
+func NewStreamableHTTPServerProxy(serverName, serverURL string, headers map[string]string, allowlist, denylist *regexp.Regexp, logger slog.Logger, tracer trace.Tracer) (*StreamableHTTPServerProxy, error) {
 	var opts []transport.StreamableHTTPCOption
 	if headers != nil {
 		opts = append(opts, transport.WithHTTPHeaders(headers))
@@ -42,6 +48,7 @@ func NewStreamableHTTPServerProxy(logger slog.Logger, serverName, serverURL stri
 		serverURL:        serverURL,
 		client:           mcpClient,
 		logger:           logger,
+		tracer:           tracer,
 		allowlistPattern: allowlist,
 		denylistPattern:  denylist,
 	}, nil
@@ -51,7 +58,10 @@ func (p *StreamableHTTPServerProxy) Name() string {
 	return p.serverName
 }
 
-func (p *StreamableHTTPServerProxy) Init(ctx context.Context) error {
+func (p *StreamableHTTPServerProxy) Init(ctx context.Context) (outErr error) {
+	ctx, span := p.tracer.Start(ctx, "StreamableHTTPServerProxy.Init", trace.WithAttributes(p.traceAttributes()...))
+	defer tracing.EndSpanErr(span, &outErr)
+
 	if err := p.client.Start(ctx); err != nil {
 		return fmt.Errorf("start client: %w", err)
 	}
@@ -122,7 +132,10 @@ func (p *StreamableHTTPServerProxy) CallTool(ctx context.Context, name string, i
 	})
 }
 
-func (p *StreamableHTTPServerProxy) fetchTools(ctx context.Context) (map[string]*Tool, error) {
+func (p *StreamableHTTPServerProxy) fetchTools(ctx context.Context) (_ map[string]*Tool, outErr error) {
+	ctx, span := p.tracer.Start(ctx, "StreamableHTTPServerProxy.Init.fetchTools", trace.WithAttributes(p.traceAttributes()...))
+	defer tracing.EndSpanErr(span, &outErr)
+
 	tools, err := p.client.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
 		return nil, fmt.Errorf("list MCP tools: %w", err)
@@ -140,8 +153,10 @@ func (p *StreamableHTTPServerProxy) fetchTools(ctx context.Context) (map[string]
 			Description: tool.Description,
 			Params:      tool.InputSchema.Properties,
 			Required:    tool.InputSchema.Required,
+			Logger:      p.logger,
 		}
 	}
+	span.SetAttributes(append(p.traceAttributes(), attribute.Int(tracing.MCPToolCount, len(out)))...)
 	return out, nil
 }
 
@@ -153,4 +168,12 @@ func (p *StreamableHTTPServerProxy) Shutdown(ctx context.Context) error {
 	// NOTE: as of v0.38.0 the lib doesn't allow an outside context to be passed in;
 	// it has an internal timeout of 5s, though.
 	return p.client.Close()
+}
+
+func (p *StreamableHTTPServerProxy) traceAttributes() []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String(tracing.MCPProxyName, p.Name()),
+		attribute.String(tracing.MCPServerName, p.serverName),
+		attribute.String(tracing.MCPServerURL, p.serverURL),
+	}
 }

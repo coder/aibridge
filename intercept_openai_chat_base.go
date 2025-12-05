@@ -7,20 +7,25 @@ import (
 	"strings"
 
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
 	"github.com/openai/openai-go/v2/option"
 	"github.com/openai/openai-go/v2/shared"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog"
 )
 
 type OpenAIChatInterceptionBase struct {
-	id  uuid.UUID
-	req *ChatCompletionNewParamsWrapper
+	id      uuid.UUID
+	req     *ChatCompletionNewParamsWrapper
+	baseURL string
+	key     string
 
-	baseURL, key string
-	logger       slog.Logger
+	logger slog.Logger
+	tracer trace.Tracer
 
 	recorder Recorder
 	mcpProxy mcp.ServerProxier
@@ -40,6 +45,17 @@ func (i *OpenAIChatInterceptionBase) Setup(logger slog.Logger, recorder Recorder
 	i.logger = logger
 	i.recorder = recorder
 	i.mcpProxy = mcpProxy
+}
+
+func (s *OpenAIChatInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String(tracing.RequestPath, r.URL.Path),
+		attribute.String(tracing.InterceptionID, s.id.String()),
+		attribute.String(tracing.InitiatorID, actorFromContext(r.Context()).id),
+		attribute.String(tracing.Provider, ProviderOpenAI),
+		attribute.String(tracing.Model, s.Model()),
+		attribute.Bool(tracing.Streaming, streaming),
+	}
 }
 
 func (i *OpenAIChatInterceptionBase) Model() string {

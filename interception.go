@@ -9,7 +9,11 @@ import (
 
 	"cdr.dev/slog"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // Interceptor describes a (potentially) stateful interaction with an AI provider.
@@ -25,6 +29,8 @@ type Interceptor interface {
 	ProcessRequest(w http.ResponseWriter, r *http.Request) error
 	// Specifies whether an interceptor handles streaming or not.
 	Streaming() bool
+	// TraceAttributes returns tracing attributes for this [Interceptor]
+	TraceAttributes(*http.Request) []attribute.KeyValue
 }
 
 var UnknownRoute = errors.New("unknown route")
@@ -34,11 +40,15 @@ const recordingTimeout = time.Second * 5
 
 // newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
 // using [Provider] p, recording all usage events using [Recorder] recorder.
-func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier, metrics *Metrics) http.HandlerFunc {
+func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		interceptor, err := p.CreateInterceptor(w, r)
+		ctx, span := tracer.Start(r.Context(), "Intercept")
+		defer span.End()
+
+		interceptor, err := p.CreateInterceptor(w, r.WithContext(ctx), tracer)
 		if err != nil {
-			logger.Warn(r.Context(), "failed to create interceptor", slog.Error(err), slog.F("path", r.URL.Path))
+			span.SetStatus(codes.Error, fmt.Sprintf("failed to create interceptor: %v", err))
+			logger.Warn(ctx, "failed to create interceptor", slog.Error(err), slog.F("path", r.URL.Path))
 			http.Error(w, fmt.Sprintf("failed to create %q interceptor", r.URL.Path), http.StatusInternalServerError)
 			return
 		}
@@ -50,12 +60,17 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			}()
 		}
 
-		actor := actorFromContext(r.Context())
+		actor := actorFromContext(ctx)
 		if actor == nil {
-			logger.Warn(r.Context(), "no actor found in context")
+			logger.Warn(ctx, "no actor found in context")
 			http.Error(w, "no actor found", http.StatusBadRequest)
 			return
 		}
+
+		traceAttrs := interceptor.TraceAttributes(r)
+		span.SetAttributes(traceAttrs...)
+		ctx = tracing.WithInterceptionAttributesInContext(ctx, traceAttrs)
+		r = r.WithContext(ctx)
 
 		// Record usage in the background to not block request flow.
 		asyncRecorder := NewAsyncRecorder(logger, recorder, recordingTimeout)
@@ -65,14 +80,15 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 		asyncRecorder.WithInitiatorID(actor.id)
 		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
-		if err := recorder.RecordInterception(r.Context(), &InterceptionRecord{
+		if err := recorder.RecordInterception(ctx, &InterceptionRecord{
 			ID:          interceptor.ID().String(),
 			Metadata:    actor.metadata,
 			InitiatorID: actor.id,
 			Provider:    p.Name(),
 			Model:       interceptor.Model(),
 		}); err != nil {
-			logger.Warn(r.Context(), "failed to record interception", slog.Error(err))
+			span.SetStatus(codes.Error, fmt.Sprintf("failed to record interception: %v", err))
+			logger.Warn(ctx, "failed to record interception", slog.Error(err))
 			http.Error(w, "failed to record interception", http.StatusInternalServerError)
 			return
 		}
@@ -86,27 +102,27 @@ func newInterceptionProcessor(p Provider, logger slog.Logger, recorder Recorder,
 			slog.F("streaming", interceptor.Streaming()),
 		)
 
-		log.Debug(r.Context(), "interception started")
+		log.Debug(ctx, "interception started")
 		if metrics != nil {
 			metrics.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Add(1)
+			defer func() {
+				metrics.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Sub(1)
+			}()
 		}
 
 		if err := interceptor.ProcessRequest(w, r); err != nil {
 			if metrics != nil {
 				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed, route, r.Method, actor.id).Add(1)
 			}
-			log.Warn(r.Context(), "interception failed", slog.Error(err))
+			span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
+			log.Warn(ctx, "interception failed", slog.Error(err))
 		} else {
 			if metrics != nil {
 				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted, route, r.Method, actor.id).Add(1)
 			}
-			log.Debug(r.Context(), "interception ended")
+			log.Debug(ctx, "interception ended")
 		}
-		asyncRecorder.RecordInterceptionEnded(r.Context(), &InterceptionRecordEnded{ID: interceptor.ID().String()})
-
-		if metrics != nil {
-			metrics.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Sub(1)
-		}
+		asyncRecorder.RecordInterceptionEnded(ctx, &InterceptionRecordEnded{ID: interceptor.ID().String()})
 
 		// Ensure all recording have completed before completing request.
 		asyncRecorder.Wait()

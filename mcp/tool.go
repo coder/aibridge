@@ -2,15 +2,20 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
 
 	"cdr.dev/slog"
+	"github.com/coder/aibridge/tracing"
 	"github.com/mark3labs/mcp-go/mcp"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
+	maxSpanInputAttrLen   = 100    // truncates tool.Call span input attribute to first `maxSpanInputAttrLen` letters
 	injectedToolPrefix    = "bmcp" // "bridged MCP"
 	injectedToolDelimiter = "_"
 )
@@ -32,14 +37,35 @@ type Tool struct {
 	Description string
 	Params      map[string]any
 	Required    []string
+	Logger      slog.Logger
 }
 
-func (t *Tool) Call(ctx context.Context, input any) (*mcp.CallToolResult, error) {
+func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp.CallToolResult, outErr error) {
 	if t == nil {
-		return nil, errors.New("nil tool!")
+		return nil, errors.New("nil tool")
 	}
 	if t.Client == nil {
-		return nil, errors.New("nil client!")
+		return nil, errors.New("nil client")
+	}
+
+	spanAttrs := append(
+		tracing.InterceptionAttributesFromContext(ctx),
+		attribute.String(tracing.MCPToolName, t.Name),
+		attribute.String(tracing.MCPServerName, t.ServerName),
+		attribute.String(tracing.MCPServerURL, t.ServerURL),
+	)
+	ctx, span := tracer.Start(ctx, "Intercept.ProcessRequest.ToolCall", trace.WithAttributes(spanAttrs...))
+	defer tracing.EndSpanErr(span, &outErr)
+
+	inputJson, err := json.Marshal(input)
+	if err != nil {
+		t.Logger.Warn(ctx, "failed to marshal tool input, will be omitted from span attrs: %v", err)
+	} else {
+		strJson := string(inputJson)
+		if len(strJson) > maxSpanInputAttrLen {
+			strJson = strJson[:maxSpanInputAttrLen]
+		}
+		span.SetAttributes(attribute.String(tracing.MCPInput, strJson))
 	}
 
 	return t.Client.CallTool(ctx, mcp.CallToolRequest{

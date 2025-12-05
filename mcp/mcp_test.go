@@ -13,6 +13,7 @@ import (
 
 	"cdr.dev/slog"
 	"cdr.dev/slog/sloggers/slogtest"
+	"go.opentelemetry.io/otel"
 	"go.uber.org/goleak"
 
 	"github.com/coder/aibridge/mcp"
@@ -306,10 +307,11 @@ func TestToolInjectionOrder(t *testing.T) {
 	mcpSrv := httptest.NewServer(createMockMCPSrv(t))
 	t.Cleanup(mcpSrv.Close)
 
+	tracer := otel.Tracer("forTesting")
 	// When: creating two MCP server proxies, both listing the same tools by name but under different server namespaces.
-	proxy, err := mcp.NewStreamableHTTPServerProxy(logger, "coder", mcpSrv.URL, nil, nil, nil)
+	proxy, err := mcp.NewStreamableHTTPServerProxy("coder", mcpSrv.URL, nil, nil, nil, logger, tracer)
 	require.NoError(t, err)
-	proxy2, err := mcp.NewStreamableHTTPServerProxy(logger, "shmoder", mcpSrv.URL, nil, nil, nil)
+	proxy2, err := mcp.NewStreamableHTTPServerProxy("shmoder", mcpSrv.URL, nil, nil, nil, logger, tracer)
 	require.NoError(t, err)
 
 	// Then: initialize both proxies.
@@ -324,7 +326,7 @@ func TestToolInjectionOrder(t *testing.T) {
 	mgr := mcp.NewServerProxyManager(map[string]mcp.ServerProxier{
 		"coder":   proxy,
 		"shmoder": proxy2,
-	})
+	}, otel.GetTracerProvider().Tracer("test"))
 	require.NoError(t, mgr.Init(ctx))
 
 	// Then: the tools from both servers should be collectively sorted stably.
