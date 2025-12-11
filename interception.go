@@ -40,10 +40,25 @@ const recordingTimeout = time.Second * 5
 
 // newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
 // using [Provider] p, recording all usage events using [Recorder] recorder.
-func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) http.HandlerFunc {
+func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer, cbManager *CircuitBreakerManager) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := tracer.Start(r.Context(), "Intercept")
 		defer span.End()
+
+		// Check circuit breaker before proceeding
+		cb := cbManager.GetOrCreate(p.Name())
+		if !cb.Allow() {
+			span.SetStatus(codes.Error, "circuit breaker open")
+			logger.Debug(ctx, "request rejected by circuit breaker",
+				slog.F("provider", p.Name()),
+				slog.F("circuit_state", cb.State().String()),
+			)
+			if metrics != nil {
+				metrics.CircuitBreakerRejects.WithLabelValues(p.Name()).Inc()
+			}
+			http.Error(w, fmt.Sprintf("%s is currently unavailable due to upstream rate limiting. Please try again later.", p.Name()), http.StatusServiceUnavailable)
+			return
+		}
 
 		interceptor, err := p.CreateInterceptor(w, r.WithContext(ctx), tracer)
 		if err != nil {
@@ -116,15 +131,50 @@ func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.Server
 			}
 			span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
 			log.Warn(ctx, "interception failed", slog.Error(err))
+
+			// Record failure for circuit breaker - extract status code if available
+			if statusCode := extractStatusCodeFromError(err); statusCode > 0 {
+				if cb.RecordFailure(statusCode) {
+					log.Warn(ctx, "circuit breaker tripped",
+						slog.F("provider", p.Name()),
+						slog.F("status_code", statusCode),
+					)
+				}
+			}
 		} else {
 			if metrics != nil {
 				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusCompleted, route, r.Method, actor.id).Add(1)
 			}
 			log.Debug(ctx, "interception ended")
+
+			// Record success for circuit breaker
+			cb.RecordSuccess()
 		}
 		asyncRecorder.RecordInterceptionEnded(ctx, &InterceptionRecordEnded{ID: interceptor.ID().String()})
 
 		// Ensure all recording have completed before completing request.
 		asyncRecorder.Wait()
 	}
+}
+
+// extractStatusCodeFromError attempts to extract an HTTP status code from an error.
+// This is used for circuit breaker failure tracking.
+func extractStatusCodeFromError(err error) int {
+	if err == nil {
+		return 0
+	}
+
+	// Check for Anthropic error response
+	var antErr *AnthropicErrorResponse
+	if errors.As(err, &antErr) && antErr != nil {
+		return antErr.StatusCode
+	}
+
+	// Check for OpenAI error response
+	var oaiErr *OpenAIErrorResponse
+	if errors.As(err, &oaiErr) && oaiErr != nil {
+		return oaiErr.StatusCode
+	}
+
+	return 0
 }
