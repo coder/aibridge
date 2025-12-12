@@ -66,11 +66,11 @@ type CircuitBreaker struct {
 	mu sync.RWMutex
 
 	// Current state
-	state    CircuitState
-	failures int64     // Failure count in current window
+	state       CircuitState
+	failures    int64     // Failure count in current window
 	windowStart time.Time // Start of current failure counting window
-	openedAt time.Time // When circuit transitioned to open
-	
+	openedAt    time.Time // When circuit transitioned to open
+
 	// Half-open state tracking
 	halfOpenSuccesses int64
 	halfOpenFailures  int64
@@ -291,7 +291,7 @@ func (m *CircuitBreakerManager) SetStateChangeCallback(fn func(provider string, 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.onStateChange = fn
-	
+
 	// Update existing breakers
 	for _, cb := range m.breakers {
 		cb.SetStateChangeCallback(fn)

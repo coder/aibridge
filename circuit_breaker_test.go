@@ -131,9 +131,9 @@ func TestCircuitBreaker_OnlyCountsRelevantStatusCodes(t *testing.T) {
 	assert.Equal(t, int64(0), cb.Failures())
 
 	// These should count
-	cb.RecordFailure(http.StatusTooManyRequests)   // 429
+	cb.RecordFailure(http.StatusTooManyRequests) // 429
 	assert.Equal(t, int64(1), cb.Failures())
-	
+
 	cb.RecordFailure(http.StatusServiceUnavailable) // 503
 	assert.Equal(t, CircuitOpen, cb.State())
 }
