@@ -12,6 +12,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/bedrock"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/coder/aibridge/mcp"
@@ -96,11 +97,29 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 	}
 
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
-	i.req.ToolChoice = anthropic.ToolChoiceUnionParam{
-		OfAny: &anthropic.ToolChoiceAnyParam{
-			Type:                   "auto",
-			DisableParallelToolUse: anthropic.Bool(true),
-		},
+	// https://github.com/coder/aibridge/issues/2
+	toolChoiceType := i.req.ToolChoice.GetType()
+	var toolChoiceTypeStr string
+	if toolChoiceType != nil {
+		toolChoiceTypeStr = *toolChoiceType
+	}
+
+	switch toolChoiceTypeStr {
+	// If no tool_choice was defined, assume auto.
+	// See https://platform.claude.com/docs/en/agents-and-tools/tool-use/implement-tool-use#parallel-tool-use.
+	case "", string(constant.ValueOf[constant.Auto]()):
+		// We only set OfAuto if no tool_choice was provided (the default).
+		// "auto" is the default when a zero value is provided, so we can safely disable parallel checks on it.
+		if i.req.ToolChoice.OfAuto == nil {
+			i.req.ToolChoice.OfAuto = &anthropic.ToolChoiceAutoParam{}
+		}
+		i.req.ToolChoice.OfAuto.DisableParallelToolUse = anthropic.Bool(true)
+	case string(constant.ValueOf[constant.Any]()):
+		i.req.ToolChoice.OfAny.DisableParallelToolUse = anthropic.Bool(true)
+	case string(constant.ValueOf[constant.Tool]()):
+		i.req.ToolChoice.OfTool.DisableParallelToolUse = anthropic.Bool(true)
+	case string(constant.ValueOf[constant.None]()):
+		// No-op; if tool_choice=none then tools are not used at all.
 	}
 }
 
