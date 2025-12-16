@@ -9,45 +9,6 @@ import (
 	"github.com/sony/gobreaker/v2"
 )
 
-// CircuitState represents the current state of a circuit breaker.
-type CircuitState int
-
-const (
-	// CircuitClosed is the normal state - all requests pass through.
-	CircuitClosed CircuitState = iota
-	// CircuitOpen is the tripped state - requests are rejected immediately.
-	CircuitOpen
-	// CircuitHalfOpen is the testing state - limited requests pass through.
-	CircuitHalfOpen
-)
-
-func (s CircuitState) String() string {
-	switch s {
-	case CircuitClosed:
-		return "closed"
-	case CircuitOpen:
-		return "open"
-	case CircuitHalfOpen:
-		return "half-open"
-	default:
-		return "unknown"
-	}
-}
-
-// toCircuitState converts gobreaker.State to our CircuitState.
-func toCircuitState(s gobreaker.State) CircuitState {
-	switch s {
-	case gobreaker.StateClosed:
-		return CircuitClosed
-	case gobreaker.StateOpen:
-		return CircuitOpen
-	case gobreaker.StateHalfOpen:
-		return CircuitHalfOpen
-	default:
-		return CircuitClosed
-	}
-}
-
 // CircuitBreakerConfig holds configuration for circuit breakers.
 // Fields match gobreaker.Settings for clarity.
 type CircuitBreakerConfig struct {
@@ -92,11 +53,11 @@ func isCircuitBreakerFailure(statusCode int) bool {
 type CircuitBreakers struct {
 	breakers sync.Map // map[string]*gobreaker.CircuitBreaker[any]
 	config   CircuitBreakerConfig
-	onChange func(name string, from, to CircuitState)
+	onChange func(name string, from, to gobreaker.State)
 }
 
 // NewCircuitBreakers creates a new circuit breaker manager.
-func NewCircuitBreakers(config CircuitBreakerConfig, onChange func(name string, from, to CircuitState)) *CircuitBreakers {
+func NewCircuitBreakers(config CircuitBreakerConfig, onChange func(name string, from, to gobreaker.State)) *CircuitBreakers {
 	return &CircuitBreakers{
 		config:   config,
 		onChange: onChange,
@@ -135,12 +96,12 @@ func (c *CircuitBreakers) RecordFailure(provider, endpoint string, statusCode in
 }
 
 // State returns the current state for a provider/endpoint.
-func (c *CircuitBreakers) State(provider, endpoint string) CircuitState {
+func (c *CircuitBreakers) State(provider, endpoint string) gobreaker.State {
 	if !c.config.Enabled {
-		return CircuitClosed
+		return gobreaker.StateClosed
 	}
 	cb := c.getOrCreate(provider, endpoint)
-	return toCircuitState(cb.State())
+	return cb.State()
 }
 
 func (c *CircuitBreakers) getOrCreate(provider, endpoint string) *gobreaker.CircuitBreaker[any] {
@@ -159,7 +120,7 @@ func (c *CircuitBreakers) getOrCreate(provider, endpoint string) *gobreaker.Circ
 		},
 		OnStateChange: func(name string, from, to gobreaker.State) {
 			if c.onChange != nil {
-				c.onChange(name, toCircuitState(from), toCircuitState(to))
+				c.onChange(name, from, to)
 			}
 		},
 	}

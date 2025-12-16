@@ -54,7 +54,7 @@ func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.Server
 			logger.Debug(ctx, "request rejected by circuit breaker",
 				slog.F("provider", p.Name()),
 				slog.F("endpoint", route),
-				slog.F("circuit_state", cbs.State(p.Name(), route).String()),
+				slog.F("circuit_state", cbs.State(p.Name(), route)),
 			)
 			if metrics != nil {
 				metrics.CircuitBreakerRejects.WithLabelValues(p.Name(), route).Inc()

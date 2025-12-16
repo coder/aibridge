@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -34,7 +35,7 @@ func TestCircuitBreakers_DisabledByDefault(t *testing.T) {
 		cbs.RecordFailure("anthropic", "/v1/messages", http.StatusTooManyRequests)
 	}
 	assert.True(t, cbs.Allow("anthropic", "/v1/messages"))
-	assert.Equal(t, CircuitClosed, cbs.State("anthropic", "/v1/messages"))
+	assert.Equal(t, gobreaker.StateClosed, cbs.State("anthropic", "/v1/messages"))
 }
 
 func TestCircuitBreakers_StateTransitions(t *testing.T) {
@@ -50,18 +51,18 @@ func TestCircuitBreakers_StateTransitions(t *testing.T) {
 	cbs := NewCircuitBreakers(cfg, nil)
 
 	// Start in closed state
-	assert.Equal(t, CircuitClosed, cbs.State("test", "/api"))
+	assert.Equal(t, gobreaker.StateClosed, cbs.State("test", "/api"))
 	assert.True(t, cbs.Allow("test", "/api"))
 
 	// Record failures below threshold
 	cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)
 	cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)
-	assert.Equal(t, CircuitClosed, cbs.State("test", "/api"))
+	assert.Equal(t, gobreaker.StateClosed, cbs.State("test", "/api"))
 
 	// Third failure should trip the circuit
 	tripped := cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)
 	assert.True(t, tripped)
-	assert.Equal(t, CircuitOpen, cbs.State("test", "/api"))
+	assert.Equal(t, gobreaker.StateOpen, cbs.State("test", "/api"))
 	assert.False(t, cbs.Allow("test", "/api"))
 
 	// Wait for cooldown
@@ -69,12 +70,12 @@ func TestCircuitBreakers_StateTransitions(t *testing.T) {
 
 	// Should transition to half-open and allow request
 	assert.True(t, cbs.Allow("test", "/api"))
-	assert.Equal(t, CircuitHalfOpen, cbs.State("test", "/api"))
+	assert.Equal(t, gobreaker.StateHalfOpen, cbs.State("test", "/api"))
 
 	// Success in half-open should eventually close
 	cbs.RecordSuccess("test", "/api")
 	cbs.RecordSuccess("test", "/api")
-	assert.Equal(t, CircuitClosed, cbs.State("test", "/api"))
+	assert.Equal(t, gobreaker.StateClosed, cbs.State("test", "/api"))
 }
 
 func TestCircuitBreakers_PerEndpointIsolation(t *testing.T) {
@@ -91,11 +92,11 @@ func TestCircuitBreakers_PerEndpointIsolation(t *testing.T) {
 
 	// Trip circuit for one endpoint
 	cbs.RecordFailure("openai", "/v1/chat/completions", http.StatusTooManyRequests)
-	assert.Equal(t, CircuitOpen, cbs.State("openai", "/v1/chat/completions"))
+	assert.Equal(t, gobreaker.StateOpen, cbs.State("openai", "/v1/chat/completions"))
 
 	// Other endpoints should still be closed
-	assert.Equal(t, CircuitClosed, cbs.State("openai", "/v1/responses"))
-	assert.Equal(t, CircuitClosed, cbs.State("anthropic", "/v1/messages"))
+	assert.Equal(t, gobreaker.StateClosed, cbs.State("openai", "/v1/responses"))
+	assert.Equal(t, gobreaker.StateClosed, cbs.State("anthropic", "/v1/messages"))
 	assert.True(t, cbs.Allow("openai", "/v1/responses"))
 	assert.True(t, cbs.Allow("anthropic", "/v1/messages"))
 }
@@ -117,12 +118,12 @@ func TestCircuitBreakers_OnlyCountsRelevantStatusCodes(t *testing.T) {
 	cbs.RecordFailure("test", "/api", http.StatusUnauthorized)        // 401
 	cbs.RecordFailure("test", "/api", http.StatusInternalServerError) // 500
 	cbs.RecordFailure("test", "/api", http.StatusBadGateway)          // 502
-	assert.Equal(t, CircuitClosed, cbs.State("test", "/api"))
+	assert.Equal(t, gobreaker.StateClosed, cbs.State("test", "/api"))
 
 	// These should count
 	cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)    // 429
 	cbs.RecordFailure("test", "/api", http.StatusServiceUnavailable) // 503
-	assert.Equal(t, CircuitOpen, cbs.State("test", "/api"))
+	assert.Equal(t, gobreaker.StateOpen, cbs.State("test", "/api"))
 }
 
 func TestCircuitBreakers_Anthropic529(t *testing.T) {
@@ -140,7 +141,7 @@ func TestCircuitBreakers_Anthropic529(t *testing.T) {
 	// Anthropic-specific 529 "Overloaded" should trip the circuit
 	tripped := cbs.RecordFailure("anthropic", "/v1/messages", 529)
 	assert.True(t, tripped)
-	assert.Equal(t, CircuitOpen, cbs.State("anthropic", "/v1/messages"))
+	assert.Equal(t, gobreaker.StateOpen, cbs.State("anthropic", "/v1/messages"))
 }
 
 func TestCircuitBreakers_ConcurrentAccess(t *testing.T) {
@@ -184,12 +185,12 @@ func TestCircuitBreakers_StateChangeCallback(t *testing.T) {
 	}
 
 	var mu sync.Mutex
-	var transitions []struct{ from, to CircuitState }
+	var transitions []struct{ from, to gobreaker.State }
 
-	cbs := NewCircuitBreakers(cfg, func(name string, from, to CircuitState) {
+	cbs := NewCircuitBreakers(cfg, func(name string, from, to gobreaker.State) {
 		mu.Lock()
 		defer mu.Unlock()
-		transitions = append(transitions, struct{ from, to CircuitState }{from, to})
+		transitions = append(transitions, struct{ from, to gobreaker.State }{from, to})
 	})
 
 	// Trip the circuit
@@ -209,12 +210,12 @@ func TestCircuitBreakers_StateChangeCallback(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	require.Len(t, transitions, 3)
-	assert.Equal(t, CircuitClosed, transitions[0].from)
-	assert.Equal(t, CircuitOpen, transitions[0].to)
-	assert.Equal(t, CircuitOpen, transitions[1].from)
-	assert.Equal(t, CircuitHalfOpen, transitions[1].to)
-	assert.Equal(t, CircuitHalfOpen, transitions[2].from)
-	assert.Equal(t, CircuitClosed, transitions[2].to)
+	assert.Equal(t, gobreaker.StateClosed, transitions[0].from)
+	assert.Equal(t, gobreaker.StateOpen, transitions[0].to)
+	assert.Equal(t, gobreaker.StateOpen, transitions[1].from)
+	assert.Equal(t, gobreaker.StateHalfOpen, transitions[1].to)
+	assert.Equal(t, gobreaker.StateHalfOpen, transitions[2].from)
+	assert.Equal(t, gobreaker.StateClosed, transitions[2].to)
 }
 
 func TestIsCircuitBreakerFailure(t *testing.T) {
@@ -238,13 +239,4 @@ func TestIsCircuitBreakerFailure(t *testing.T) {
 			assert.Equal(t, tt.isFailure, isCircuitBreakerFailure(tt.statusCode))
 		})
 	}
-}
-
-func TestCircuitState_String(t *testing.T) {
-	t.Parallel()
-
-	assert.Equal(t, "closed", CircuitClosed.String())
-	assert.Equal(t, "open", CircuitOpen.String())
-	assert.Equal(t, "half-open", CircuitHalfOpen.String())
-	assert.Equal(t, "unknown", CircuitState(99).String())
 }

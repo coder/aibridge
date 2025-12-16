@@ -10,9 +10,9 @@ import (
 
 	"cdr.dev/slog"
 	"github.com/coder/aibridge/mcp"
-	"go.opentelemetry.io/otel/trace"
-
 	"github.com/hashicorp/go-multierror"
+	"github.com/sony/gobreaker/v2"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // RequestBridge is an [http.Handler] which is capable of masquerading as AI providers' APIs;
@@ -63,12 +63,12 @@ func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provide
 	mux := http.NewServeMux()
 
 	// Create circuit breakers with metrics callback
-	var onChange func(name string, from, to CircuitState)
+	var onChange func(name string, from, to gobreaker.State)
 	if metrics != nil {
-		onChange = func(name string, from, to CircuitState) {
+		onChange = func(name string, from, to gobreaker.State) {
 			provider, endpoint, _ := strings.Cut(name, ":")
 			metrics.CircuitBreakerState.WithLabelValues(provider, endpoint).Set(float64(to))
-			if to == CircuitOpen {
+			if to == gobreaker.StateOpen {
 				metrics.CircuitBreakerTrips.WithLabelValues(provider, endpoint).Inc()
 			}
 		}
