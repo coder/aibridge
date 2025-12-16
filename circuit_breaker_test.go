@@ -15,10 +15,10 @@ func TestCircuitBreaker_DefaultConfig(t *testing.T) {
 
 	cfg := DefaultCircuitBreakerConfig()
 	assert.False(t, cfg.Enabled, "should be disabled by default")
-	assert.Equal(t, int64(5), cfg.FailureThreshold)
-	assert.Equal(t, 10*time.Second, cfg.Window)
-	assert.Equal(t, 30*time.Second, cfg.Cooldown)
-	assert.Equal(t, int64(3), cfg.HalfOpenMaxRequests)
+	assert.Equal(t, uint32(5), cfg.FailureThreshold)
+	assert.Equal(t, 10*time.Second, cfg.Interval)
+	assert.Equal(t, 30*time.Second, cfg.Timeout)
+	assert.Equal(t, uint32(3), cfg.MaxRequests)
 }
 
 func TestCircuitBreakers_DisabledByDefault(t *testing.T) {
@@ -41,11 +41,11 @@ func TestCircuitBreakers_StateTransitions(t *testing.T) {
 	t.Parallel()
 
 	cfg := CircuitBreakerConfig{
-		Enabled:             true,
-		FailureThreshold:    3,
-		Window:              time.Minute,
-		Cooldown:            50 * time.Millisecond,
-		HalfOpenMaxRequests: 2,
+		Enabled:          true,
+		FailureThreshold: 3,
+		Interval:         time.Minute,
+		Timeout:          50 * time.Millisecond,
+		MaxRequests:      2,
 	}
 	cbs := NewCircuitBreakers(cfg, nil)
 
@@ -81,11 +81,11 @@ func TestCircuitBreakers_PerEndpointIsolation(t *testing.T) {
 	t.Parallel()
 
 	cfg := CircuitBreakerConfig{
-		Enabled:             true,
-		FailureThreshold:    1,
-		Window:              time.Minute,
-		Cooldown:            time.Minute,
-		HalfOpenMaxRequests: 1,
+		Enabled:          true,
+		FailureThreshold: 1,
+		Interval:         time.Minute,
+		Timeout:          time.Minute,
+		MaxRequests:      1,
 	}
 	cbs := NewCircuitBreakers(cfg, nil)
 
@@ -104,11 +104,11 @@ func TestCircuitBreakers_OnlyCountsRelevantStatusCodes(t *testing.T) {
 	t.Parallel()
 
 	cfg := CircuitBreakerConfig{
-		Enabled:             true,
-		FailureThreshold:    2,
-		Window:              time.Minute,
-		Cooldown:            time.Minute,
-		HalfOpenMaxRequests: 2,
+		Enabled:          true,
+		FailureThreshold: 2,
+		Interval:         time.Minute,
+		Timeout:          time.Minute,
+		MaxRequests:      2,
 	}
 	cbs := NewCircuitBreakers(cfg, nil)
 
@@ -129,11 +129,11 @@ func TestCircuitBreakers_Anthropic529(t *testing.T) {
 	t.Parallel()
 
 	cfg := CircuitBreakerConfig{
-		Enabled:             true,
-		FailureThreshold:    1,
-		Window:              time.Minute,
-		Cooldown:            time.Minute,
-		HalfOpenMaxRequests: 1,
+		Enabled:          true,
+		FailureThreshold: 1,
+		Interval:         time.Minute,
+		Timeout:          time.Minute,
+		MaxRequests:      1,
 	}
 	cbs := NewCircuitBreakers(cfg, nil)
 
@@ -147,11 +147,11 @@ func TestCircuitBreakers_ConcurrentAccess(t *testing.T) {
 	t.Parallel()
 
 	cfg := CircuitBreakerConfig{
-		Enabled:             true,
-		FailureThreshold:    1000,
-		Window:              time.Minute,
-		Cooldown:            time.Minute,
-		HalfOpenMaxRequests: 10,
+		Enabled:          true,
+		FailureThreshold: 1000,
+		Interval:         time.Minute,
+		Timeout:          time.Minute,
+		MaxRequests:      10,
 	}
 	cbs := NewCircuitBreakers(cfg, nil)
 
@@ -176,11 +176,11 @@ func TestCircuitBreakers_StateChangeCallback(t *testing.T) {
 	t.Parallel()
 
 	cfg := CircuitBreakerConfig{
-		Enabled:             true,
-		FailureThreshold:    2,
-		Window:              time.Minute,
-		Cooldown:            50 * time.Millisecond,
-		HalfOpenMaxRequests: 1,
+		Enabled:          true,
+		FailureThreshold: 2,
+		Interval:         time.Minute,
+		Timeout:          50 * time.Millisecond,
+		MaxRequests:      1,
 	}
 
 	var mu sync.Mutex

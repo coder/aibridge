@@ -49,27 +49,28 @@ func toCircuitState(s gobreaker.State) CircuitState {
 }
 
 // CircuitBreakerConfig holds configuration for circuit breakers.
+// Fields match gobreaker.Settings for clarity.
 type CircuitBreakerConfig struct {
 	// Enabled controls whether circuit breakers are active.
 	Enabled bool
+	// MaxRequests is the maximum number of requests allowed in half-open state.
+	MaxRequests uint32
+	// Interval is the cyclic period of the closed state for clearing internal counts.
+	Interval time.Duration
+	// Timeout is how long the circuit stays open before transitioning to half-open.
+	Timeout time.Duration
 	// FailureThreshold is the number of consecutive failures that triggers the circuit to open.
-	FailureThreshold int64
-	// Window is the time window for counting failures.
-	Window time.Duration
-	// Cooldown is how long the circuit stays open before transitioning to half-open.
-	Cooldown time.Duration
-	// HalfOpenMaxRequests is the maximum number of requests allowed in half-open state.
-	HalfOpenMaxRequests int64
+	FailureThreshold uint32
 }
 
 // DefaultCircuitBreakerConfig returns sensible defaults for circuit breaker configuration.
 func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
 	return CircuitBreakerConfig{
-		Enabled:             false, // Disabled by default for backward compatibility
-		FailureThreshold:    5,
-		Window:              10 * time.Second,
-		Cooldown:            30 * time.Second,
-		HalfOpenMaxRequests: 3,
+		Enabled:          false, // Disabled by default for backward compatibility
+		FailureThreshold: 5,
+		Interval:         10 * time.Second,
+		Timeout:          30 * time.Second,
+		MaxRequests:      3,
 	}
 }
 
@@ -150,11 +151,11 @@ func (c *CircuitBreakers) getOrCreate(provider, endpoint string) *gobreaker.Circ
 
 	settings := gobreaker.Settings{
 		Name:        key,
-		MaxRequests: uint32(c.config.HalfOpenMaxRequests),
-		Interval:    c.config.Window,
-		Timeout:     c.config.Cooldown,
+		MaxRequests: c.config.MaxRequests,
+		Interval:    c.config.Interval,
+		Timeout:     c.config.Timeout,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
-			return counts.ConsecutiveFailures >= uint32(c.config.FailureThreshold)
+			return counts.ConsecutiveFailures >= c.config.FailureThreshold
 		},
 		OnStateChange: func(name string, from, to gobreaker.State) {
 			if c.onChange != nil {
