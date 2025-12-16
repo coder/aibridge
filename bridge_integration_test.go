@@ -1838,6 +1838,9 @@ func (m *mockRecorderClient) RecordToolUsage(ctx context.Context, req *aibridge.
 }
 
 // RecordedTokenUsages returns a copy of recorded token usages in a thread-safe manner.
+// Note: This is a shallow clone - the slice is copied but the pointers reference the
+// same underlying records. This is sufficient for our test assertions which only read
+// the data and don't modify the records.
 func (m *mockRecorderClient) RecordedTokenUsages() []*aibridge.TokenUsageRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1845,6 +1848,7 @@ func (m *mockRecorderClient) RecordedTokenUsages() []*aibridge.TokenUsageRecord 
 }
 
 // RecordedPromptUsages returns a copy of recorded prompt usages in a thread-safe manner.
+// Note: This is a shallow clone (see RecordedTokenUsages for details).
 func (m *mockRecorderClient) RecordedPromptUsages() []*aibridge.PromptUsageRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1852,6 +1856,7 @@ func (m *mockRecorderClient) RecordedPromptUsages() []*aibridge.PromptUsageRecor
 }
 
 // RecordedToolUsages returns a copy of recorded tool usages in a thread-safe manner.
+// Note: This is a shallow clone (see RecordedTokenUsages for details).
 func (m *mockRecorderClient) RecordedToolUsages() []*aibridge.ToolUsageRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -1859,6 +1864,7 @@ func (m *mockRecorderClient) RecordedToolUsages() []*aibridge.ToolUsageRecord {
 }
 
 // RecordedInterceptions returns a copy of recorded interceptions in a thread-safe manner.
+// Note: This is a shallow clone (see RecordedTokenUsages for details).
 func (m *mockRecorderClient) RecordedInterceptions() []*aibridge.InterceptionRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
