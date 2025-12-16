@@ -40,23 +40,26 @@ const recordingTimeout = time.Second * 5
 
 // newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
 // using [Provider] p, recording all usage events using [Recorder] recorder.
-func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer, cbManager *CircuitBreakerManager) http.HandlerFunc {
+func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer, cbs *CircuitBreakers) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := tracer.Start(r.Context(), "Intercept")
 		defer span.End()
 
+		// Extract endpoint (route) for per-endpoint circuit breaker
+		route := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", p.Name()))
+
 		// Check circuit breaker before proceeding
-		cb := cbManager.GetOrCreate(p.Name())
-		if !cb.Allow() {
+		if !cbs.Allow(p.Name(), route) {
 			span.SetStatus(codes.Error, "circuit breaker open")
 			logger.Debug(ctx, "request rejected by circuit breaker",
 				slog.F("provider", p.Name()),
-				slog.F("circuit_state", cb.State().String()),
+				slog.F("endpoint", route),
+				slog.F("circuit_state", cbs.State(p.Name(), route).String()),
 			)
 			if metrics != nil {
-				metrics.CircuitBreakerRejects.WithLabelValues(p.Name()).Inc()
+				metrics.CircuitBreakerRejects.WithLabelValues(p.Name(), route).Inc()
 			}
-			http.Error(w, fmt.Sprintf("%s is currently unavailable due to upstream rate limiting. Please try again later.", p.Name()), http.StatusServiceUnavailable)
+			http.Error(w, fmt.Sprintf("%s %s is currently unavailable due to upstream rate limiting. Please try again later.", p.Name(), route), http.StatusServiceUnavailable)
 			return
 		}
 
@@ -108,7 +111,6 @@ func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.Server
 			return
 		}
 
-		route := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", p.Name()))
 		log := logger.With(
 			slog.F("route", route),
 			slog.F("provider", p.Name()),
@@ -134,7 +136,7 @@ func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.Server
 
 			// Record failure for circuit breaker - extract status code if available
 			if statusCode := extractStatusCodeFromError(err); statusCode > 0 {
-				if cb.RecordFailure(statusCode) {
+				if cbs.RecordFailure(p.Name(), route, statusCode) {
 					log.Warn(ctx, "circuit breaker tripped",
 						slog.F("provider", p.Name()),
 						slog.F("status_code", statusCode),
@@ -148,7 +150,7 @@ func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.Server
 			log.Debug(ctx, "interception ended")
 
 			// Record success for circuit breaker
-			cb.RecordSuccess()
+			cbs.RecordSuccess(p.Name(), route)
 		}
 		asyncRecorder.RecordInterceptionEnded(ctx, &InterceptionRecordEnded{ID: interceptor.ID().String()})
 

@@ -33,6 +33,8 @@ require (
 	go.opentelemetry.io/otel/trace v1.38.0
 )
 
+require github.com/sony/gobreaker/v2 v2.3.0
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.30.3 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.3 // indirect

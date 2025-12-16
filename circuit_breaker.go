@@ -1,9 +1,12 @@
 package aibridge
 
 import (
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
+
+	"github.com/sony/gobreaker/v2"
 )
 
 // CircuitState represents the current state of a circuit breaker.
@@ -31,19 +34,31 @@ func (s CircuitState) String() string {
 	}
 }
 
-// CircuitBreakerConfig holds configuration for a circuit breaker.
+// toCircuitState converts gobreaker.State to our CircuitState.
+func toCircuitState(s gobreaker.State) CircuitState {
+	switch s {
+	case gobreaker.StateClosed:
+		return CircuitClosed
+	case gobreaker.StateOpen:
+		return CircuitOpen
+	case gobreaker.StateHalfOpen:
+		return CircuitHalfOpen
+	default:
+		return CircuitClosed
+	}
+}
+
+// CircuitBreakerConfig holds configuration for circuit breakers.
 type CircuitBreakerConfig struct {
-	// Enabled controls whether the circuit breaker is active.
-	// If false, all requests pass through regardless of failures.
+	// Enabled controls whether circuit breakers are active.
 	Enabled bool
-	// FailureThreshold is the number of failures within the window that triggers the circuit to open.
+	// FailureThreshold is the number of consecutive failures that triggers the circuit to open.
 	FailureThreshold int64
 	// Window is the time window for counting failures.
 	Window time.Duration
 	// Cooldown is how long the circuit stays open before transitioning to half-open.
 	Cooldown time.Duration
-	// HalfOpenMaxRequests is the maximum number of requests allowed in half-open state
-	// before deciding whether to close or re-open the circuit.
+	// HalfOpenMaxRequests is the maximum number of requests allowed in half-open state.
 	HalfOpenMaxRequests int64
 }
 
@@ -58,292 +73,97 @@ func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
 	}
 }
 
-// CircuitBreaker implements the circuit breaker pattern to protect against
-// upstream service failures. It tracks failures from upstream providers
-// (like rate limit errors) and temporarily blocks requests when the
-// failure threshold is exceeded.
-type CircuitBreaker struct {
-	mu sync.RWMutex
-
-	// Current state
-	state       CircuitState
-	failures    int64     // Failure count in current window
-	windowStart time.Time // Start of current failure counting window
-	openedAt    time.Time // When circuit transitioned to open
-
-	// Half-open state tracking
-	halfOpenSuccesses int64
-	halfOpenFailures  int64
-
-	// Configuration
-	config CircuitBreakerConfig
-
-	// Provider name for logging/metrics
-	provider string
-
-	// Optional metrics callback
-	onStateChange func(provider string, from, to CircuitState)
-}
-
-// NewCircuitBreaker creates a new circuit breaker for the given provider.
-func NewCircuitBreaker(provider string, config CircuitBreakerConfig) *CircuitBreaker {
-	return &CircuitBreaker{
-		state:       CircuitClosed,
-		windowStart: time.Now(),
-		config:      config,
-		provider:    provider,
-	}
-}
-
-// SetStateChangeCallback sets a callback that is invoked when the circuit state changes.
-// This is useful for metrics and logging.
-func (cb *CircuitBreaker) SetStateChangeCallback(fn func(provider string, from, to CircuitState)) {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	cb.onStateChange = fn
-}
-
-// Allow checks if a request should be allowed through.
-// Returns true if the request can proceed, false if it should be rejected.
-func (cb *CircuitBreaker) Allow() bool {
-	if !cb.config.Enabled {
-		return true
-	}
-
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-
-	now := time.Now()
-
-	switch cb.state {
-	case CircuitClosed:
-		return true
-
-	case CircuitOpen:
-		// Check if cooldown period has elapsed
-		if now.Sub(cb.openedAt) >= cb.config.Cooldown {
-			cb.transitionTo(CircuitHalfOpen)
-			return true
-		}
-		return false
-
-	case CircuitHalfOpen:
-		// Allow limited requests in half-open state
-		totalHalfOpenRequests := cb.halfOpenSuccesses + cb.halfOpenFailures
-		return totalHalfOpenRequests < cb.config.HalfOpenMaxRequests
-	}
-
-	return true
-}
-
-// RecordSuccess records a successful request.
-// This is called after a request completes successfully.
-func (cb *CircuitBreaker) RecordSuccess() {
-	if !cb.config.Enabled {
-		return
-	}
-
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-
-	switch cb.state {
-	case CircuitHalfOpen:
-		cb.halfOpenSuccesses++
-		// If we've had enough successes in half-open, close the circuit
-		if cb.halfOpenSuccesses >= cb.config.HalfOpenMaxRequests {
-			cb.transitionTo(CircuitClosed)
-		}
-	case CircuitClosed:
-		// Reset failure count on success (sliding window behavior)
-		// This helps prevent false positives from old failures
-		cb.maybeResetWindow()
-	}
-}
-
-// RecordFailure records a failed request.
-// statusCode is the HTTP status code from the upstream response.
-// Returns true if this failure caused the circuit to trip open.
-func (cb *CircuitBreaker) RecordFailure(statusCode int) bool {
-	if !cb.config.Enabled {
-		return false
-	}
-
-	// Only count specific error codes as circuit-breaker failures
-	if !isCircuitBreakerFailure(statusCode) {
-		return false
-	}
-
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-
-	switch cb.state {
-	case CircuitClosed:
-		cb.maybeResetWindow()
-		cb.failures++
-		if cb.failures >= cb.config.FailureThreshold {
-			cb.transitionTo(CircuitOpen)
-			return true
-		}
-
-	case CircuitHalfOpen:
-		cb.halfOpenFailures++
-		// Any failure in half-open state re-opens the circuit
-		cb.transitionTo(CircuitOpen)
-		return true
-	}
-
-	return false
-}
-
-// State returns the current state of the circuit breaker.
-func (cb *CircuitBreaker) State() CircuitState {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
-	return cb.state
-}
-
-// Provider returns the provider name this circuit breaker is for.
-func (cb *CircuitBreaker) Provider() string {
-	return cb.provider
-}
-
-// Failures returns the current failure count.
-func (cb *CircuitBreaker) Failures() int64 {
-	cb.mu.RLock()
-	defer cb.mu.RUnlock()
-	return cb.failures
-}
-
-// transitionTo changes the circuit state. Must be called with lock held.
-func (cb *CircuitBreaker) transitionTo(newState CircuitState) {
-	oldState := cb.state
-	if oldState == newState {
-		return
-	}
-
-	cb.state = newState
-	now := time.Now()
-
-	switch newState {
-	case CircuitOpen:
-		cb.openedAt = now
-	case CircuitHalfOpen:
-		cb.halfOpenSuccesses = 0
-		cb.halfOpenFailures = 0
-	case CircuitClosed:
-		cb.failures = 0
-		cb.windowStart = now
-	}
-
-	if cb.onStateChange != nil {
-		// Call callback without holding lock to avoid deadlocks
-		callback := cb.onStateChange
-		go callback(cb.provider, oldState, newState)
-	}
-}
-
-// maybeResetWindow resets the failure count if the window has elapsed.
-// Must be called with lock held.
-func (cb *CircuitBreaker) maybeResetWindow() {
-	now := time.Now()
-	if now.Sub(cb.windowStart) >= cb.config.Window {
-		cb.failures = 0
-		cb.windowStart = now
-	}
-}
-
 // isCircuitBreakerFailure returns true if the given HTTP status code
 // should count as a failure for circuit breaker purposes.
-// We specifically track rate limiting and overload errors from upstream.
 func isCircuitBreakerFailure(statusCode int) bool {
 	switch statusCode {
-	case http.StatusTooManyRequests: // 429 - Rate limited
-		return true
-	case http.StatusServiceUnavailable: // 503 - Service unavailable
-		return true
-	case 529: // Anthropic-specific "Overloaded" error
+	case http.StatusTooManyRequests, // 429
+		http.StatusServiceUnavailable, // 503
+		529:                           // Anthropic "Overloaded"
 		return true
 	default:
 		return false
 	}
 }
 
-// CircuitBreakerManager manages circuit breakers for multiple providers.
-type CircuitBreakerManager struct {
-	mu       sync.RWMutex
-	breakers map[string]*CircuitBreaker
+// CircuitBreakers manages per-endpoint circuit breakers using sony/gobreaker.
+// Circuit breakers are keyed by "provider:endpoint" for per-endpoint isolation.
+type CircuitBreakers struct {
+	breakers sync.Map // map[string]*gobreaker.CircuitBreaker[any]
 	config   CircuitBreakerConfig
-
-	// Metrics callbacks
-	onStateChange func(provider string, from, to CircuitState)
+	onChange func(name string, from, to CircuitState)
 }
 
-// NewCircuitBreakerManager creates a new manager with the given configuration.
-func NewCircuitBreakerManager(config CircuitBreakerConfig) *CircuitBreakerManager {
-	return &CircuitBreakerManager{
-		breakers: make(map[string]*CircuitBreaker),
+// NewCircuitBreakers creates a new circuit breaker manager.
+func NewCircuitBreakers(config CircuitBreakerConfig, onChange func(name string, from, to CircuitState)) *CircuitBreakers {
+	return &CircuitBreakers{
 		config:   config,
+		onChange: onChange,
 	}
 }
 
-// SetStateChangeCallback sets the callback for state changes on all circuit breakers.
-func (m *CircuitBreakerManager) SetStateChangeCallback(fn func(provider string, from, to CircuitState)) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.onStateChange = fn
-
-	// Update existing breakers
-	for _, cb := range m.breakers {
-		cb.SetStateChangeCallback(fn)
+// Allow checks if a request to provider/endpoint should be allowed.
+func (c *CircuitBreakers) Allow(provider, endpoint string) bool {
+	if !c.config.Enabled {
+		return true
 	}
+	cb := c.getOrCreate(provider, endpoint)
+	return cb.State() != gobreaker.StateOpen
 }
 
-// GetOrCreate returns the circuit breaker for the given provider,
-// creating one if it doesn't exist.
-func (m *CircuitBreakerManager) GetOrCreate(provider string) *CircuitBreaker {
-	m.mu.RLock()
-	if cb, ok := m.breakers[provider]; ok {
-		m.mu.RUnlock()
-		return cb
+// RecordSuccess records a successful request.
+func (c *CircuitBreakers) RecordSuccess(provider, endpoint string) {
+	if !c.config.Enabled {
+		return
 	}
-	m.mu.RUnlock()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// Double-check after acquiring write lock
-	if cb, ok := m.breakers[provider]; ok {
-		return cb
-	}
-
-	cb := NewCircuitBreaker(provider, m.config)
-	if m.onStateChange != nil {
-		cb.SetStateChangeCallback(m.onStateChange)
-	}
-	m.breakers[provider] = cb
-	return cb
+	cb := c.getOrCreate(provider, endpoint)
+	_, _ = cb.Execute(func() (any, error) { return nil, nil })
 }
 
-// Get returns the circuit breaker for the given provider, or nil if not found.
-func (m *CircuitBreakerManager) Get(provider string) *CircuitBreaker {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.breakers[provider]
-}
-
-// AllStates returns the current state of all circuit breakers.
-func (m *CircuitBreakerManager) AllStates() map[string]CircuitState {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	states := make(map[string]CircuitState, len(m.breakers))
-	for provider, cb := range m.breakers {
-		states[provider] = cb.State()
+// RecordFailure records a failed request. Returns true if this caused the circuit to open.
+func (c *CircuitBreakers) RecordFailure(provider, endpoint string, statusCode int) bool {
+	if !c.config.Enabled || !isCircuitBreakerFailure(statusCode) {
+		return false
 	}
-	return states
+	cb := c.getOrCreate(provider, endpoint)
+	before := cb.State()
+	_, _ = cb.Execute(func() (any, error) {
+		return nil, fmt.Errorf("upstream error: %d", statusCode)
+	})
+	return before != gobreaker.StateOpen && cb.State() == gobreaker.StateOpen
 }
 
-// Config returns the configuration used by this manager.
-func (m *CircuitBreakerManager) Config() CircuitBreakerConfig {
-	return m.config
+// State returns the current state for a provider/endpoint.
+func (c *CircuitBreakers) State(provider, endpoint string) CircuitState {
+	if !c.config.Enabled {
+		return CircuitClosed
+	}
+	cb := c.getOrCreate(provider, endpoint)
+	return toCircuitState(cb.State())
+}
+
+func (c *CircuitBreakers) getOrCreate(provider, endpoint string) *gobreaker.CircuitBreaker[any] {
+	key := provider + ":" + endpoint
+	if v, ok := c.breakers.Load(key); ok {
+		return v.(*gobreaker.CircuitBreaker[any])
+	}
+
+	settings := gobreaker.Settings{
+		Name:        key,
+		MaxRequests: uint32(c.config.HalfOpenMaxRequests),
+		Interval:    c.config.Window,
+		Timeout:     c.config.Cooldown,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			return counts.ConsecutiveFailures >= uint32(c.config.FailureThreshold)
+		},
+		OnStateChange: func(name string, from, to gobreaker.State) {
+			if c.onChange != nil {
+				c.onChange(name, toCircuitState(from), toCircuitState(to))
+			}
+		},
+	}
+
+	cb := gobreaker.NewCircuitBreaker[any](settings)
+	actual, _ := c.breakers.LoadOrStore(key, cb)
+	return actual.(*gobreaker.CircuitBreaker[any])
 }

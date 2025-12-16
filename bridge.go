@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -32,7 +33,7 @@ type RequestBridge struct {
 
 	// circuitBreakers manages circuit breakers for upstream providers.
 	// When enabled, it protects against cascading failures from upstream rate limits.
-	circuitBreakers *CircuitBreakerManager
+	circuitBreakers *CircuitBreakers
 
 	inflightReqs atomic.Int32
 	inflightWG   sync.WaitGroup // For graceful shutdown.
@@ -61,26 +62,24 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer, cbConfig CircuitBreakerConfig) (*RequestBridge, error) {
 	mux := http.NewServeMux()
 
-	// Create circuit breaker manager
-	cbManager := NewCircuitBreakerManager(cbConfig)
-
-	// Set up metrics callback if metrics are provided
+	// Create circuit breakers with metrics callback
+	var onChange func(name string, from, to CircuitState)
 	if metrics != nil {
-		cbManager.SetStateChangeCallback(func(provider string, from, to CircuitState) {
-			metrics.CircuitBreakerState.WithLabelValues(provider).Set(float64(to))
+		onChange = func(name string, from, to CircuitState) {
+			provider, endpoint, _ := strings.Cut(name, ":")
+			metrics.CircuitBreakerState.WithLabelValues(provider, endpoint).Set(float64(to))
 			if to == CircuitOpen {
-				metrics.CircuitBreakerTrips.WithLabelValues(provider).Inc()
+				metrics.CircuitBreakerTrips.WithLabelValues(provider, endpoint).Inc()
 			}
-		})
+		}
 	}
+	cbs := NewCircuitBreakers(cbConfig, onChange)
 
 	for _, provider := range providers {
-		// Pre-create circuit breaker for this provider
-		cbManager.GetOrCreate(provider.Name())
 
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range provider.BridgedRoutes() {
-			mux.HandleFunc(path, newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer, cbManager))
+			mux.HandleFunc(path, newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer, cbs))
 		}
 
 		// Any requests which passthrough to this will be reverse-proxied to the upstream.
@@ -106,7 +105,7 @@ func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provide
 		mux:             mux,
 		logger:          logger,
 		mcpProxy:        mcpProxy,
-		circuitBreakers: cbManager,
+		circuitBreakers: cbs,
 		inflightCtx:     inflightCtx,
 		inflightCancel:  cancel,
 
@@ -180,9 +179,8 @@ func (b *RequestBridge) InflightRequests() int32 {
 	return b.inflightReqs.Load()
 }
 
-// CircuitBreakers returns the circuit breaker manager for this bridge.
-// This can be used to query circuit breaker states or configure callbacks.
-func (b *RequestBridge) CircuitBreakers() *CircuitBreakerManager {
+// CircuitBreakers returns the circuit breakers for this bridge.
+func (b *RequestBridge) CircuitBreakers() *CircuitBreakers {
 	return b.circuitBreakers
 }
 
