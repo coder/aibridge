@@ -51,17 +51,57 @@ func DefaultIsFailure(statusCode int) bool {
 	}
 }
 
+// CircuitBreaker defines the interface for circuit breaker implementations.
+type CircuitBreaker interface {
+	// Allow returns true if the request should be allowed through.
+	Allow() bool
+	// RecordSuccess records a successful request.
+	RecordSuccess()
+	// RecordFailure records a failed request with the given status code.
+	RecordFailure(statusCode int)
+}
+
+// NoopCircuitBreaker is a circuit breaker that always allows requests through.
+// Used when circuit breaker is not configured for a provider.
+type NoopCircuitBreaker struct{}
+
+func (NoopCircuitBreaker) Allow() bool                  { return true }
+func (NoopCircuitBreaker) RecordSuccess()               {}
+func (NoopCircuitBreaker) RecordFailure(statusCode int) {}
+
+// gobreakerCircuitBreaker wraps sony/gobreaker to implement CircuitBreaker.
+type gobreakerCircuitBreaker struct {
+	cb        *gobreaker.CircuitBreaker[any]
+	isFailure func(statusCode int) bool
+}
+
+func (g *gobreakerCircuitBreaker) Allow() bool {
+	return g.cb.State() != gobreaker.StateOpen
+}
+
+func (g *gobreakerCircuitBreaker) RecordSuccess() {
+	_, _ = g.cb.Execute(func() (any, error) { return nil, nil })
+}
+
+func (g *gobreakerCircuitBreaker) RecordFailure(statusCode int) {
+	if g.isFailure(statusCode) {
+		_, _ = g.cb.Execute(func() (any, error) {
+			return nil, fmt.Errorf("upstream error: %d", statusCode)
+		})
+	}
+}
+
 // CircuitBreakers manages per-endpoint circuit breakers using sony/gobreaker.
 // Circuit breakers are keyed by "provider:endpoint" for per-endpoint isolation.
 type CircuitBreakers struct {
-	breakers sync.Map // map[string]*gobreaker.CircuitBreaker[any]
+	breakers sync.Map // map[string]CircuitBreaker
 	configs  map[string]CircuitBreakerConfig
 	onChange func(name string, from, to gobreaker.State)
 }
 
 // NewCircuitBreakers creates a new circuit breaker manager with per-provider configs.
-// The configs map is keyed by provider name. Providers not in the map will not have
-// circuit breaker protection.
+// The configs map is keyed by provider name. Providers not in the map will use
+// NoopCircuitBreaker (always allows requests).
 func NewCircuitBreakers(configs map[string]CircuitBreakerConfig, onChange func(name string, from, to gobreaker.State)) *CircuitBreakers {
 	return &CircuitBreakers{
 		configs:  configs,
@@ -81,17 +121,22 @@ func (c *CircuitBreakers) getConfig(provider string) *CircuitBreakerConfig {
 	return &cfg
 }
 
-// getOrCreate returns the circuit breaker for a provider/endpoint, creating if needed.
-// Returns nil if the provider is not configured.
-func (c *CircuitBreakers) getOrCreate(provider, endpoint string) *gobreaker.CircuitBreaker[any] {
+// Get returns the circuit breaker for a provider/endpoint.
+// Returns NoopCircuitBreaker if the provider is not configured.
+func (c *CircuitBreakers) Get(provider, endpoint string) CircuitBreaker {
 	cfg := c.getConfig(provider)
 	if cfg == nil {
-		return nil
+		return NoopCircuitBreaker{}
 	}
 
 	key := provider + ":" + endpoint
 	if v, ok := c.breakers.Load(key); ok {
-		return v.(*gobreaker.CircuitBreaker[any])
+		return v.(CircuitBreaker)
+	}
+
+	isFailure := cfg.IsFailure
+	if isFailure == nil {
+		isFailure = DefaultIsFailure
 	}
 
 	settings := gobreaker.Settings{
@@ -109,12 +154,16 @@ func (c *CircuitBreakers) getOrCreate(provider, endpoint string) *gobreaker.Circ
 		},
 	}
 
-	cb := gobreaker.NewCircuitBreaker[any](settings)
+	cb := &gobreakerCircuitBreaker{
+		cb:        gobreaker.NewCircuitBreaker[any](settings),
+		isFailure: isFailure,
+	}
 	actual, _ := c.breakers.LoadOrStore(key, cb)
-	return actual.(*gobreaker.CircuitBreaker[any])
+	return actual.(CircuitBreaker)
 }
 
 // statusCapturingWriter wraps http.ResponseWriter to capture the status code.
+// It also implements http.Flusher to support streaming responses.
 type statusCapturingWriter struct {
 	http.ResponseWriter
 	statusCode    int
@@ -137,28 +186,28 @@ func (w *statusCapturingWriter) Write(b []byte) (int, error) {
 	return w.ResponseWriter.Write(b)
 }
 
+func (w *statusCapturingWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Unwrap returns the underlying ResponseWriter for interface checks.
+func (w *statusCapturingWriter) Unwrap() http.ResponseWriter {
+	return w.ResponseWriter
+}
+
 // CircuitBreakerMiddleware returns middleware that wraps handlers with circuit breaker protection.
 // It captures the response status code to determine success/failure without provider-specific logic.
-// If the provider is not configured, returns a noop middleware (passes through without any circuit breaker).
+// If the provider is not configured, uses NoopCircuitBreaker (always allows requests).
 func CircuitBreakerMiddleware(cbs *CircuitBreakers, metrics *Metrics, provider string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		cfg := cbs.getConfig(provider)
-		if cfg == nil {
-			// Noop: no config for this provider, pass through without circuit breaker
-			return next
-		}
-
-		isFailure := cfg.IsFailure
-		if isFailure == nil {
-			isFailure = DefaultIsFailure
-		}
-
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			endpoint := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", provider))
+			cb := cbs.Get(provider, endpoint)
 
 			// Check if circuit is open
-			cb := cbs.getOrCreate(provider, endpoint)
-			if cb != nil && cb.State() == gobreaker.StateOpen {
+			if !cb.Allow() {
 				if metrics != nil {
 					metrics.CircuitBreakerRejects.WithLabelValues(provider, endpoint).Inc()
 				}
@@ -170,15 +219,11 @@ func CircuitBreakerMiddleware(cbs *CircuitBreakers, metrics *Metrics, provider s
 			sw := &statusCapturingWriter{ResponseWriter: w, statusCode: http.StatusOK}
 			next.ServeHTTP(sw, r)
 
-			// Record result
-			if cb != nil {
-				if isFailure(sw.statusCode) {
-					_, _ = cb.Execute(func() (any, error) {
-						return nil, fmt.Errorf("upstream error: %d", sw.statusCode)
-					})
-				} else {
-					_, _ = cb.Execute(func() (any, error) { return nil, nil })
-				}
+			// Record result - NoopCircuitBreaker methods are no-ops
+			if sw.statusCode >= 400 {
+				cb.RecordFailure(sw.statusCode)
+			} else {
+				cb.RecordSuccess()
 			}
 		})
 	}
