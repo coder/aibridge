@@ -139,11 +139,12 @@ func (w *statusCapturingWriter) Write(b []byte) (int, error) {
 
 // CircuitBreakerMiddleware returns middleware that wraps handlers with circuit breaker protection.
 // It captures the response status code to determine success/failure without provider-specific logic.
+// If the provider is not configured, returns a noop middleware (passes through without any circuit breaker).
 func CircuitBreakerMiddleware(cbs *CircuitBreakers, metrics *Metrics, provider string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		cfg := cbs.getConfig(provider)
 		if cfg == nil {
-			// No config for this provider, pass through
+			// Noop: no config for this provider, pass through without circuit breaker
 			return next
 		}
 
