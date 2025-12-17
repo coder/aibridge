@@ -30,7 +30,7 @@ type Metrics struct {
 	NonInjectedToolUseCount *prometheus.CounterVec
 
 	// Circuit breaker metrics.
-	CircuitBreakerState   *prometheus.GaugeVec   // Current state (0=closed, 1=open, 2=half-open)
+	CircuitBreakerState   *prometheus.GaugeVec   // Current state (0=closed, 0.5=half-open, 1=open)
 	CircuitBreakerTrips   *prometheus.CounterVec // Total times circuit opened
 	CircuitBreakerRejects *prometheus.CounterVec // Requests rejected due to open circuit
 }
@@ -114,7 +114,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		CircuitBreakerState: promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 			Subsystem: "circuit_breaker",
 			Name:      "state",
-			Help:      "Current state of the circuit breaker (0=closed, 1=open, 2=half-open).",
+			Help:      "Current state of the circuit breaker (0=closed, 0.5=half-open, 1=open).",
 		}, []string{"provider", "endpoint"}),
 		// Pessimistic cardinality: 2 providers, 5 endpoints = up to 10.
 		CircuitBreakerTrips: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
