@@ -63,7 +63,7 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 	}
 
 	// Create circuit breakers with metrics callback
-	var onChange func(provider, endpoint string, from, to gobreaker.State)
+	onChange := func(provider, endpoint string, from, to gobreaker.State) {}
 	if metrics != nil {
 		onChange = func(provider, endpoint string, from, to gobreaker.State) {
 			metrics.CircuitBreakerState.WithLabelValues(provider, endpoint).Set(stateToGaugeValue(to))

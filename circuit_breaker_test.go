@@ -32,7 +32,7 @@ func TestCircuitBreakerMiddleware_TripsOnUpstreamErrors(t *testing.T) {
 			Timeout:          50 * time.Millisecond,
 			MaxRequests:      1,
 		},
-	}, nil)
+	}, func(provider, endpoint string, from, to gobreaker.State) {})
 
 	// Wrap upstream with circuit breaker middleware
 	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
@@ -93,7 +93,7 @@ func TestCircuitBreakerMiddleware_PerEndpointIsolation(t *testing.T) {
 			Timeout:          time.Minute,
 			MaxRequests:      1,
 		},
-	}, nil)
+	}, func(provider, endpoint string, from, to gobreaker.State) {})
 
 	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
 	server := httptest.NewServer(handler)
@@ -167,7 +167,7 @@ func TestCircuitBreakerMiddleware_RecoveryAfterSuccess(t *testing.T) {
 			Timeout:          50 * time.Millisecond,
 			MaxRequests:      1,
 		},
-	}, nil)
+	}, func(provider, endpoint string, from, to gobreaker.State) {})
 
 	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
 	server := httptest.NewServer(handler)
@@ -222,7 +222,7 @@ func TestCircuitBreakerMiddleware_CustomIsFailure(t *testing.T) {
 				return statusCode == http.StatusBadGateway
 			},
 		},
-	}, nil)
+	}, func(provider, endpoint string, from, to gobreaker.State) {})
 
 	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
 	server := httptest.NewServer(handler)

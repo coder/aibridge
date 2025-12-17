@@ -154,9 +154,7 @@ func (c *CircuitBreakers) Get(provider, endpoint string) CircuitBreaker {
 			return counts.ConsecutiveFailures >= cfg.FailureThreshold
 		},
 		OnStateChange: func(_ string, from, to gobreaker.State) {
-			if c.onChange != nil {
-				c.onChange(provider, endpoint, from, to)
-			}
+			c.onChange(provider, endpoint, from, to)
 		},
 	}
 
