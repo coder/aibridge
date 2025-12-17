@@ -17,7 +17,8 @@ var _ Provider = &OpenAIProvider{}
 
 // OpenAIProvider allows for interactions with the OpenAI API.
 type OpenAIProvider struct {
-	baseURL, key string
+	baseURL, key   string
+	circuitBreaker *CircuitBreakerConfig
 }
 
 const (
@@ -36,8 +37,9 @@ func NewOpenAIProvider(cfg OpenAIConfig) *OpenAIProvider {
 	}
 
 	return &OpenAIProvider{
-		baseURL: cfg.BaseURL,
-		key:     cfg.Key,
+		baseURL:        cfg.BaseURL,
+		key:            cfg.Key,
+		circuitBreaker: cfg.CircuitBreaker,
 	}
 }
 
@@ -107,4 +109,8 @@ func (p *OpenAIProvider) InjectAuthHeader(headers *http.Header) {
 	}
 
 	headers.Set(p.AuthHeader(), "Bearer "+p.key)
+}
+
+func (p *OpenAIProvider) CircuitBreakerConfig() *CircuitBreakerConfig {
+	return p.circuitBreaker
 }

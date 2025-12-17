@@ -108,6 +108,10 @@ func (p *AnthropicProvider) InjectAuthHeader(headers *http.Header) {
 	headers.Set(p.AuthHeader(), p.cfg.Key)
 }
 
+func (p *AnthropicProvider) CircuitBreakerConfig() *CircuitBreakerConfig {
+	return p.cfg.CircuitBreaker
+}
+
 func getAnthropicErrorResponse(err error) *AnthropicErrorResponse {
 	var apierr *anthropic.Error
 	if !errors.As(err, &apierr) {

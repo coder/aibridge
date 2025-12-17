@@ -48,15 +48,19 @@ var _ http.Handler = &RequestBridge{}
 // A [Recorder] is also required to record prompt, tool, and token use.
 //
 // mcpProxy will be closed when the [RequestBridge] is closed.
+//
+// Circuit breaker configuration is obtained from each provider's CircuitBreakerConfig() method.
+// Providers returning nil will not have circuit breaker protection.
 func NewRequestBridge(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) (*RequestBridge, error) {
-	return NewRequestBridgeWithCircuitBreaker(ctx, providers, recorder, mcpProxy, logger, metrics, tracer, nil)
-}
-
-// NewRequestBridgeWithCircuitBreaker creates a new *[RequestBridge] with per-provider circuit breaker configuration.
-// The cbConfigs map is keyed by provider name. Providers not in the map will not have circuit breaker protection.
-// Pass nil to disable circuit breakers entirely.
-func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer, cbConfigs map[string]CircuitBreakerConfig) (*RequestBridge, error) {
 	mux := http.NewServeMux()
+
+	// Build circuit breaker configs from providers
+	cbConfigs := make(map[string]CircuitBreakerConfig)
+	for _, p := range providers {
+		if cfg := p.CircuitBreakerConfig(); cfg != nil {
+			cbConfigs[p.Name()] = *cfg
+		}
+	}
 
 	// Create circuit breakers with metrics callback
 	var onChange func(provider, endpoint string, from, to gobreaker.State)
@@ -74,7 +78,7 @@ func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provide
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range provider.BridgedRoutes() {
 			handler := newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer)
-			// Wrap with circuit breaker middleware if configured for this provider
+			// Wrap with circuit breaker middleware (uses NoopCircuitBreaker if not configured)
 			wrapped := CircuitBreakerMiddleware(cbs, metrics, provider.Name())(handler)
 			mux.Handle(path, wrapped)
 		}

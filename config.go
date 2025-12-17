@@ -1,7 +1,8 @@
 package aibridge
 
 type ProviderConfig struct {
-	BaseURL, Key string
+	BaseURL, Key   string
+	CircuitBreaker *CircuitBreakerConfig
 }
 
 type (

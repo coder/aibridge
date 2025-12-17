@@ -33,4 +33,7 @@ type Provider interface {
 	AuthHeader() string
 	// InjectAuthHeader allows [Provider]s to set its authentication header.
 	InjectAuthHeader(*http.Header)
+
+	// CircuitBreakerConfig returns the circuit breaker configuration for the provider.
+	CircuitBreakerConfig() *CircuitBreakerConfig
 }
