@@ -1,6 +1,7 @@
 package aibridge
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -53,42 +54,40 @@ func DefaultIsFailure(statusCode int) bool {
 
 // CircuitBreaker defines the interface for circuit breaker implementations.
 type CircuitBreaker interface {
-	// Allow returns true if the request should be allowed through.
-	Allow() bool
-	// RecordSuccess records a successful request.
-	RecordSuccess()
-	// RecordFailure records a failed request with the given status code.
-	RecordFailure(statusCode int)
+	// Execute runs the given function if the circuit allows it.
+	// Returns (statusCode, rejected) where rejected is true if the circuit breaker blocked the request.
+	Execute(fn func() int) (statusCode int, rejected bool)
 }
 
 // NoopCircuitBreaker is a circuit breaker that always allows requests through.
 // Used when circuit breaker is not configured for a provider.
 type NoopCircuitBreaker struct{}
 
-func (NoopCircuitBreaker) Allow() bool                  { return true }
-func (NoopCircuitBreaker) RecordSuccess()               {}
-func (NoopCircuitBreaker) RecordFailure(statusCode int) {}
+func (NoopCircuitBreaker) Execute(fn func() int) (int, bool) {
+	return fn(), false
+}
 
 // gobreakerCircuitBreaker wraps sony/gobreaker to implement CircuitBreaker.
 type gobreakerCircuitBreaker struct {
-	cb        *gobreaker.CircuitBreaker[any]
+	cb        *gobreaker.CircuitBreaker[int]
 	isFailure func(statusCode int) bool
 }
 
-func (g *gobreakerCircuitBreaker) Allow() bool {
-	return g.cb.State() != gobreaker.StateOpen
-}
-
-func (g *gobreakerCircuitBreaker) RecordSuccess() {
-	_, _ = g.cb.Execute(func() (any, error) { return nil, nil })
-}
-
-func (g *gobreakerCircuitBreaker) RecordFailure(statusCode int) {
-	if g.isFailure(statusCode) {
-		_, _ = g.cb.Execute(func() (any, error) {
-			return nil, fmt.Errorf("upstream error: %d", statusCode)
-		})
+func (g *gobreakerCircuitBreaker) Execute(fn func() int) (int, bool) {
+	statusCode, err := g.cb.Execute(func() (int, error) {
+		code := fn()
+		if g.isFailure(code) {
+			return code, fmt.Errorf("upstream error: %d", code)
+		}
+		return code, nil
+	})
+	if err != nil {
+		// Check if rejected by circuit breaker (open or half-open with too many requests)
+		if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
+			return 0, true
+		}
 	}
+	return statusCode, false
 }
 
 // CircuitBreakers manages per-endpoint circuit breakers using sony/gobreaker.
@@ -155,7 +154,7 @@ func (c *CircuitBreakers) Get(provider, endpoint string) CircuitBreaker {
 	}
 
 	cb := &gobreakerCircuitBreaker{
-		cb:        gobreaker.NewCircuitBreaker[any](settings),
+		cb:        gobreaker.NewCircuitBreaker[int](settings),
 		isFailure: isFailure,
 	}
 	actual, _ := c.breakers.LoadOrStore(key, cb)
@@ -203,27 +202,22 @@ func (w *statusCapturingWriter) Unwrap() http.ResponseWriter {
 func CircuitBreakerMiddleware(cbs *CircuitBreakers, metrics *Metrics, provider string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			endpoint := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", provider))
+			endpoint := strings.TrimPrefix(r.URL.Path, "/"+provider)
 			cb := cbs.Get(provider, endpoint)
 
-			// Check if circuit is open
-			if !cb.Allow() {
+			// Wrap response writer to capture status code
+			sw := &statusCapturingWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
+			_, rejected := cb.Execute(func() int {
+				next.ServeHTTP(sw, r)
+				return sw.statusCode
+			})
+
+			if rejected {
 				if metrics != nil {
 					metrics.CircuitBreakerRejects.WithLabelValues(provider, endpoint).Inc()
 				}
 				http.Error(w, "circuit breaker is open", http.StatusServiceUnavailable)
-				return
-			}
-
-			// Wrap response writer to capture status code
-			sw := &statusCapturingWriter{ResponseWriter: w, statusCode: http.StatusOK}
-			next.ServeHTTP(sw, r)
-
-			// Record result - NoopCircuitBreaker methods are no-ops
-			if sw.statusCode >= 400 {
-				cb.RecordFailure(sw.statusCode)
-			} else {
-				cb.RecordSuccess()
 			}
 		})
 	}
