@@ -103,7 +103,7 @@ func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provide
 		logger:         logger,
 		mcpProxy:       mcpProxy,
 		inflightCtx:    inflightCtx,
-		inflightCancel:  cancel,
+		inflightCancel: cancel,
 
 		closed: make(chan struct{}, 1),
 	}, nil
