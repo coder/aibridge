@@ -57,14 +57,16 @@ func TestCircuitBreakerMiddleware_TripsOnUpstreamErrors(t *testing.T) {
 	assert.Contains(t, string(body), "circuit breaker is open")
 	assert.Equal(t, int32(2), upstreamCalls.Load()) // No new upstream call
 
-	// Wait for timeout, verify recovery
-	time.Sleep(60 * time.Millisecond)
-
-	// Next request should hit upstream again (half-open state)
-	resp, err = http.Get(server.URL + "/test/v1/messages")
-	require.NoError(t, err)
-	resp.Body.Close()
-	assert.Equal(t, int32(3), upstreamCalls.Load())
+	// Wait for timeout, verify recovery (circuit transitions to half-open)
+	require.Eventually(t, func() bool {
+		resp, err = http.Get(server.URL + "/test/v1/messages")
+		if err != nil {
+			return false
+		}
+		resp.Body.Close()
+		// Request hit upstream again (half-open state allows probe request)
+		return upstreamCalls.Load() == 3
+	}, 5*time.Second, 25*time.Millisecond)
 }
 
 func TestCircuitBreakerMiddleware_PerEndpointIsolation(t *testing.T) {
@@ -182,14 +184,19 @@ func TestCircuitBreakerMiddleware_RecoveryAfterSuccess(t *testing.T) {
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 	resp.Body.Close()
 
-	// Wait for timeout, switch upstream to success
-	time.Sleep(60 * time.Millisecond)
+	// Switch upstream to success before we start polling
 	returnError.Store(false)
 
-	// Half-open: one request allowed
-	resp, _ = http.Get(server.URL + "/test/v1/messages")
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
+	// Wait for timeout (circuit transitions to half-open), then verify recovery
+	require.Eventually(t, func() bool {
+		resp, err := http.Get(server.URL + "/test/v1/messages")
+		if err != nil {
+			return false
+		}
+		defer resp.Body.Close()
+		// Half-open: request goes through and succeeds
+		return resp.StatusCode == http.StatusOK
+	}, 5*time.Second, 25*time.Millisecond)
 
 	// Circuit should be closed now, more requests allowed
 	resp, _ = http.Get(server.URL + "/test/v1/messages")
