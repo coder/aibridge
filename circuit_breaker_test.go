@@ -25,7 +25,7 @@ func TestCircuitBreakerMiddleware_TripsOnUpstreamErrors(t *testing.T) {
 	})
 
 	// Create circuit breaker with low threshold
-	cbs := NewProviderCircuitBreakers("test", CircuitBreakerConfig{
+	cbs := NewProviderCircuitBreakers("test", &CircuitBreakerConfig{
 		FailureThreshold: 2,
 		Interval:         time.Minute,
 		Timeout:          50 * time.Millisecond,
@@ -33,7 +33,7 @@ func TestCircuitBreakerMiddleware_TripsOnUpstreamErrors(t *testing.T) {
 	}, func(endpoint string, from, to gobreaker.State) {})
 
 	// Wrap upstream with circuit breaker middleware
-	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
+	handler := CircuitBreakerMiddleware(cbs, nil)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -84,14 +84,14 @@ func TestCircuitBreakerMiddleware_PerEndpointIsolation(t *testing.T) {
 		}
 	})
 
-	cbs := NewProviderCircuitBreakers("test", CircuitBreakerConfig{
+	cbs := NewProviderCircuitBreakers("test", &CircuitBreakerConfig{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
 	}, func(endpoint string, from, to gobreaker.State) {})
 
-	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
+	handler := CircuitBreakerMiddleware(cbs, nil)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -126,7 +126,7 @@ func TestCircuitBreakerMiddleware_NotConfigured(t *testing.T) {
 	})
 
 	// No circuit breaker configured (nil)
-	handler := CircuitBreakerMiddleware(nil, nil, "test")(upstream)
+	handler := CircuitBreakerMiddleware(nil, nil)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -154,14 +154,14 @@ func TestCircuitBreakerMiddleware_RecoveryAfterSuccess(t *testing.T) {
 		}
 	})
 
-	cbs := NewProviderCircuitBreakers("test", CircuitBreakerConfig{
+	cbs := NewProviderCircuitBreakers("test", &CircuitBreakerConfig{
 		FailureThreshold: 2,
 		Interval:         time.Minute,
 		Timeout:          50 * time.Millisecond,
 		MaxRequests:      1,
 	}, func(endpoint string, from, to gobreaker.State) {})
 
-	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
+	handler := CircuitBreakerMiddleware(cbs, nil)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -204,7 +204,7 @@ func TestCircuitBreakerMiddleware_CustomIsFailure(t *testing.T) {
 	})
 
 	// Custom IsFailure that treats 502 as failure
-	cbs := NewProviderCircuitBreakers("test", CircuitBreakerConfig{
+	cbs := NewProviderCircuitBreakers("test", &CircuitBreakerConfig{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
@@ -214,7 +214,7 @@ func TestCircuitBreakerMiddleware_CustomIsFailure(t *testing.T) {
 		},
 	}, func(endpoint string, from, to gobreaker.State) {})
 
-	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
+	handler := CircuitBreakerMiddleware(cbs, nil)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 

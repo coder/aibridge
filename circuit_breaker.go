@@ -61,13 +61,17 @@ type ProviderCircuitBreakers struct {
 }
 
 // NewProviderCircuitBreakers creates circuit breakers for a single provider.
-func NewProviderCircuitBreakers(provider string, config CircuitBreakerConfig, onChange func(endpoint string, from, to gobreaker.State)) *ProviderCircuitBreakers {
+// Returns nil if config is nil (no circuit breaker protection).
+func NewProviderCircuitBreakers(provider string, config *CircuitBreakerConfig, onChange func(endpoint string, from, to gobreaker.State)) *ProviderCircuitBreakers {
+	if config == nil {
+		return nil
+	}
 	if config.IsFailure == nil {
 		config.IsFailure = DefaultIsFailure
 	}
 	return &ProviderCircuitBreakers{
 		provider: provider,
-		config:   config,
+		config:   *config,
 		onChange: onChange,
 	}
 }
@@ -87,7 +91,9 @@ func (p *ProviderCircuitBreakers) Get(endpoint string) *gobreaker.CircuitBreaker
 			return counts.ConsecutiveFailures >= p.config.FailureThreshold
 		},
 		OnStateChange: func(_ string, from, to gobreaker.State) {
-			p.onChange(endpoint, from, to)
+			if p.onChange != nil {
+				p.onChange(endpoint, from, to)
+			}
 		},
 	}
 
@@ -134,7 +140,7 @@ func (w *statusCapturingWriter) Unwrap() http.ResponseWriter {
 // CircuitBreakerMiddleware returns middleware that wraps handlers with circuit breaker protection.
 // It captures the response status code to determine success/failure without provider-specific logic.
 // If cbs is nil, requests pass through without circuit breaker protection.
-func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics, provider string) func(http.Handler) http.Handler {
+func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		// No circuit breaker configured - pass through
 		if cbs == nil {
@@ -142,7 +148,7 @@ func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics, pr
 		}
 
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			endpoint := strings.TrimPrefix(r.URL.Path, "/"+provider)
+			endpoint := strings.TrimPrefix(r.URL.Path, "/"+cbs.provider)
 			cb := cbs.Get(endpoint)
 
 			// Wrap response writer to capture status code
@@ -158,7 +164,7 @@ func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics, pr
 
 			if err != nil && (errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests)) {
 				if metrics != nil {
-					metrics.CircuitBreakerRejects.WithLabelValues(provider, endpoint).Inc()
+					metrics.CircuitBreakerRejects.WithLabelValues(cbs.provider, endpoint).Inc()
 				}
 				http.Error(w, "circuit breaker is open", http.StatusServiceUnavailable)
 			}
