@@ -31,10 +31,6 @@ type RequestBridge struct {
 
 	mcpProxy mcp.ServerProxier
 
-	// circuitBreakers manages circuit breakers for upstream providers.
-	// When enabled, it protects against cascading failures from upstream rate limits.
-	circuitBreakers *CircuitBreakers
-
 	inflightReqs atomic.Int32
 	inflightWG   sync.WaitGroup // For graceful shutdown.
 
@@ -105,11 +101,10 @@ func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provide
 
 	inflightCtx, cancel := context.WithCancel(context.Background())
 	return &RequestBridge{
-		mux:             mux,
-		logger:          logger,
-		mcpProxy:        mcpProxy,
-		circuitBreakers: cbs,
-		inflightCtx:     inflightCtx,
+		mux:            mux,
+		logger:         logger,
+		mcpProxy:       mcpProxy,
+		inflightCtx:    inflightCtx,
 		inflightCancel:  cancel,
 
 		closed: make(chan struct{}, 1),
@@ -180,11 +175,6 @@ func (b *RequestBridge) Shutdown(ctx context.Context) error {
 
 func (b *RequestBridge) InflightRequests() int32 {
 	return b.inflightReqs.Load()
-}
-
-// CircuitBreakers returns the circuit breakers for this bridge.
-func (b *RequestBridge) CircuitBreakers() *CircuitBreakers {
-	return b.circuitBreakers
 }
 
 // mergeContexts merges two contexts together, so that if either is cancelled
