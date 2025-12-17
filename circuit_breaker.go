@@ -3,6 +3,7 @@ package aibridge
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -12,8 +13,6 @@ import (
 // CircuitBreakerConfig holds configuration for circuit breakers.
 // Fields match gobreaker.Settings for clarity.
 type CircuitBreakerConfig struct {
-	// Enabled controls whether circuit breakers are active.
-	Enabled bool
 	// MaxRequests is the maximum number of requests allowed in half-open state.
 	MaxRequests uint32
 	// Interval is the cyclic period of the closed state for clearing internal counts.
@@ -22,22 +21,26 @@ type CircuitBreakerConfig struct {
 	Timeout time.Duration
 	// FailureThreshold is the number of consecutive failures that triggers the circuit to open.
 	FailureThreshold uint32
+	// IsFailure determines if a status code should count as a failure.
+	// If nil, defaults to 429, 503, and 529 (Anthropic overloaded).
+	IsFailure func(statusCode int) bool
 }
 
 // DefaultCircuitBreakerConfig returns sensible defaults for circuit breaker configuration.
 func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
 	return CircuitBreakerConfig{
-		Enabled:          false, // Disabled by default for backward compatibility
 		FailureThreshold: 5,
 		Interval:         10 * time.Second,
 		Timeout:          30 * time.Second,
 		MaxRequests:      3,
+		IsFailure:        DefaultIsFailure,
 	}
 }
 
-// isCircuitBreakerFailure returns true if the given HTTP status code
-// should count as a failure for circuit breaker purposes.
-func isCircuitBreakerFailure(statusCode int) bool {
+// DefaultIsFailure returns true for status codes that typically indicate
+// upstream overload: 429 (Too Many Requests), 503 (Service Unavailable),
+// and 529 (Anthropic Overloaded).
+func DefaultIsFailure(statusCode int) bool {
 	switch statusCode {
 	case http.StatusTooManyRequests, // 429
 		http.StatusServiceUnavailable, // 503
@@ -52,59 +55,40 @@ func isCircuitBreakerFailure(statusCode int) bool {
 // Circuit breakers are keyed by "provider:endpoint" for per-endpoint isolation.
 type CircuitBreakers struct {
 	breakers sync.Map // map[string]*gobreaker.CircuitBreaker[any]
-	config   CircuitBreakerConfig
+	configs  map[string]CircuitBreakerConfig
 	onChange func(name string, from, to gobreaker.State)
 }
 
-// NewCircuitBreakers creates a new circuit breaker manager.
-func NewCircuitBreakers(config CircuitBreakerConfig, onChange func(name string, from, to gobreaker.State)) *CircuitBreakers {
+// NewCircuitBreakers creates a new circuit breaker manager with per-provider configs.
+// The configs map is keyed by provider name. Providers not in the map will not have
+// circuit breaker protection.
+func NewCircuitBreakers(configs map[string]CircuitBreakerConfig, onChange func(name string, from, to gobreaker.State)) *CircuitBreakers {
 	return &CircuitBreakers{
-		config:   config,
+		configs:  configs,
 		onChange: onChange,
 	}
 }
 
-// Allow checks if a request to provider/endpoint should be allowed.
-func (c *CircuitBreakers) Allow(provider, endpoint string) bool {
-	if !c.config.Enabled {
-		return true
+// getConfig returns the config for a provider, or nil if not configured.
+func (c *CircuitBreakers) getConfig(provider string) *CircuitBreakerConfig {
+	if c.configs == nil {
+		return nil
 	}
-	cb := c.getOrCreate(provider, endpoint)
-	return cb.State() != gobreaker.StateOpen
+	cfg, ok := c.configs[provider]
+	if !ok {
+		return nil
+	}
+	return &cfg
 }
 
-// RecordSuccess records a successful request.
-func (c *CircuitBreakers) RecordSuccess(provider, endpoint string) {
-	if !c.config.Enabled {
-		return
-	}
-	cb := c.getOrCreate(provider, endpoint)
-	_, _ = cb.Execute(func() (any, error) { return nil, nil })
-}
-
-// RecordFailure records a failed request. Returns true if this caused the circuit to open.
-func (c *CircuitBreakers) RecordFailure(provider, endpoint string, statusCode int) bool {
-	if !c.config.Enabled || !isCircuitBreakerFailure(statusCode) {
-		return false
-	}
-	cb := c.getOrCreate(provider, endpoint)
-	before := cb.State()
-	_, _ = cb.Execute(func() (any, error) {
-		return nil, fmt.Errorf("upstream error: %d", statusCode)
-	})
-	return before != gobreaker.StateOpen && cb.State() == gobreaker.StateOpen
-}
-
-// State returns the current state for a provider/endpoint.
-func (c *CircuitBreakers) State(provider, endpoint string) gobreaker.State {
-	if !c.config.Enabled {
-		return gobreaker.StateClosed
-	}
-	cb := c.getOrCreate(provider, endpoint)
-	return cb.State()
-}
-
+// getOrCreate returns the circuit breaker for a provider/endpoint, creating if needed.
+// Returns nil if the provider is not configured.
 func (c *CircuitBreakers) getOrCreate(provider, endpoint string) *gobreaker.CircuitBreaker[any] {
+	cfg := c.getConfig(provider)
+	if cfg == nil {
+		return nil
+	}
+
 	key := provider + ":" + endpoint
 	if v, ok := c.breakers.Load(key); ok {
 		return v.(*gobreaker.CircuitBreaker[any])
@@ -112,11 +96,11 @@ func (c *CircuitBreakers) getOrCreate(provider, endpoint string) *gobreaker.Circ
 
 	settings := gobreaker.Settings{
 		Name:        key,
-		MaxRequests: c.config.MaxRequests,
-		Interval:    c.config.Interval,
-		Timeout:     c.config.Timeout,
+		MaxRequests: cfg.MaxRequests,
+		Interval:    cfg.Interval,
+		Timeout:     cfg.Timeout,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
-			return counts.ConsecutiveFailures >= c.config.FailureThreshold
+			return counts.ConsecutiveFailures >= cfg.FailureThreshold
 		},
 		OnStateChange: func(name string, from, to gobreaker.State) {
 			if c.onChange != nil {
@@ -128,4 +112,88 @@ func (c *CircuitBreakers) getOrCreate(provider, endpoint string) *gobreaker.Circ
 	cb := gobreaker.NewCircuitBreaker[any](settings)
 	actual, _ := c.breakers.LoadOrStore(key, cb)
 	return actual.(*gobreaker.CircuitBreaker[any])
+}
+
+// statusCapturingWriter wraps http.ResponseWriter to capture the status code.
+type statusCapturingWriter struct {
+	http.ResponseWriter
+	statusCode    int
+	headerWritten bool
+}
+
+func (w *statusCapturingWriter) WriteHeader(code int) {
+	if !w.headerWritten {
+		w.statusCode = code
+		w.headerWritten = true
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *statusCapturingWriter) Write(b []byte) (int, error) {
+	if !w.headerWritten {
+		w.statusCode = http.StatusOK
+		w.headerWritten = true
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+// CircuitBreakerMiddleware returns middleware that wraps handlers with circuit breaker protection.
+// It captures the response status code to determine success/failure without provider-specific logic.
+func CircuitBreakerMiddleware(cbs *CircuitBreakers, metrics *Metrics, provider string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		cfg := cbs.getConfig(provider)
+		if cfg == nil {
+			// No config for this provider, pass through
+			return next
+		}
+
+		isFailure := cfg.IsFailure
+		if isFailure == nil {
+			isFailure = DefaultIsFailure
+		}
+
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			endpoint := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", provider))
+
+			// Check if circuit is open
+			cb := cbs.getOrCreate(provider, endpoint)
+			if cb != nil && cb.State() == gobreaker.StateOpen {
+				if metrics != nil {
+					metrics.CircuitBreakerRejects.WithLabelValues(provider, endpoint).Inc()
+				}
+				http.Error(w, "circuit breaker is open", http.StatusServiceUnavailable)
+				return
+			}
+
+			// Wrap response writer to capture status code
+			sw := &statusCapturingWriter{ResponseWriter: w, statusCode: http.StatusOK}
+			next.ServeHTTP(sw, r)
+
+			// Record result
+			if cb != nil {
+				if isFailure(sw.statusCode) {
+					_, _ = cb.Execute(func() (any, error) {
+						return nil, fmt.Errorf("upstream error: %d", sw.statusCode)
+					})
+				} else {
+					_, _ = cb.Execute(func() (any, error) { return nil, nil })
+				}
+			}
+		})
+	}
+}
+
+// stateToGaugeValue converts gobreaker.State to a gauge value.
+// closed=0, half-open=0.5, open=1
+func stateToGaugeValue(s gobreaker.State) float64 {
+	switch s {
+	case gobreaker.StateClosed:
+		return 0
+	case gobreaker.StateHalfOpen:
+		return 0.5
+	case gobreaker.StateOpen:
+		return 1
+	default:
+		return 0
+	}
 }

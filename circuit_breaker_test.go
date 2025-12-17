@@ -1,8 +1,10 @@
 package aibridge
 
 import (
+	"io"
 	"net/http"
-	"sync"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -11,214 +13,225 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCircuitBreaker_DefaultConfig(t *testing.T) {
+func TestCircuitBreakerMiddleware_TripsOnUpstreamErrors(t *testing.T) {
 	t.Parallel()
 
-	cfg := DefaultCircuitBreakerConfig()
-	assert.False(t, cfg.Enabled, "should be disabled by default")
-	assert.Equal(t, uint32(5), cfg.FailureThreshold)
-	assert.Equal(t, 10*time.Second, cfg.Interval)
-	assert.Equal(t, 30*time.Second, cfg.Timeout)
-	assert.Equal(t, uint32(3), cfg.MaxRequests)
-}
+	var upstreamCalls atomic.Int32
 
-func TestCircuitBreakers_DisabledByDefault(t *testing.T) {
-	t.Parallel()
-
-	cbs := NewCircuitBreakers(DefaultCircuitBreakerConfig(), nil)
-
-	// Should always allow when disabled
-	assert.True(t, cbs.Allow("anthropic", "/v1/messages"))
-
-	// Recording failures should not affect state when disabled
-	for i := 0; i < 100; i++ {
-		cbs.RecordFailure("anthropic", "/v1/messages", http.StatusTooManyRequests)
-	}
-	assert.True(t, cbs.Allow("anthropic", "/v1/messages"))
-	assert.Equal(t, gobreaker.StateClosed, cbs.State("anthropic", "/v1/messages"))
-}
-
-func TestCircuitBreakers_StateTransitions(t *testing.T) {
-	t.Parallel()
-
-	cfg := CircuitBreakerConfig{
-		Enabled:          true,
-		FailureThreshold: 3,
-		Interval:         time.Minute,
-		Timeout:          50 * time.Millisecond,
-		MaxRequests:      2,
-	}
-	cbs := NewCircuitBreakers(cfg, nil)
-
-	// Start in closed state
-	assert.Equal(t, gobreaker.StateClosed, cbs.State("test", "/api"))
-	assert.True(t, cbs.Allow("test", "/api"))
-
-	// Record failures below threshold
-	cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)
-	cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)
-	assert.Equal(t, gobreaker.StateClosed, cbs.State("test", "/api"))
-
-	// Third failure should trip the circuit
-	tripped := cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)
-	assert.True(t, tripped)
-	assert.Equal(t, gobreaker.StateOpen, cbs.State("test", "/api"))
-	assert.False(t, cbs.Allow("test", "/api"))
-
-	// Wait for cooldown
-	time.Sleep(60 * time.Millisecond)
-
-	// Should transition to half-open and allow request
-	assert.True(t, cbs.Allow("test", "/api"))
-	assert.Equal(t, gobreaker.StateHalfOpen, cbs.State("test", "/api"))
-
-	// Success in half-open should eventually close
-	cbs.RecordSuccess("test", "/api")
-	cbs.RecordSuccess("test", "/api")
-	assert.Equal(t, gobreaker.StateClosed, cbs.State("test", "/api"))
-}
-
-func TestCircuitBreakers_PerEndpointIsolation(t *testing.T) {
-	t.Parallel()
-
-	cfg := CircuitBreakerConfig{
-		Enabled:          true,
-		FailureThreshold: 1,
-		Interval:         time.Minute,
-		Timeout:          time.Minute,
-		MaxRequests:      1,
-	}
-	cbs := NewCircuitBreakers(cfg, nil)
-
-	// Trip circuit for one endpoint
-	cbs.RecordFailure("openai", "/v1/chat/completions", http.StatusTooManyRequests)
-	assert.Equal(t, gobreaker.StateOpen, cbs.State("openai", "/v1/chat/completions"))
-
-	// Other endpoints should still be closed
-	assert.Equal(t, gobreaker.StateClosed, cbs.State("openai", "/v1/responses"))
-	assert.Equal(t, gobreaker.StateClosed, cbs.State("anthropic", "/v1/messages"))
-	assert.True(t, cbs.Allow("openai", "/v1/responses"))
-	assert.True(t, cbs.Allow("anthropic", "/v1/messages"))
-}
-
-func TestCircuitBreakers_OnlyCountsRelevantStatusCodes(t *testing.T) {
-	t.Parallel()
-
-	cfg := CircuitBreakerConfig{
-		Enabled:          true,
-		FailureThreshold: 2,
-		Interval:         time.Minute,
-		Timeout:          time.Minute,
-		MaxRequests:      2,
-	}
-	cbs := NewCircuitBreakers(cfg, nil)
-
-	// Non-circuit-breaker status codes should not count
-	cbs.RecordFailure("test", "/api", http.StatusBadRequest)          // 400
-	cbs.RecordFailure("test", "/api", http.StatusUnauthorized)        // 401
-	cbs.RecordFailure("test", "/api", http.StatusInternalServerError) // 500
-	cbs.RecordFailure("test", "/api", http.StatusBadGateway)          // 502
-	assert.Equal(t, gobreaker.StateClosed, cbs.State("test", "/api"))
-
-	// These should count
-	cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)    // 429
-	cbs.RecordFailure("test", "/api", http.StatusServiceUnavailable) // 503
-	assert.Equal(t, gobreaker.StateOpen, cbs.State("test", "/api"))
-}
-
-func TestCircuitBreakers_Anthropic529(t *testing.T) {
-	t.Parallel()
-
-	cfg := CircuitBreakerConfig{
-		Enabled:          true,
-		FailureThreshold: 1,
-		Interval:         time.Minute,
-		Timeout:          time.Minute,
-		MaxRequests:      1,
-	}
-	cbs := NewCircuitBreakers(cfg, nil)
-
-	// Anthropic-specific 529 "Overloaded" should trip the circuit
-	tripped := cbs.RecordFailure("anthropic", "/v1/messages", 529)
-	assert.True(t, tripped)
-	assert.Equal(t, gobreaker.StateOpen, cbs.State("anthropic", "/v1/messages"))
-}
-
-func TestCircuitBreakers_ConcurrentAccess(t *testing.T) {
-	t.Parallel()
-
-	cfg := CircuitBreakerConfig{
-		Enabled:          true,
-		FailureThreshold: 1000,
-		Interval:         time.Minute,
-		Timeout:          time.Minute,
-		MaxRequests:      10,
-	}
-	cbs := NewCircuitBreakers(cfg, nil)
-
-	var wg sync.WaitGroup
-	for i := 0; i < 50; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for j := 0; j < 100; j++ {
-				cbs.Allow("test", "/api")
-				cbs.RecordSuccess("test", "/api")
-				cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)
-				cbs.State("test", "/api")
-			}
-		}()
-	}
-	wg.Wait()
-	// Should not panic or deadlock
-}
-
-func TestCircuitBreakers_StateChangeCallback(t *testing.T) {
-	t.Parallel()
-
-	cfg := CircuitBreakerConfig{
-		Enabled:          true,
-		FailureThreshold: 2,
-		Interval:         time.Minute,
-		Timeout:          50 * time.Millisecond,
-		MaxRequests:      1,
-	}
-
-	var mu sync.Mutex
-	var transitions []struct{ from, to gobreaker.State }
-
-	cbs := NewCircuitBreakers(cfg, func(name string, from, to gobreaker.State) {
-		mu.Lock()
-		defer mu.Unlock()
-		transitions = append(transitions, struct{ from, to gobreaker.State }{from, to})
+	// Mock upstream that returns 429
+	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
 	})
 
-	// Trip the circuit
-	cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)
-	cbs.RecordFailure("test", "/api", http.StatusTooManyRequests)
+	// Create circuit breaker with low threshold
+	cbs := NewCircuitBreakers(map[string]CircuitBreakerConfig{
+		"test": {
+			FailureThreshold: 2,
+			Interval:         time.Minute,
+			Timeout:          50 * time.Millisecond,
+			MaxRequests:      1,
+		},
+	}, nil)
 
-	// Wait for cooldown and trigger half-open
+	// Wrap upstream with circuit breaker middleware
+	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// First 2 requests hit upstream, get 429
+	for i := 0; i < 2; i++ {
+		resp, err := http.Get(server.URL + "/test/v1/messages")
+		require.NoError(t, err)
+		resp.Body.Close()
+		assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+	}
+	assert.Equal(t, int32(2), upstreamCalls.Load())
+
+	// Third request should get 503 "circuit breaker is open" without hitting upstream
+	resp, err := http.Get(server.URL + "/test/v1/messages")
+	require.NoError(t, err)
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Contains(t, string(body), "circuit breaker is open")
+	assert.Equal(t, int32(2), upstreamCalls.Load()) // No new upstream call
+
+	// Wait for timeout, verify recovery
 	time.Sleep(60 * time.Millisecond)
-	cbs.Allow("test", "/api")
 
-	// Success to close
-	cbs.RecordSuccess("test", "/api")
-
-	// Wait for callbacks
-	time.Sleep(20 * time.Millisecond)
-
-	mu.Lock()
-	defer mu.Unlock()
-	require.Len(t, transitions, 3)
-	assert.Equal(t, gobreaker.StateClosed, transitions[0].from)
-	assert.Equal(t, gobreaker.StateOpen, transitions[0].to)
-	assert.Equal(t, gobreaker.StateOpen, transitions[1].from)
-	assert.Equal(t, gobreaker.StateHalfOpen, transitions[1].to)
-	assert.Equal(t, gobreaker.StateHalfOpen, transitions[2].from)
-	assert.Equal(t, gobreaker.StateClosed, transitions[2].to)
+	// Next request should hit upstream again (half-open state)
+	resp, err = http.Get(server.URL + "/test/v1/messages")
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, int32(3), upstreamCalls.Load())
 }
 
-func TestIsCircuitBreakerFailure(t *testing.T) {
+func TestCircuitBreakerMiddleware_PerEndpointIsolation(t *testing.T) {
+	t.Parallel()
+
+	chatCalls := atomic.Int32{}
+	responsesCalls := atomic.Int32{}
+
+	// Mock upstream - /chat returns 429, /responses returns 200
+	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/test/v1/chat/completions" {
+			chatCalls.Add(1)
+			w.WriteHeader(http.StatusTooManyRequests)
+		} else {
+			responsesCalls.Add(1)
+			w.WriteHeader(http.StatusOK)
+		}
+	})
+
+	cbs := NewCircuitBreakers(map[string]CircuitBreakerConfig{
+		"test": {
+			FailureThreshold: 1,
+			Interval:         time.Minute,
+			Timeout:          time.Minute,
+			MaxRequests:      1,
+		},
+	}, nil)
+
+	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Trip circuit on /chat/completions
+	resp, err := http.Get(server.URL + "/test/v1/chat/completions")
+	require.NoError(t, err)
+	resp.Body.Close()
+
+	// /chat/completions should now be blocked
+	resp, err = http.Get(server.URL + "/test/v1/chat/completions")
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	assert.Equal(t, int32(1), chatCalls.Load()) // Only 1 call, second was blocked
+
+	// /responses should still work
+	resp, err = http.Get(server.URL + "/test/v1/responses")
+	require.NoError(t, err)
+	resp.Body.Close()
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	assert.Equal(t, int32(1), responsesCalls.Load())
+}
+
+func TestCircuitBreakerMiddleware_NotConfigured(t *testing.T) {
+	t.Parallel()
+
+	var upstreamCalls atomic.Int32
+
+	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamCalls.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+	})
+
+	// No config for "test" provider
+	cbs := NewCircuitBreakers(nil, nil)
+
+	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// All requests should pass through even with 429s
+	for i := 0; i < 10; i++ {
+		resp, err := http.Get(server.URL + "/test/v1/messages")
+		require.NoError(t, err)
+		resp.Body.Close()
+		assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+	}
+	assert.Equal(t, int32(10), upstreamCalls.Load())
+}
+
+func TestCircuitBreakerMiddleware_RecoveryAfterSuccess(t *testing.T) {
+	t.Parallel()
+
+	var returnError atomic.Bool
+	returnError.Store(true)
+
+	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if returnError.Load() {
+			w.WriteHeader(http.StatusTooManyRequests)
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+	})
+
+	cbs := NewCircuitBreakers(map[string]CircuitBreakerConfig{
+		"test": {
+			FailureThreshold: 2,
+			Interval:         time.Minute,
+			Timeout:          50 * time.Millisecond,
+			MaxRequests:      1,
+		},
+	}, nil)
+
+	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// Trip the circuit
+	for i := 0; i < 2; i++ {
+		resp, _ := http.Get(server.URL + "/test/v1/messages")
+		resp.Body.Close()
+	}
+
+	// Circuit should be open
+	resp, _ := http.Get(server.URL + "/test/v1/messages")
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	resp.Body.Close()
+
+	// Wait for timeout, switch upstream to success
+	time.Sleep(60 * time.Millisecond)
+	returnError.Store(false)
+
+	// Half-open: one request allowed
+	resp, _ = http.Get(server.URL + "/test/v1/messages")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+
+	// Circuit should be closed now, more requests allowed
+	resp, _ = http.Get(server.URL + "/test/v1/messages")
+	assert.Equal(t, http.StatusOK, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestCircuitBreakerMiddleware_CustomIsFailure(t *testing.T) {
+	t.Parallel()
+
+	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway) // 502
+	})
+
+	// Custom IsFailure that treats 502 as failure
+	cbs := NewCircuitBreakers(map[string]CircuitBreakerConfig{
+		"test": {
+			FailureThreshold: 1,
+			Interval:         time.Minute,
+			Timeout:          time.Minute,
+			MaxRequests:      1,
+			IsFailure: func(statusCode int) bool {
+				return statusCode == http.StatusBadGateway
+			},
+		},
+	}, nil)
+
+	handler := CircuitBreakerMiddleware(cbs, nil, "test")(upstream)
+	server := httptest.NewServer(handler)
+	defer server.Close()
+
+	// First request returns 502, trips circuit
+	resp, _ := http.Get(server.URL + "/test/v1/messages")
+	resp.Body.Close()
+
+	// Second request should be blocked
+	resp, _ = http.Get(server.URL + "/test/v1/messages")
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+	resp.Body.Close()
+}
+
+func TestDefaultIsFailure(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -230,13 +243,20 @@ func TestIsCircuitBreakerFailure(t *testing.T) {
 		{http.StatusUnauthorized, false},
 		{http.StatusTooManyRequests, true}, // 429
 		{http.StatusInternalServerError, false},
+		{http.StatusBadGateway, false},
 		{http.StatusServiceUnavailable, true}, // 503
 		{529, true},                           // Anthropic Overloaded
 	}
 
 	for _, tt := range tests {
-		t.Run(http.StatusText(tt.statusCode), func(t *testing.T) {
-			assert.Equal(t, tt.isFailure, isCircuitBreakerFailure(tt.statusCode))
-		})
+		assert.Equal(t, tt.isFailure, DefaultIsFailure(tt.statusCode), "status code %d", tt.statusCode)
 	}
+}
+
+func TestStateToGaugeValue(t *testing.T) {
+	t.Parallel()
+
+	assert.Equal(t, float64(0), stateToGaugeValue(gobreaker.StateClosed))
+	assert.Equal(t, float64(0.5), stateToGaugeValue(gobreaker.StateHalfOpen))
+	assert.Equal(t, float64(1), stateToGaugeValue(gobreaker.StateOpen))
 }

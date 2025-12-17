@@ -54,12 +54,13 @@ var _ http.Handler = &RequestBridge{}
 //
 // mcpProxy will be closed when the [RequestBridge] is closed.
 func NewRequestBridge(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) (*RequestBridge, error) {
-	return NewRequestBridgeWithCircuitBreaker(ctx, providers, recorder, mcpProxy, logger, metrics, tracer, DefaultCircuitBreakerConfig())
+	return NewRequestBridgeWithCircuitBreaker(ctx, providers, recorder, mcpProxy, logger, metrics, tracer, nil)
 }
 
-// NewRequestBridgeWithCircuitBreaker creates a new *[RequestBridge] with custom circuit breaker configuration.
-// See [NewRequestBridge] for more details.
-func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer, cbConfig CircuitBreakerConfig) (*RequestBridge, error) {
+// NewRequestBridgeWithCircuitBreaker creates a new *[RequestBridge] with per-provider circuit breaker configuration.
+// The cbConfigs map is keyed by provider name. Providers not in the map will not have circuit breaker protection.
+// Pass nil to disable circuit breakers entirely.
+func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer, cbConfigs map[string]CircuitBreakerConfig) (*RequestBridge, error) {
 	mux := http.NewServeMux()
 
 	// Create circuit breakers with metrics callback
@@ -67,19 +68,21 @@ func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provide
 	if metrics != nil {
 		onChange = func(name string, from, to gobreaker.State) {
 			provider, endpoint, _ := strings.Cut(name, ":")
-			metrics.CircuitBreakerState.WithLabelValues(provider, endpoint).Set(float64(to))
+			metrics.CircuitBreakerState.WithLabelValues(provider, endpoint).Set(stateToGaugeValue(to))
 			if to == gobreaker.StateOpen {
 				metrics.CircuitBreakerTrips.WithLabelValues(provider, endpoint).Inc()
 			}
 		}
 	}
-	cbs := NewCircuitBreakers(cbConfig, onChange)
+	cbs := NewCircuitBreakers(cbConfigs, onChange)
 
 	for _, provider := range providers {
-
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range provider.BridgedRoutes() {
-			mux.HandleFunc(path, newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer, cbs))
+			handler := newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer)
+			// Wrap with circuit breaker middleware if configured for this provider
+			handler = CircuitBreakerMiddleware(cbs, metrics, provider.Name())(handler).ServeHTTP
+			mux.HandleFunc(path, handler)
 		}
 
 		// Any requests which passthrough to this will be reverse-proxied to the upstream.
