@@ -75,8 +75,8 @@ func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provide
 		for _, path := range provider.BridgedRoutes() {
 			handler := newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer)
 			// Wrap with circuit breaker middleware if configured for this provider
-			handler = CircuitBreakerMiddleware(cbs, metrics, provider.Name())(handler).ServeHTTP
-			mux.HandleFunc(path, handler)
+			wrapped := CircuitBreakerMiddleware(cbs, metrics, provider.Name())(handler)
+			mux.Handle(path, wrapped)
 		}
 
 		// Any requests which passthrough to this will be reverse-proxied to the upstream.
