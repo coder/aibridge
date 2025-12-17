@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -60,10 +59,9 @@ func NewRequestBridgeWithCircuitBreaker(ctx context.Context, providers []Provide
 	mux := http.NewServeMux()
 
 	// Create circuit breakers with metrics callback
-	var onChange func(name string, from, to gobreaker.State)
+	var onChange func(provider, endpoint string, from, to gobreaker.State)
 	if metrics != nil {
-		onChange = func(name string, from, to gobreaker.State) {
-			provider, endpoint, _ := strings.Cut(name, ":")
+		onChange = func(provider, endpoint string, from, to gobreaker.State) {
 			metrics.CircuitBreakerState.WithLabelValues(provider, endpoint).Set(stateToGaugeValue(to))
 			if to == gobreaker.StateOpen {
 				metrics.CircuitBreakerTrips.WithLabelValues(provider, endpoint).Inc()

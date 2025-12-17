@@ -91,17 +91,18 @@ func (g *gobreakerCircuitBreaker) Execute(fn func() int) (int, bool) {
 }
 
 // CircuitBreakers manages per-endpoint circuit breakers using sony/gobreaker.
-// Circuit breakers are keyed by "provider:endpoint" for per-endpoint isolation.
+// Organized as a per-provider map with endpoint keys.
 type CircuitBreakers struct {
-	breakers sync.Map // map[string]CircuitBreaker
+	// breakers is map[provider]*sync.Map where inner map is endpoint -> CircuitBreaker
+	breakers sync.Map
 	configs  map[string]CircuitBreakerConfig
-	onChange func(name string, from, to gobreaker.State)
+	onChange func(provider, endpoint string, from, to gobreaker.State)
 }
 
 // NewCircuitBreakers creates a new circuit breaker manager with per-provider configs.
 // The configs map is keyed by provider name. Providers not in the map will use
 // NoopCircuitBreaker (always allows requests).
-func NewCircuitBreakers(configs map[string]CircuitBreakerConfig, onChange func(name string, from, to gobreaker.State)) *CircuitBreakers {
+func NewCircuitBreakers(configs map[string]CircuitBreakerConfig, onChange func(provider, endpoint string, from, to gobreaker.State)) *CircuitBreakers {
 	return &CircuitBreakers{
 		configs:  configs,
 		onChange: onChange,
@@ -120,6 +121,12 @@ func (c *CircuitBreakers) getConfig(provider string) *CircuitBreakerConfig {
 	return &cfg
 }
 
+// getProviderBreakers returns the endpoint map for a provider, creating it if needed.
+func (c *CircuitBreakers) getProviderBreakers(provider string) *sync.Map {
+	v, _ := c.breakers.LoadOrStore(provider, &sync.Map{})
+	return v.(*sync.Map)
+}
+
 // Get returns the circuit breaker for a provider/endpoint.
 // Returns NoopCircuitBreaker if the provider is not configured.
 func (c *CircuitBreakers) Get(provider, endpoint string) CircuitBreaker {
@@ -128,8 +135,8 @@ func (c *CircuitBreakers) Get(provider, endpoint string) CircuitBreaker {
 		return NoopCircuitBreaker{}
 	}
 
-	key := provider + ":" + endpoint
-	if v, ok := c.breakers.Load(key); ok {
+	providerBreakers := c.getProviderBreakers(provider)
+	if v, ok := providerBreakers.Load(endpoint); ok {
 		return v.(CircuitBreaker)
 	}
 
@@ -139,16 +146,16 @@ func (c *CircuitBreakers) Get(provider, endpoint string) CircuitBreaker {
 	}
 
 	settings := gobreaker.Settings{
-		Name:        key,
+		Name:        provider + ":" + endpoint,
 		MaxRequests: cfg.MaxRequests,
 		Interval:    cfg.Interval,
 		Timeout:     cfg.Timeout,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
 			return counts.ConsecutiveFailures >= cfg.FailureThreshold
 		},
-		OnStateChange: func(name string, from, to gobreaker.State) {
+		OnStateChange: func(_ string, from, to gobreaker.State) {
 			if c.onChange != nil {
-				c.onChange(name, from, to)
+				c.onChange(provider, endpoint, from, to)
 			}
 		},
 	}
@@ -157,7 +164,7 @@ func (c *CircuitBreakers) Get(provider, endpoint string) CircuitBreaker {
 		cb:        gobreaker.NewCircuitBreaker[int](settings),
 		isFailure: isFailure,
 	}
-	actual, _ := c.breakers.LoadOrStore(key, cb)
+	actual, _ := providerBreakers.LoadOrStore(endpoint, cb)
 	return actual.(CircuitBreaker)
 }
 
