@@ -59,7 +59,7 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 		var cbs *ProviderCircuitBreakers
 		onChange := func(endpoint string, from, to gobreaker.State) {}
 
-		if cfg := provider.CircuitBreakerConfig(); cfg != nil  && metrics != nil {
+		if cfg := provider.CircuitBreakerConfig(); cfg != nil && metrics != nil {
 			providerName := provider.Name()
 			onChange = func(endpoint string, from, to gobreaker.State) {
 				metrics.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(stateToGaugeValue(to))
@@ -70,7 +70,7 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 		}
 
 		cbs = NewProviderCircuitBreakers(provider.Name(), *cfg, onChange)
-		
+
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range provider.BridgedRoutes() {
 			handler := newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer)
