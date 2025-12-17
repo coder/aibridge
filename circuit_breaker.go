@@ -52,118 +52,48 @@ func DefaultIsFailure(statusCode int) bool {
 	}
 }
 
-// CircuitBreaker defines the interface for circuit breaker implementations.
-type CircuitBreaker interface {
-	// Execute runs the given function if the circuit allows it.
-	// Returns (statusCode, rejected) where rejected is true if the circuit breaker blocked the request.
-	Execute(fn func() int) (statusCode int, rejected bool)
+// ProviderCircuitBreakers manages per-endpoint circuit breakers for a single provider.
+type ProviderCircuitBreakers struct {
+	provider string
+	config   CircuitBreakerConfig
+	breakers sync.Map // endpoint -> *gobreaker.CircuitBreaker[struct{}]
+	onChange func(endpoint string, from, to gobreaker.State)
 }
 
-// NoopCircuitBreaker is a circuit breaker that always allows requests through.
-// Used when circuit breaker is not configured for a provider.
-type NoopCircuitBreaker struct{}
-
-func (NoopCircuitBreaker) Execute(fn func() int) (int, bool) {
-	return fn(), false
-}
-
-// gobreakerCircuitBreaker wraps sony/gobreaker to implement CircuitBreaker.
-type gobreakerCircuitBreaker struct {
-	cb        *gobreaker.CircuitBreaker[int]
-	isFailure func(statusCode int) bool
-}
-
-func (g *gobreakerCircuitBreaker) Execute(fn func() int) (int, bool) {
-	statusCode, err := g.cb.Execute(func() (int, error) {
-		code := fn()
-		if g.isFailure(code) {
-			return code, fmt.Errorf("upstream error: %d", code)
-		}
-		return code, nil
-	})
-	if err != nil {
-		// Check if rejected by circuit breaker (open or half-open with too many requests)
-		if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
-			return 0, true
-		}
+// NewProviderCircuitBreakers creates circuit breakers for a single provider.
+func NewProviderCircuitBreakers(provider string, config CircuitBreakerConfig, onChange func(endpoint string, from, to gobreaker.State)) *ProviderCircuitBreakers {
+	if config.IsFailure == nil {
+		config.IsFailure = DefaultIsFailure
 	}
-	return statusCode, false
-}
-
-// CircuitBreakers manages per-endpoint circuit breakers using sony/gobreaker.
-// Organized as a per-provider map with endpoint keys.
-type CircuitBreakers struct {
-	// breakers is map[provider]*sync.Map where inner map is endpoint -> CircuitBreaker
-	breakers sync.Map
-	configs  map[string]CircuitBreakerConfig
-	onChange func(provider, endpoint string, from, to gobreaker.State)
-}
-
-// NewCircuitBreakers creates a new circuit breaker manager with per-provider configs.
-// The configs map is keyed by provider name. Providers not in the map will use
-// NoopCircuitBreaker (always allows requests).
-func NewCircuitBreakers(configs map[string]CircuitBreakerConfig, onChange func(provider, endpoint string, from, to gobreaker.State)) *CircuitBreakers {
-	return &CircuitBreakers{
-		configs:  configs,
+	return &ProviderCircuitBreakers{
+		provider: provider,
+		config:   config,
 		onChange: onChange,
 	}
 }
 
-// getConfig returns the config for a provider, or nil if not configured.
-func (c *CircuitBreakers) getConfig(provider string) *CircuitBreakerConfig {
-	if c.configs == nil {
-		return nil
-	}
-	cfg, ok := c.configs[provider]
-	if !ok {
-		return nil
-	}
-	return &cfg
-}
-
-// getProviderBreakers returns the endpoint map for a provider, creating it if needed.
-func (c *CircuitBreakers) getProviderBreakers(provider string) *sync.Map {
-	v, _ := c.breakers.LoadOrStore(provider, &sync.Map{})
-	return v.(*sync.Map)
-}
-
-// Get returns the circuit breaker for a provider/endpoint.
-// Returns NoopCircuitBreaker if the provider is not configured.
-func (c *CircuitBreakers) Get(provider, endpoint string) CircuitBreaker {
-	cfg := c.getConfig(provider)
-	if cfg == nil {
-		return NoopCircuitBreaker{}
-	}
-
-	providerBreakers := c.getProviderBreakers(provider)
-	if v, ok := providerBreakers.Load(endpoint); ok {
-		return v.(CircuitBreaker)
-	}
-
-	isFailure := cfg.IsFailure
-	if isFailure == nil {
-		isFailure = DefaultIsFailure
+// Get returns the circuit breaker for an endpoint, creating it if needed.
+func (p *ProviderCircuitBreakers) Get(endpoint string) *gobreaker.CircuitBreaker[struct{}] {
+	if v, ok := p.breakers.Load(endpoint); ok {
+		return v.(*gobreaker.CircuitBreaker[struct{}])
 	}
 
 	settings := gobreaker.Settings{
-		Name:        provider + ":" + endpoint,
-		MaxRequests: cfg.MaxRequests,
-		Interval:    cfg.Interval,
-		Timeout:     cfg.Timeout,
+		Name:        p.provider + ":" + endpoint,
+		MaxRequests: p.config.MaxRequests,
+		Interval:    p.config.Interval,
+		Timeout:     p.config.Timeout,
 		ReadyToTrip: func(counts gobreaker.Counts) bool {
-			return counts.ConsecutiveFailures >= cfg.FailureThreshold
+			return counts.ConsecutiveFailures >= p.config.FailureThreshold
 		},
 		OnStateChange: func(_ string, from, to gobreaker.State) {
-			c.onChange(provider, endpoint, from, to)
+			p.onChange(endpoint, from, to)
 		},
 	}
 
-	cb := &gobreakerCircuitBreaker{
-		cb:        gobreaker.NewCircuitBreaker[int](settings),
-		isFailure: isFailure,
-	}
-	actual, _ := providerBreakers.LoadOrStore(endpoint, cb)
-	return actual.(CircuitBreaker)
+	cb := gobreaker.NewCircuitBreaker[struct{}](settings)
+	actual, _ := p.breakers.LoadOrStore(endpoint, cb)
+	return actual.(*gobreaker.CircuitBreaker[struct{}])
 }
 
 // statusCapturingWriter wraps http.ResponseWriter to capture the status code.
@@ -203,22 +133,30 @@ func (w *statusCapturingWriter) Unwrap() http.ResponseWriter {
 
 // CircuitBreakerMiddleware returns middleware that wraps handlers with circuit breaker protection.
 // It captures the response status code to determine success/failure without provider-specific logic.
-// If the provider is not configured, uses NoopCircuitBreaker (always allows requests).
-func CircuitBreakerMiddleware(cbs *CircuitBreakers, metrics *Metrics, provider string) func(http.Handler) http.Handler {
+// If cbs is nil, requests pass through without circuit breaker protection.
+func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics, provider string) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
+		// No circuit breaker configured - pass through
+		if cbs == nil {
+			return next
+		}
+
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			endpoint := strings.TrimPrefix(r.URL.Path, "/"+provider)
-			cb := cbs.Get(provider, endpoint)
+			cb := cbs.Get(endpoint)
 
 			// Wrap response writer to capture status code
 			sw := &statusCapturingWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
-			_, rejected := cb.Execute(func() int {
+			_, err := cb.Execute(func() (struct{}, error) {
 				next.ServeHTTP(sw, r)
-				return sw.statusCode
+				if cbs.config.IsFailure(sw.statusCode) {
+					return struct{}{}, fmt.Errorf("upstream error: %d", sw.statusCode)
+				}
+				return struct{}{}, nil
 			})
 
-			if rejected {
+			if err != nil && (errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests)) {
 				if metrics != nil {
 					metrics.CircuitBreakerRejects.WithLabelValues(provider, endpoint).Inc()
 				}
