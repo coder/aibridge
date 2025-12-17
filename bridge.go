@@ -57,20 +57,27 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 	for _, provider := range providers {
 		// Create per-provider circuit breaker if configured
 		var cbs *ProviderCircuitBreakers
-		if cfg := provider.CircuitBreakerConfig(); cfg != nil {
-			onChange := func(endpoint string, from, to gobreaker.State) {}
-			if metrics != nil {
-				providerName := provider.Name()
-				onChange = func(endpoint string, from, to gobreaker.State) {
-					metrics.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(stateToGaugeValue(to))
-					if to == gobreaker.StateOpen {
-						metrics.CircuitBreakerTrips.WithLabelValues(providerName, endpoint).Inc()
-					}
+		onChange := func(endpoint string, from, to gobreaker.State) {}
+
+		if cfg := provider.CircuitBreakerConfig(); cfg != nil  && metrics != nil {
+			providerName := provider.Name()
+			onChange = func(endpoint string, from, to gobreaker.State) {
+				metrics.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(stateToGaugeValue(to))
+				if to == gobreaker.StateOpen {
+					metrics.CircuitBreakerTrips.WithLabelValues(providerName, endpoint).Inc()
 				}
 			}
-			cbs = NewProviderCircuitBreakers(provider.Name(), *cfg, onChange)
 		}
 
+		cbs = NewProviderCircuitBreakers(provider.Name(), *cfg, onChange)
+		
+		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
+		for _, path := range provider.BridgedRoutes() {
+			handler := newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer)
+			// Wrap with circuit breaker middleware (nil cbs passes through)
+			wrapped := CircuitBreakerMiddleware(cbs, metrics, provider.Name())(handler)
+			mux.Handle(path, wrapped)
+		}
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range provider.BridgedRoutes() {
 			handler := newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer)
