@@ -146,3 +146,53 @@ func TestStateToGaugeValue(t *testing.T) {
 	assert.Equal(t, float64(0.5), stateToGaugeValue(gobreaker.StateHalfOpen))
 	assert.Equal(t, float64(1), stateToGaugeValue(gobreaker.StateOpen))
 }
+
+func TestProviderCircuitBreakerConfig(t *testing.T) {
+	t.Parallel()
+
+	cfg := &CircuitBreakerConfig{
+		FailureThreshold: 5,
+		Interval:         2 * time.Minute,
+		Timeout:          30 * time.Second,
+		MaxRequests:      3,
+		IsFailure: func(code int) bool {
+			return code == 429
+		},
+	}
+
+	t.Run("AnthropicProvider", func(t *testing.T) {
+		t.Parallel()
+		provider := NewAnthropicProvider(AnthropicConfig{
+			CircuitBreaker: cfg,
+		}, nil)
+
+		got := provider.CircuitBreakerConfig()
+		require.NotNil(t, got)
+		assert.Equal(t, cfg.FailureThreshold, got.FailureThreshold)
+		assert.Equal(t, cfg.Interval, got.Interval)
+		assert.Equal(t, cfg.Timeout, got.Timeout)
+		assert.Equal(t, cfg.MaxRequests, got.MaxRequests)
+		assert.NotNil(t, got.IsFailure)
+	})
+
+	t.Run("OpenAIProvider", func(t *testing.T) {
+		t.Parallel()
+		provider := NewOpenAIProvider(OpenAIConfig{
+			CircuitBreaker: cfg,
+		})
+
+		got := provider.CircuitBreakerConfig()
+		require.NotNil(t, got)
+		assert.Equal(t, cfg.FailureThreshold, got.FailureThreshold)
+		assert.Equal(t, cfg.Interval, got.Interval)
+		assert.Equal(t, cfg.Timeout, got.Timeout)
+		assert.Equal(t, cfg.MaxRequests, got.MaxRequests)
+		assert.NotNil(t, got.IsFailure)
+	})
+
+	t.Run("NilConfig", func(t *testing.T) {
+		t.Parallel()
+		provider := NewAnthropicProvider(AnthropicConfig{}, nil)
+		assert.Nil(t, provider.CircuitBreakerConfig())
+	})
+}
