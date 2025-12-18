@@ -162,7 +162,7 @@ func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics) fu
 				return struct{}{}, nil
 			})
 
-			if err != nil && (errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests)) {
+			if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
 				if metrics != nil {
 					metrics.CircuitBreakerRejects.WithLabelValues(cbs.provider, endpoint).Inc()
 				}

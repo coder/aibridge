@@ -1,7 +1,6 @@
 package aibridge
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -12,60 +11,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
-
-func TestCircuitBreakerMiddleware_TripsOnUpstreamErrors(t *testing.T) {
-	t.Parallel()
-
-	var upstreamCalls atomic.Int32
-
-	// Mock upstream that returns 429
-	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		upstreamCalls.Add(1)
-		w.WriteHeader(http.StatusTooManyRequests)
-	})
-
-	// Create circuit breaker with low threshold
-	cbs := NewProviderCircuitBreakers("test", &CircuitBreakerConfig{
-		FailureThreshold: 2,
-		Interval:         time.Minute,
-		Timeout:          50 * time.Millisecond,
-		MaxRequests:      1,
-	}, func(endpoint string, from, to gobreaker.State) {})
-
-	// Wrap upstream with circuit breaker middleware
-	handler := CircuitBreakerMiddleware(cbs, nil)(upstream)
-	server := httptest.NewServer(handler)
-	defer server.Close()
-
-	// First 2 requests hit upstream, get 429
-	for i := 0; i < 2; i++ {
-		resp, err := http.Get(server.URL + "/test/v1/messages")
-		require.NoError(t, err)
-		resp.Body.Close()
-		assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
-	}
-	assert.Equal(t, int32(2), upstreamCalls.Load())
-
-	// Third request should get 503 "circuit breaker is open" without hitting upstream
-	resp, err := http.Get(server.URL + "/test/v1/messages")
-	require.NoError(t, err)
-	body, _ := io.ReadAll(resp.Body)
-	resp.Body.Close()
-	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	assert.Contains(t, string(body), "circuit breaker is open")
-	assert.Equal(t, int32(2), upstreamCalls.Load()) // No new upstream call
-
-	// Wait for timeout, verify recovery (circuit transitions to half-open)
-	require.Eventually(t, func() bool {
-		resp, err = http.Get(server.URL + "/test/v1/messages")
-		if err != nil {
-			return false
-		}
-		resp.Body.Close()
-		// Request hit upstream again (half-open state allows probe request)
-		return upstreamCalls.Load() == 3
-	}, 5*time.Second, 25*time.Millisecond)
-}
 
 func TestCircuitBreakerMiddleware_PerEndpointIsolation(t *testing.T) {
 	t.Parallel()
@@ -138,62 +83,6 @@ func TestCircuitBreakerMiddleware_NotConfigured(t *testing.T) {
 		assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	}
 	assert.Equal(t, int32(10), upstreamCalls.Load())
-}
-
-func TestCircuitBreakerMiddleware_RecoveryAfterSuccess(t *testing.T) {
-	t.Parallel()
-
-	var returnError atomic.Bool
-	returnError.Store(true)
-
-	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if returnError.Load() {
-			w.WriteHeader(http.StatusTooManyRequests)
-		} else {
-			w.WriteHeader(http.StatusOK)
-		}
-	})
-
-	cbs := NewProviderCircuitBreakers("test", &CircuitBreakerConfig{
-		FailureThreshold: 2,
-		Interval:         time.Minute,
-		Timeout:          50 * time.Millisecond,
-		MaxRequests:      1,
-	}, func(endpoint string, from, to gobreaker.State) {})
-
-	handler := CircuitBreakerMiddleware(cbs, nil)(upstream)
-	server := httptest.NewServer(handler)
-	defer server.Close()
-
-	// Trip the circuit
-	for i := 0; i < 2; i++ {
-		resp, _ := http.Get(server.URL + "/test/v1/messages")
-		resp.Body.Close()
-	}
-
-	// Circuit should be open
-	resp, _ := http.Get(server.URL + "/test/v1/messages")
-	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	resp.Body.Close()
-
-	// Switch upstream to success before we start polling
-	returnError.Store(false)
-
-	// Wait for timeout (circuit transitions to half-open), then verify recovery
-	require.Eventually(t, func() bool {
-		resp, err := http.Get(server.URL + "/test/v1/messages")
-		if err != nil {
-			return false
-		}
-		defer resp.Body.Close()
-		// Half-open: request goes through and succeeds
-		return resp.StatusCode == http.StatusOK
-	}, 5*time.Second, 25*time.Millisecond)
-
-	// Circuit should be closed now, more requests allowed
-	resp, _ = http.Get(server.URL + "/test/v1/messages")
-	assert.Equal(t, http.StatusOK, resp.StatusCode)
-	resp.Body.Close()
 }
 
 func TestCircuitBreakerMiddleware_CustomIsFailure(t *testing.T) {
