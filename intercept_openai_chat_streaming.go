@@ -137,7 +137,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 			// Marshal and relay chunk to client.
 			payload, err := i.marshalChunk(&chunk, i.ID(), processor)
 			if err != nil {
-				logger.Warn(ctx, "failed to marshal chunk", slog.Error(err), chunk.RawJSON())
+				logger.Warn(ctx, "failed to marshal chunk", slog.Error(err), slog.F("chunk", chunk.RawJSON()))
 				lastErr = fmt.Errorf("marshal chunk: %w", err)
 				break
 			}
