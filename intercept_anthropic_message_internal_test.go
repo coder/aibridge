@@ -11,6 +11,158 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestInjectTools_CacheBreakpoints(t *testing.T) {
+	t.Parallel()
+
+	t.Run("cache control preserved when no tools to inject", func(t *testing.T) {
+		t.Parallel()
+
+		// Request has existing tool with cache control, but no tools to inject.
+		i := &AnthropicMessagesInterceptionBase{
+			req: &MessageNewParamsWrapper{
+				MessageNewParams: anthropic.MessageNewParams{
+					Tools: []anthropic.ToolUnionParam{
+						{
+							OfTool: &anthropic.ToolParam{
+								Name: "existing_tool",
+								CacheControl: anthropic.CacheControlEphemeralParam{
+									Type: constant.ValueOf[constant.Ephemeral](),
+								},
+							},
+						},
+					},
+				},
+			},
+			mcpProxy: &mockServerProxier{tools: nil},
+		}
+
+		i.injectTools()
+
+		// Cache control should remain untouched since no tools were injected.
+		require.Len(t, i.req.Tools, 1)
+		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[0].OfTool.CacheControl.Type)
+	})
+
+	t.Run("cache control breakpoint is preserved and moved to final tool", func(t *testing.T) {
+		t.Parallel()
+
+		// Request has existing tool with cache control.
+		i := &AnthropicMessagesInterceptionBase{
+			req: &MessageNewParamsWrapper{
+				MessageNewParams: anthropic.MessageNewParams{
+					Tools: []anthropic.ToolUnionParam{
+						{
+							OfTool: &anthropic.ToolParam{
+								Name: "existing_tool",
+								CacheControl: anthropic.CacheControlEphemeralParam{
+									Type: constant.ValueOf[constant.Ephemeral](),
+								},
+							},
+						},
+					},
+				},
+			},
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{
+					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
+				},
+			},
+		}
+
+		i.injectTools()
+
+		require.Len(t, i.req.Tools, 2)
+		// Original tool's cache control should be cleared.
+		require.Equal(t, "existing_tool", i.req.Tools[0].OfTool.Name)
+		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
+		// Cache control breakpoint should be moved to the final tool.
+		require.Equal(t, "injected_tool", i.req.Tools[1].OfTool.Name)
+		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[1].OfTool.CacheControl.Type)
+	})
+
+	// Multiple breakpoints should not be set, but if they are we should only move the first one to the end.
+	t.Run("only first cache control breakpoint is moved when multiple exist", func(t *testing.T) {
+		t.Parallel()
+
+		// Request has multiple tools with cache control breakpoints.
+		i := &AnthropicMessagesInterceptionBase{
+			req: &MessageNewParamsWrapper{
+				MessageNewParams: anthropic.MessageNewParams{
+					Tools: []anthropic.ToolUnionParam{
+						{
+							OfTool: &anthropic.ToolParam{
+								Name: "tool_with_cache_1",
+								CacheControl: anthropic.CacheControlEphemeralParam{
+									Type: constant.ValueOf[constant.Ephemeral](),
+								},
+							},
+						},
+						{
+							OfTool: &anthropic.ToolParam{
+								Name: "tool_with_cache_2",
+								CacheControl: anthropic.CacheControlEphemeralParam{
+									Type: constant.ValueOf[constant.Ephemeral](),
+								},
+							},
+						},
+					},
+				},
+			},
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{
+					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
+				},
+			},
+		}
+
+		i.injectTools()
+
+		require.Len(t, i.req.Tools, 3)
+		// First tool's cache control should be cleared (it was captured).
+		require.Equal(t, "tool_with_cache_1", i.req.Tools[0].OfTool.Name)
+		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
+		// Second tool's cache control should remain (loop breaks after first match).
+		require.Equal(t, "tool_with_cache_2", i.req.Tools[1].OfTool.Name)
+		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[1].OfTool.CacheControl.Type)
+		// Only the first breakpoint is moved to the final tool.
+		require.Equal(t, "injected_tool", i.req.Tools[2].OfTool.Name)
+		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[2].OfTool.CacheControl.Type)
+	})
+
+	t.Run("no cache control added when none originally set", func(t *testing.T) {
+		t.Parallel()
+
+		// Request has tools but none with cache control.
+		i := &AnthropicMessagesInterceptionBase{
+			req: &MessageNewParamsWrapper{
+				MessageNewParams: anthropic.MessageNewParams{
+					Tools: []anthropic.ToolUnionParam{
+						{
+							OfTool: &anthropic.ToolParam{
+								Name: "existing_tool_no_cache",
+							},
+						},
+					},
+				},
+			},
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{
+					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
+				},
+			},
+		}
+
+		i.injectTools()
+
+		require.Len(t, i.req.Tools, 2)
+		// Neither tool should have cache control.
+		require.Equal(t, "existing_tool_no_cache", i.req.Tools[0].OfTool.Name)
+		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
+		require.Equal(t, "injected_tool", i.req.Tools[1].OfTool.Name)
+		require.Zero(t, i.req.Tools[1].OfTool.CacheControl)
+	})
+}
+
 func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Parallel()
 

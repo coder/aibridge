@@ -83,8 +83,27 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 
 	tools := i.mcpProxy.ListTools()
 	if len(tools) == 0 {
-		// No injected tools: no need to influence parallel tool calling.
+		// No injected tools: no need to affect cache breakpoints or influence parallel tool calling.
 		return
+	}
+
+	// Capture existing cache control breakpoint, if present.
+	var cache *anthropic.CacheControlEphemeralParam
+	for _, t := range i.req.Tools {
+		if t.OfTool == nil {
+			continue
+		}
+
+		if t.OfTool.CacheControl.Type != "" {
+			// Capture existing cache control breakpoint (copy values since we'll be clearing it in the next step).
+			cache = &anthropic.CacheControlEphemeralParam{
+				TTL:  t.OfTool.CacheControl.TTL,
+				Type: t.OfTool.CacheControl.Type,
+			}
+			// Reset it; we'll move this breakpoint to the final tool definition.
+			t.OfTool.CacheControl = anthropic.CacheControlEphemeralParam{}
+			break
+		}
 	}
 
 	// Inject tools.
@@ -100,6 +119,15 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 				Type:        anthropic.ToolTypeCustom,
 			},
 		})
+	}
+
+	// If there was a given cache control breakpoint, set it on the final tool as per the docs:
+	// https://platform.claude.com/docs/en/build-with-claude/prompt-caching#prompt-caching-examples (see "Caching tool definitions").
+	count := len(i.req.Tools)
+	if cache != nil && count > 0 {
+		if i.req.Tools[count-1].OfTool != nil {
+			i.req.Tools[count-1].OfTool.CacheControl = *cache
+		}
 	}
 
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
