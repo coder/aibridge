@@ -1,4 +1,4 @@
-package aibridge
+package provider
 
 import (
 	"encoding/json"
@@ -7,26 +7,26 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/intercept"
+	"github.com/coder/aibridge/intercept/chatcompletions"
 	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
-var _ Provider = &OpenAIProvider{}
+const routeChatCompletions = "/openai/v1/chat/completions" // https://platform.openai.com/docs/api-reference/chat
 
-// OpenAIProvider allows for interactions with the OpenAI API.
-type OpenAIProvider struct {
-	baseURL, key string
+// OpenAI allows for interactions with the OpenAI API.
+type OpenAI struct {
+	baseURL string
+	key     string
 }
 
-const (
-	ProviderOpenAI = "openai"
+var _ Provider = &OpenAI{}
 
-	routeChatCompletions = "/openai/v1/chat/completions" // https://platform.openai.com/docs/api-reference/chat
-)
-
-func NewOpenAIProvider(cfg OpenAIConfig) *OpenAIProvider {
+func NewOpenAI(cfg config.OpenAIConfig) *OpenAI {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1/"
 	}
@@ -35,17 +35,17 @@ func NewOpenAIProvider(cfg OpenAIConfig) *OpenAIProvider {
 		cfg.Key = os.Getenv("OPENAI_API_KEY")
 	}
 
-	return &OpenAIProvider{
+	return &OpenAI{
 		baseURL: cfg.BaseURL,
 		key:     cfg.Key,
 	}
 }
 
-func (p *OpenAIProvider) Name() string {
-	return ProviderOpenAI
+func (p *OpenAI) Name() string {
+	return config.ProviderOpenAI
 }
 
-func (p *OpenAIProvider) BridgedRoutes() []string {
+func (p *OpenAI) BridgedRoutes() []string {
 	return []string{routeChatCompletions}
 }
 
@@ -53,7 +53,7 @@ func (p *OpenAIProvider) BridgedRoutes() []string {
 // but must be passed through to the upstream.
 // The /v1/completions legacy API is deprecated and will not be passed through.
 // See https://platform.openai.com/docs/api-reference/completions.
-func (p *OpenAIProvider) PassthroughRoutes() []string {
+func (p *OpenAI) PassthroughRoutes() []string {
 	return []string{
 		"/v1/models",
 		"/v1/models/",   // See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux.
@@ -61,7 +61,7 @@ func (p *OpenAIProvider) PassthroughRoutes() []string {
 	}
 }
 
-func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ Interceptor, outErr error) {
+func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ intercept.Interceptor, outErr error) {
 	id := uuid.New()
 
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
@@ -74,16 +74,16 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 
 	switch r.URL.Path {
 	case routeChatCompletions:
-		var req ChatCompletionNewParamsWrapper
+		var req chatcompletions.ChatCompletionNewParamsWrapper
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 
-		var interceptor Interceptor
+		var interceptor intercept.Interceptor
 		if req.Stream {
-			interceptor = NewOpenAIStreamingChatInterception(id, &req, p.baseURL, p.key, tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.baseURL, p.key, tracer)
 		} else {
-			interceptor = NewOpenAIBlockingChatInterception(id, &req, p.baseURL, p.key, tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.baseURL, p.key, tracer)
 		}
 		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
@@ -93,15 +93,15 @@ func (p *OpenAIProvider) CreateInterceptor(w http.ResponseWriter, r *http.Reques
 	return nil, UnknownRoute
 }
 
-func (p *OpenAIProvider) BaseURL() string {
+func (p *OpenAI) BaseURL() string {
 	return p.baseURL
 }
 
-func (p *OpenAIProvider) AuthHeader() string {
+func (p *OpenAI) AuthHeader() string {
 	return "Authorization"
 }
 
-func (p *OpenAIProvider) InjectAuthHeader(headers *http.Header) {
+func (p *OpenAI) InjectAuthHeader(headers *http.Header) {
 	if headers == nil {
 		headers = &http.Header{}
 	}

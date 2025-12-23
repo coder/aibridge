@@ -1,4 +1,4 @@
-package aibridge
+package chatcompletions
 
 import (
 	"context"
@@ -8,7 +8,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v2"
@@ -19,14 +21,12 @@ import (
 	"cdr.dev/slog"
 )
 
-var _ Interceptor = &OpenAIBlockingChatInterception{}
-
-type OpenAIBlockingChatInterception struct {
-	OpenAIChatInterceptionBase
+type BlockingInterception struct {
+	InterceptionBase
 }
 
-func NewOpenAIBlockingChatInterception(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string, tracer trace.Tracer) *OpenAIBlockingChatInterception {
-	return &OpenAIBlockingChatInterception{OpenAIChatInterceptionBase: OpenAIChatInterceptionBase{
+func NewBlockingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string, tracer trace.Tracer) *BlockingInterception {
+	return &BlockingInterception{InterceptionBase: InterceptionBase{
 		id:      id,
 		req:     req,
 		baseURL: baseURL,
@@ -35,19 +35,19 @@ func NewOpenAIBlockingChatInterception(id uuid.UUID, req *ChatCompletionNewParam
 	}}
 }
 
-func (s *OpenAIBlockingChatInterception) Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) {
-	s.OpenAIChatInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+func (s *BlockingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	s.InterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
-func (s *OpenAIBlockingChatInterception) Streaming() bool {
+func (s *BlockingInterception) Streaming() bool {
 	return false
 }
 
-func (s *OpenAIBlockingChatInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.OpenAIChatInterceptionBase.baseTraceAttributes(r, false)
+func (s *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return s.InterceptionBase.BaseTraceAttributes(r, false)
 }
 
-func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
+func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
@@ -64,7 +64,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		err             error
 	)
 
-	i.injectTools()
+	i.InjectTools()
 
 	prompt, err := i.req.LastUserPrompt()
 	if err != nil {
@@ -82,7 +82,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		}
 
 		if prompt != nil {
-			_ = i.recorder.RecordPromptUsage(ctx, &PromptUsageRecord{
+			_ = i.recorder.RecordPromptUsage(ctx, &recorder.PromptUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          completion.ID,
 				Prompt:         *prompt,
@@ -91,12 +91,12 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 		}
 
 		lastUsage := completion.Usage
-		cumulativeUsage = sumUsage(cumulativeUsage, completion.Usage)
+		cumulativeUsage = SumUsage(cumulativeUsage, completion.Usage)
 
-		_ = i.recorder.RecordTokenUsage(ctx, &TokenUsageRecord{
+		_ = i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
 			InterceptionID: i.ID().String(),
 			MsgID:          completion.ID,
-			Input:          calculateActualInputTokenUsage(lastUsage),
+			Input:          CalculateActualInputTokenUsage(lastUsage),
 			Output:         lastUsage.CompletionTokens,
 			ExtraTokenTypes: map[string]int64{
 				"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,
@@ -115,11 +115,11 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 				if i.mcpProxy != nil && i.mcpProxy.GetTool(toolCall.Function.Name) != nil {
 					pendingToolCalls = append(pendingToolCalls, toolCall)
 				} else {
-					_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
+					_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 						InterceptionID: i.ID().String(),
 						MsgID:          completion.ID,
 						Tool:           toolCall.Function.Name,
-						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
+						Args:           i.UnmarshalArgs(toolCall.Function.Arguments),
 						Injected:       false,
 					})
 				}
@@ -150,9 +150,9 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 				appendedPrevMsg = true
 			}
 
-			args := i.unmarshalArgs(tc.Function.Arguments)
+			args := i.UnmarshalArgs(tc.Function.Arguments)
 			res, err := tool.Call(ctx, args, i.tracer)
-			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
+			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           completion.ID,
 				ServerURL:       &tool.ServerURL,
@@ -193,13 +193,13 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	}
 
 	if err != nil {
-		if isConnError(err) {
+		if eventstream.IsConnError(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return fmt.Errorf("upstream connection closed: %w", err)
 		}
 
-		if apiErr := getOpenAIErrorResponse(err); apiErr != nil {
-			i.writeUpstreamError(w, apiErr)
+		if apiErr := GetErrorResponse(err); apiErr != nil {
+			i.WriteUpstreamError(w, apiErr)
 			return fmt.Errorf("openai API error: %w", err)
 		}
 
@@ -222,7 +222,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	w.Header().Set("Content-Type", "application/json")
 	out, err := json.Marshal(completion)
 	if err != nil {
-		out, _ = json.Marshal(i.newErrorResponse(fmt.Errorf("failed to marshal response: %w", err)))
+		out, _ = json.Marshal(i.NewErrorResponse(fmt.Errorf("failed to marshal response: %w", err)))
 		w.WriteHeader(http.StatusInternalServerError)
 	} else {
 		w.WriteHeader(http.StatusOK)
@@ -233,7 +233,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	return nil
 }
 
-func (i *OpenAIBlockingChatInterception) newChatCompletion(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {
+func (i *BlockingInterception) newChatCompletion(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {
 	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer tracing.EndSpanErr(span, &outErr)
 
