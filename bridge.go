@@ -57,17 +57,22 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 	for _, provider := range providers {
 		// Create per-provider circuit breaker if configured
 		cfg := provider.CircuitBreakerConfig()
-		onChange := func(endpoint string, from, to gobreaker.State) {}
-
-		if cfg != nil && metrics != nil {
-			onChange = func(endpoint string, from, to gobreaker.State) {
-				metrics.CircuitBreakerState.WithLabelValues(provider.Name(), endpoint).Set(stateToGaugeValue(to))
+		providerName := provider.Name()
+		onChange := func(endpoint string, from, to gobreaker.State) {
+			logger.Info(context.Background(), "circuit breaker state change",
+				slog.F("provider", providerName),
+				slog.F("endpoint", endpoint),
+				slog.F("from", from.String()),
+				slog.F("to", to.String()),
+			)
+			if cfg != nil && metrics != nil {
+				metrics.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(stateToGaugeValue(to))
 				if to == gobreaker.StateOpen {
-					metrics.CircuitBreakerTrips.WithLabelValues(provider.Name(), endpoint).Inc()
+					metrics.CircuitBreakerTrips.WithLabelValues(providerName, endpoint).Inc()
 				}
 			}
 		}
-		cbs := NewProviderCircuitBreakers(provider.Name(), cfg, onChange)
+		cbs := NewProviderCircuitBreakers(providerName, cfg, onChange)
 
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range provider.BridgedRoutes() {

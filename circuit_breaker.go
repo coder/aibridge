@@ -166,7 +166,9 @@ func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics) fu
 				if metrics != nil {
 					metrics.CircuitBreakerRejects.WithLabelValues(cbs.provider, endpoint).Inc()
 				}
-				http.Error(w, "circuit breaker is open", http.StatusServiceUnavailable)
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte(`{"type":"error","error":{"type":"circuit_breaker_open","message":"circuit breaker is open"}}`))
 			}
 		})
 	}

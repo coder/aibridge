@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -44,8 +45,6 @@ func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.Server
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := tracer.Start(r.Context(), "Intercept")
 		defer span.End()
-
-		route := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", p.Name()))
 
 		interceptor, err := p.CreateInterceptor(w, r.WithContext(ctx), tracer)
 		if err != nil {
@@ -95,6 +94,8 @@ func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.Server
 			return
 		}
 
+		prefix, _ := url.JoinPath("/", p.Name())
+		route := strings.TrimPrefix(r.URL.Path, prefix)
 		log := logger.With(
 			slog.F("route", route),
 			slog.F("provider", p.Name()),
