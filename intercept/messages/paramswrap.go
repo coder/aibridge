@@ -1,4 +1,4 @@
-package aibridge
+package messages
 
 import (
 	"encoding/json"
@@ -146,56 +146,4 @@ func shouldConvertContentField(obj map[string]any) bool {
 	}
 
 	return false
-}
-
-// accumulateUsage accumulates usage statistics from source into dest.
-// It handles both [anthropic.Usage] and [anthropic.MessageDeltaUsage] types through [any].
-// The function uses reflection to handle the differences between the types:
-// - [anthropic.Usage] has CacheCreation field with ephemeral tokens
-// - [anthropic.MessageDeltaUsage] doesn't have CacheCreation field
-func accumulateUsage(dest, src any) {
-	switch d := dest.(type) {
-	case *anthropic.Usage:
-		if d == nil {
-			return
-		}
-		switch s := src.(type) {
-		case anthropic.Usage:
-			// Usage -> Usage
-			d.CacheCreation.Ephemeral1hInputTokens += s.CacheCreation.Ephemeral1hInputTokens
-			d.CacheCreation.Ephemeral5mInputTokens += s.CacheCreation.Ephemeral5mInputTokens
-			d.CacheCreationInputTokens += s.CacheCreationInputTokens
-			d.CacheReadInputTokens += s.CacheReadInputTokens
-			d.InputTokens += s.InputTokens
-			d.OutputTokens += s.OutputTokens
-			d.ServerToolUse.WebSearchRequests += s.ServerToolUse.WebSearchRequests
-		case anthropic.MessageDeltaUsage:
-			// MessageDeltaUsage -> Usage
-			d.CacheCreationInputTokens += s.CacheCreationInputTokens
-			d.CacheReadInputTokens += s.CacheReadInputTokens
-			d.InputTokens += s.InputTokens
-			d.OutputTokens += s.OutputTokens
-			d.ServerToolUse.WebSearchRequests += s.ServerToolUse.WebSearchRequests
-		}
-	case *anthropic.MessageDeltaUsage:
-		if d == nil {
-			return
-		}
-		switch s := src.(type) {
-		case anthropic.Usage:
-			// Usage -> MessageDeltaUsage (only common fields)
-			d.CacheCreationInputTokens += s.CacheCreationInputTokens
-			d.CacheReadInputTokens += s.CacheReadInputTokens
-			d.InputTokens += s.InputTokens
-			d.OutputTokens += s.OutputTokens
-			d.ServerToolUse.WebSearchRequests += s.ServerToolUse.WebSearchRequests
-		case anthropic.MessageDeltaUsage:
-			// MessageDeltaUsage -> MessageDeltaUsage
-			d.CacheCreationInputTokens += s.CacheCreationInputTokens
-			d.CacheReadInputTokens += s.CacheReadInputTokens
-			d.InputTokens += s.InputTokens
-			d.OutputTokens += s.OutputTokens
-			d.ServerToolUse.WebSearchRequests += s.ServerToolUse.WebSearchRequests
-		}
-	}
 }

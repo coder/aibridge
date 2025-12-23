@@ -12,7 +12,11 @@ import (
 	"cdr.dev/slog"
 	"cdr.dev/slog/sloggers/slogtest"
 	"github.com/coder/aibridge"
+	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/metrics"
+	"github.com/coder/aibridge/provider"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
@@ -29,11 +33,11 @@ func TestMetrics_Interception(t *testing.T) {
 	}{
 		{
 			fixture:        antSimple,
-			expectedStatus: aibridge.InterceptionCountStatusCompleted,
+			expectedStatus: metrics.InterceptionCountStatusCompleted,
 		},
 		{
 			fixture:        antNonStreamErr,
-			expectedStatus: aibridge.InterceptionCountStatusFailed,
+			expectedStatus: metrics.InterceptionCountStatusFailed,
 		},
 	}
 
@@ -48,7 +52,7 @@ func TestMetrics_Interception(t *testing.T) {
 		t.Cleanup(mockAPI.Close)
 
 		metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-		provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), nil)
+		provider := provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), nil)
 		srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
 		req := createAnthropicMessagesReq(t, srv.URL, files[fixtureRequest])
@@ -58,7 +62,7 @@ func TestMetrics_Interception(t *testing.T) {
 		_, _ = io.ReadAll(resp.Body)
 
 		count := promtest.ToFloat64(metrics.InterceptionCount.WithLabelValues(
-			aibridge.ProviderAnthropic, "claude-sonnet-4-0", tc.expectedStatus, "/v1/messages", "POST", userID))
+			config.ProviderAnthropic, "claude-sonnet-4-0", tc.expectedStatus, "/v1/messages", "POST", userID))
 		require.Equal(t, 1.0, count)
 		require.Equal(t, 1, promtest.CollectAndCount(metrics.InterceptionDuration))
 	}
@@ -89,7 +93,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := aibridge.NewAnthropicProvider(anthropicCfg(srv.URL, apiKey), nil)
+	provider := provider.NewAnthropic(anthropicCfg(srv.URL, apiKey), nil)
 	bridgeSrv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
 	// Make request in background.
@@ -107,7 +111,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	// Wait until request is detected as inflight.
 	require.Eventually(t, func() bool {
 		return promtest.ToFloat64(
-			metrics.InterceptionsInflight.WithLabelValues(aibridge.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
+			metrics.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 1
 	}, time.Second*10, time.Millisecond*50)
 
@@ -122,7 +126,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	// Metric is not updated immediately after request completes, so wait until it is.
 	require.Eventually(t, func() bool {
 		return promtest.ToFloat64(
-			metrics.InterceptionsInflight.WithLabelValues(aibridge.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
+			metrics.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 0
 	}, time.Second*10, time.Millisecond*50)
 }
@@ -141,7 +145,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))
+	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 	srv, _ := newTestSrv(t, t.Context(), provider, metrics, testTracer)
 
 	req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/openai/v1/models", nil)
@@ -153,7 +157,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	count := promtest.ToFloat64(metrics.PassthroughCount.WithLabelValues(
-		aibridge.ProviderOpenAI, "/v1/models", "GET"))
+		config.ProviderOpenAI, "/v1/models", "GET"))
 	require.Equal(t, 1.0, count)
 }
 
@@ -170,7 +174,7 @@ func TestMetrics_PromptCount(t *testing.T) {
 	t.Cleanup(mockAPI.Close)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
+	provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
 	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
 	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
@@ -181,7 +185,7 @@ func TestMetrics_PromptCount(t *testing.T) {
 	_, _ = io.ReadAll(resp.Body)
 
 	prompts := promtest.ToFloat64(metrics.PromptCount.WithLabelValues(
-		aibridge.ProviderOpenAI, "gpt-4.1", userID))
+		config.ProviderOpenAI, "gpt-4.1", userID))
 	require.Equal(t, 1.0, prompts)
 }
 
@@ -198,7 +202,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Cleanup(mockAPI.Close)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
+	provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
 	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
 	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
@@ -209,7 +213,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	_, _ = io.ReadAll(resp.Body)
 
 	count := promtest.ToFloat64(metrics.NonInjectedToolUseCount.WithLabelValues(
-		aibridge.ProviderOpenAI, "gpt-4.1", "read_file"))
+		config.ProviderOpenAI, "gpt-4.1", "read_file"))
 	require.Equal(t, 1.0, count)
 }
 
@@ -234,7 +238,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	recorder := &mockRecorderClient{}
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), nil)
+	provider := provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), nil)
 
 	// Setup mocked MCP server & tools.
 	mcpProxiers, _ := setupMCPServerProxiesForTest(t, testTracer)
@@ -246,7 +250,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 
 	srv := httptest.NewUnstartedServer(bridge)
 	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibridge.AsActor(ctx, userID, nil)
+		return aibcontext.AsActor(ctx, userID, nil)
 	}
 	srv.Start()
 	t.Cleanup(srv.Close)
@@ -269,11 +273,11 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	actualServerURL := *recorder.toolUsages[0].ServerURL
 
 	count := promtest.ToFloat64(metrics.InjectedToolUseCount.WithLabelValues(
-		aibridge.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName))
+		config.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName))
 	require.Equal(t, 1.0, count)
 }
 
-func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, metrics *aibridge.Metrics, tracer trace.Tracer) (*httptest.Server, *mockRecorderClient) {
+func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, metrics *metrics.Metrics, tracer trace.Tracer) (*httptest.Server, *mockRecorderClient) {
 	t.Helper()
 
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
@@ -288,7 +292,7 @@ func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, m
 
 	srv := httptest.NewUnstartedServer(bridge)
 	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibridge.AsActor(ctx, userID, nil)
+		return aibcontext.AsActor(ctx, userID, nil)
 	}
 	srv.Start()
 	t.Cleanup(srv.Close)
