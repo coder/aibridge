@@ -82,48 +82,51 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 	}
 
 	tools := i.mcpProxy.ListTools()
-	if len(tools) > 0 {
-		// Capture existing cache control breakpoint, if preset.
-		var cache *anthropic.CacheControlEphemeralParam
-		for _, t := range i.req.Tools {
-			if t.OfTool == nil {
-				continue
-			}
+	if len(tools) == 0 {
+		// No injected tools: no need to affect cache breakpoints or influence parallel tool calling.
+		return
+	}
 
-			if t.OfTool.CacheControl.Type != "" {
-				// Capture existing cache control breakpoint (copy values since we'll be clearing it in the next step).
-				cache = &anthropic.CacheControlEphemeralParam{
-					TTL:  t.OfTool.CacheControl.TTL,
-					Type: t.OfTool.CacheControl.Type,
-				}
-				// Reset it; we'll move this breakpoint to the final tool definition.
-				t.OfTool.CacheControl = anthropic.CacheControlEphemeralParam{}
-				break
-			}
+	// Capture existing cache control breakpoint, if preset.
+	var cache *anthropic.CacheControlEphemeralParam
+	for _, t := range i.req.Tools {
+		if t.OfTool == nil {
+			continue
 		}
 
-		// Inject tools.
-		for _, tool := range tools {
-			i.req.Tools = append(i.req.Tools, anthropic.ToolUnionParam{
-				OfTool: &anthropic.ToolParam{
-					InputSchema: anthropic.ToolInputSchemaParam{
-						Properties: tool.Params,
-						Required:   tool.Required,
-					},
-					Name:        tool.ID,
-					Description: anthropic.String(tool.Description),
-					Type:        anthropic.ToolTypeCustom,
+		if t.OfTool.CacheControl.Type != "" {
+			// Capture existing cache control breakpoint (copy values since we'll be clearing it in the next step).
+			cache = &anthropic.CacheControlEphemeralParam{
+				TTL:  t.OfTool.CacheControl.TTL,
+				Type: t.OfTool.CacheControl.Type,
+			}
+			// Reset it; we'll move this breakpoint to the final tool definition.
+			t.OfTool.CacheControl = anthropic.CacheControlEphemeralParam{}
+			break
+		}
+	}
+
+	// Inject tools.
+	for _, tool := range tools {
+		i.req.Tools = append(i.req.Tools, anthropic.ToolUnionParam{
+			OfTool: &anthropic.ToolParam{
+				InputSchema: anthropic.ToolInputSchemaParam{
+					Properties: tool.Params,
+					Required:   tool.Required,
 				},
-			})
-		}
+				Name:        tool.ID,
+				Description: anthropic.String(tool.Description),
+				Type:        anthropic.ToolTypeCustom,
+			},
+		})
+	}
 
-		// If there was a given cache control breakpoint, set it on the final tool as per the docs:
-		// https://platform.claude.com/docs/en/build-with-claude/prompt-caching#prompt-caching-examples (see "Caching tool definitions").
-		count := len(i.req.Tools)
-		if cache != nil && count > 0 {
-			if i.req.Tools[count-1].OfTool != nil {
-				i.req.Tools[count-1].OfTool.CacheControl = *cache
-			}
+	// If there was a given cache control breakpoint, set it on the final tool as per the docs:
+	// https://platform.claude.com/docs/en/build-with-claude/prompt-caching#prompt-caching-examples (see "Caching tool definitions").
+	count := len(i.req.Tools)
+	if cache != nil && count > 0 {
+		if i.req.Tools[count-1].OfTool != nil {
+			i.req.Tools[count-1].OfTool.CacheControl = *cache
 		}
 	}
 

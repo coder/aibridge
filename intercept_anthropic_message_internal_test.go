@@ -166,6 +166,29 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Parallel()
 
+	t.Run("does not modify tool choice when no tools to inject", func(t *testing.T) {
+		t.Parallel()
+
+		i := &AnthropicMessagesInterceptionBase{
+			req: &MessageNewParamsWrapper{
+				MessageNewParams: anthropic.MessageNewParams{
+					ToolChoice: anthropic.ToolChoiceUnionParam{
+						OfAuto: &anthropic.ToolChoiceAutoParam{
+							Type: constant.ValueOf[constant.Auto](),
+						},
+					},
+				},
+			},
+			mcpProxy: &mockServerProxier{tools: nil}, // No tools to inject.
+		}
+
+		i.injectTools()
+
+		// Tool choice should remain unchanged - DisableParallelToolUse should not be set.
+		require.NotNil(t, i.req.ToolChoice.OfAuto)
+		require.False(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Valid())
+	})
+
 	t.Run("disables parallel tool use for auto tool choice (default)", func(t *testing.T) {
 		t.Parallel()
 

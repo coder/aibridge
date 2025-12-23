@@ -1369,7 +1369,8 @@ func TestStableRequestEncoding(t *testing.T) {
 }
 
 // TestAnthropicToolChoiceParallelDisabled verifies that parallel tool use is
-// correctly disabled based on the tool_choice parameter in the request.
+// correctly disabled based on the tool_choice parameter in the request, but
+// only when MCP tools are injected.
 // See https://github.com/coder/aibridge/issues/2
 func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 	t.Parallel()
@@ -1384,38 +1385,60 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 	cases := []struct {
 		name                          string
 		toolChoice                    any // nil, or map with "type" key.
+		withInjectedTools             bool
 		expectDisableParallel         bool
 		expectToolChoiceTypeInRequest string
 	}{
+		// With injected tools - disable_parallel_tool_use should be set.
 		{
-			name:                          "no tool_choice defined defaults to auto",
+			name:                          "with injected tools: no tool_choice defined defaults to auto",
 			toolChoice:                    nil,
+			withInjectedTools:             true,
 			expectDisableParallel:         true,
 			expectToolChoiceTypeInRequest: toolChoiceAuto,
 		},
 		{
-			name:                          "tool_choice auto",
+			name:                          "with injected tools: tool_choice auto",
 			toolChoice:                    map[string]any{"type": toolChoiceAuto},
+			withInjectedTools:             true,
 			expectDisableParallel:         true,
 			expectToolChoiceTypeInRequest: toolChoiceAuto,
 		},
 		{
-			name:                          "tool_choice any",
+			name:                          "with injected tools: tool_choice any",
 			toolChoice:                    map[string]any{"type": toolChoiceAny},
+			withInjectedTools:             true,
 			expectDisableParallel:         true,
 			expectToolChoiceTypeInRequest: toolChoiceAny,
 		},
 		{
-			name:                          "tool_choice tool",
+			name:                          "with injected tools: tool_choice tool",
 			toolChoice:                    map[string]any{"type": toolChoiceTool, "name": "some_tool"},
+			withInjectedTools:             true,
 			expectDisableParallel:         true,
 			expectToolChoiceTypeInRequest: toolChoiceTool,
 		},
 		{
-			name:                          "tool_choice none",
+			name:                          "with injected tools: tool_choice none",
 			toolChoice:                    map[string]any{"type": toolChoiceNone},
+			withInjectedTools:             true,
 			expectDisableParallel:         false,
 			expectToolChoiceTypeInRequest: toolChoiceNone,
+		},
+		// Without injected tools - disable_parallel_tool_use should NOT be set.
+		{
+			name:                          "without injected tools: tool_choice auto",
+			toolChoice:                    map[string]any{"type": toolChoiceAuto},
+			withInjectedTools:             false,
+			expectDisableParallel:         false,
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		{
+			name:                          "without injected tools: tool_choice any",
+			toolChoice:                    map[string]any{"type": toolChoiceAny},
+			withInjectedTools:             false,
+			expectDisableParallel:         false,
+			expectToolChoiceTypeInRequest: toolChoiceAny,
 		},
 	}
 
@@ -1426,8 +1449,14 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			// Configure the bridge.
-			mcpMgr := mcp.NewServerProxyManager(nil, testTracer)
+			// Setup MCP tools conditionally.
+			var mcpMgr *mcp.ServerProxyManager
+			if tc.withInjectedTools {
+				mcpProxiers, _ := setupMCPServerProxiesForTest(t, testTracer)
+				mcpMgr = mcp.NewServerProxyManager(mcpProxiers, testTracer)
+			} else {
+				mcpMgr = mcp.NewServerProxyManager(nil, testTracer)
+			}
 			require.NoError(t, mcpMgr.Init(ctx))
 
 			arc := txtar.Parse(antSimple)
