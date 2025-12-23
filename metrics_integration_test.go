@@ -12,12 +12,11 @@ import (
 	"cdr.dev/slog"
 	"cdr.dev/slog/sloggers/slogtest"
 	"github.com/coder/aibridge"
-	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/testutil"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
-	"golang.org/x/tools/txtar"
 )
 
 func TestMetrics_Interception(t *testing.T) {
@@ -38,21 +37,20 @@ func TestMetrics_Interception(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		arc := txtar.Parse(tc.fixture)
-		files := filesMap(arc)
+		fixture := testutil.MustParseTXTAR(t, tc.fixture)
+		llm := testutil.MustLLMFixture(t, fixture)
 
-		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 		t.Cleanup(cancel)
 
-		mockAPI := newMockServer(ctx, t, files, nil)
-		t.Cleanup(mockAPI.Close)
+		upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
 		metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-		provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), nil)
-		srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
+		provider := aibridge.NewAnthropicProvider(anthropicCfg(upstream.URL, apiKey), nil)
+		bridgeSrv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
-		req := createAnthropicMessagesReq(t, srv.URL, files[fixtureRequest])
-		resp, err := http.DefaultClient.Do(req)
+		req := bridgeSrv.NewProviderRequest(t, provider.Name(), fixture.MustFile(t, testutil.FixtureRequest))
+		resp, err := bridgeSrv.Client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 		_, _ = io.ReadAll(resp.Body)
@@ -67,20 +65,20 @@ func TestMetrics_Interception(t *testing.T) {
 func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(antSimple)
-	files := filesMap(arc)
+	fixture := testutil.MustParseTXTAR(t, antSimple)
+	llm := testutil.MustLLMFixture(t, fixture)
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
+
+	upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
 	blockCh := make(chan struct{})
 
 	// Setup a mock HTTP server which blocks until the request is marked as inflight then proceeds.
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-blockCh
-		mock := newMockServer(ctx, t, files, nil)
-		defer mock.Close()
-		mock.Server.Config.Handler.ServeHTTP(w, r)
+		upstream.Config.Handler.ServeHTTP(w, r)
 	}))
 	srv.Config.BaseContext = func(_ net.Listener) context.Context {
 		return ctx
@@ -92,12 +90,13 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	provider := aibridge.NewAnthropicProvider(anthropicCfg(srv.URL, apiKey), nil)
 	bridgeSrv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
+	req := bridgeSrv.NewProviderRequest(t, provider.Name(), fixture.MustFile(t, testutil.FixtureRequest))
+
 	// Make request in background.
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		req := createAnthropicMessagesReq(t, bridgeSrv.URL, files[fixtureRequest])
-		resp, err := http.DefaultClient.Do(req)
+		resp, err := bridgeSrv.Client.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
 			_, _ = io.ReadAll(resp.Body)
@@ -109,7 +108,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 		return promtest.ToFloat64(
 			metrics.InterceptionsInflight.WithLabelValues(aibridge.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 1
-	}, time.Second*10, time.Millisecond*50)
+	}, 10*time.Second, 50*time.Millisecond)
 
 	// Unblock request, await completion.
 	close(blockCh)
@@ -124,30 +123,30 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 		return promtest.ToFloat64(
 			metrics.InterceptionsInflight.WithLabelValues(aibridge.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 0
-	}, time.Second*10, time.Millisecond*50)
+	}, 10*time.Second, 50*time.Millisecond)
 }
 
 func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiFallthrough)
-	files := filesMap(arc)
+	fixture := testutil.MustParseTXTAR(t, oaiFallthrough)
+	respBody := fixture.MustFile(t, testutil.FixtureResponse)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(files[fixtureResponse])
+		_, _ = w.Write(respBody)
 	}))
 	t.Cleanup(upstream.Close)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))
-	srv, _ := newTestSrv(t, t.Context(), provider, metrics, testTracer)
+	bridgeSrv, _ := newTestSrv(t, t.Context(), provider, metrics, testTracer)
 
-	req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/openai/v1/models", nil)
+	req, err := http.NewRequestWithContext(t.Context(), "GET", bridgeSrv.URL+"/openai/v1/models", nil)
 	require.NoError(t, err)
 
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := bridgeSrv.Client.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -160,21 +159,20 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 func TestMetrics_PromptCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiSimple)
-	files := filesMap(arc)
+	fixture := testutil.MustParseTXTAR(t, oaiSimple)
+	llm := testutil.MustLLMFixture(t, fixture)
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	mockAPI := newMockServer(ctx, t, files, nil)
-	t.Cleanup(mockAPI.Close)
+	upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
-	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
+	provider := aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))
+	bridgeSrv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
-	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
-	resp, err := http.DefaultClient.Do(req)
+	req := bridgeSrv.NewProviderRequest(t, provider.Name(), fixture.MustFile(t, testutil.FixtureRequest))
+	resp, err := bridgeSrv.Client.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	defer resp.Body.Close()
@@ -188,21 +186,20 @@ func TestMetrics_PromptCount(t *testing.T) {
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiSingleBuiltinTool)
-	files := filesMap(arc)
+	fixture := testutil.MustParseTXTAR(t, oaiSingleBuiltinTool)
+	llm := testutil.MustLLMFixture(t, fixture)
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 	t.Cleanup(cancel)
 
-	mockAPI := newMockServer(ctx, t, files, nil)
-	t.Cleanup(mockAPI.Close)
+	upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
-	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
+	provider := aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))
+	bridgeSrv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
-	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
-	resp, err := http.DefaultClient.Do(req)
+	req := bridgeSrv.NewProviderRequest(t, provider.Name(), fixture.MustFile(t, testutil.FixtureRequest))
+	resp, err := bridgeSrv.Client.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	defer resp.Body.Close()
@@ -216,82 +213,75 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(antSingleInjectedTool)
-	files := filesMap(arc)
+	fixture := testutil.MustParseTXTAR(t, antSingleInjectedTool)
+	llm := testutil.MustLLMFixture(t, fixture)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
-	// First request returns the tool invocation, the second returns the mocked response to the tool result.
-	mockAPI := newMockServer(ctx, t, files, func(reqCount uint32, resp []byte) []byte {
-		if reqCount == 1 {
-			return resp
-		}
-		return files[fixtureNonStreamingToolResponse]
-	})
-	t.Cleanup(mockAPI.Close)
+	upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
-	recorder := &mockRecorderClient{}
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), nil)
+	provider := aibridge.NewAnthropicProvider(anthropicCfg(upstream.URL, apiKey), nil)
 
 	// Setup mocked MCP server & tools.
-	mcpProxiers, _ := setupMCPServerProxiesForTest(t, testTracer)
-	mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
-	require.NoError(t, mcpMgr.Init(ctx))
+	mcpSrv := testutil.NewMCPServer(t, testutil.DefaultCoderToolNames())
+	mcpProxiers := mcpSrv.Proxiers(t, "coder", logger, testTracer)
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mcpMgr, logger, metrics, testTracer)
-	require.NoError(t, err)
+	recorder := &testutil.RecorderSpy{}
+	bridge := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+		Ctx:         ctx,
+		ActorID:     userID,
+		Providers:   []aibridge.Provider{provider},
+		Recorder:    recorder,
+		MCPProxiers: mcpProxiers,
+		Logger:      logger,
+		Metrics:     metrics,
+		Tracer:      testTracer,
+	})
 
-	srv := httptest.NewUnstartedServer(bridge)
-	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibridge.AsActor(ctx, userID, nil)
-	}
-	srv.Start()
-	t.Cleanup(srv.Close)
-
-	req := createAnthropicMessagesReq(t, srv.URL, files[fixtureRequest])
-	resp, err := http.DefaultClient.Do(req)
+	reqBody := fixture.MustFile(t, testutil.FixtureRequest)
+	req := bridge.NewProviderRequest(t, aibridge.ProviderAnthropic, reqBody)
+	resp, err := bridge.Client.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
 
 	// Wait until full roundtrip has completed.
-	require.Eventually(t, func() bool {
-		return mockAPI.callCount.Load() == 2
-	}, time.Second*10, time.Millisecond*50)
+	upstream.RequireCallCountEventually(t, 2)
 
-	require.Len(t, recorder.toolUsages, 1)
-	require.True(t, recorder.toolUsages[0].Injected)
-	require.NotNil(t, recorder.toolUsages[0].ServerURL)
-	actualServerURL := *recorder.toolUsages[0].ServerURL
+	toolUsages := recorder.RecordedToolUsages()
+	require.Len(t, toolUsages, 1)
+	require.True(t, toolUsages[0].Injected)
+	require.NotNil(t, toolUsages[0].ServerURL)
+	actualServerURL := *toolUsages[0].ServerURL
 
 	count := promtest.ToFloat64(metrics.InjectedToolUseCount.WithLabelValues(
-		aibridge.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName))
+		aibridge.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, testutil.ToolCoderListWorkspaces))
 	require.Equal(t, 1.0, count)
 }
 
-func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, metrics *aibridge.Metrics, tracer trace.Tracer) (*httptest.Server, *mockRecorderClient) {
+func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, metrics *aibridge.Metrics, tracer trace.Tracer) (*testutil.BridgeServer, *testutil.RecorderSpy) {
 	t.Helper()
 
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-	mockRecorder := &mockRecorderClient{}
+	spy := &testutil.RecorderSpy{}
 	clientFn := func() (aibridge.Recorder, error) {
-		return mockRecorder, nil
+		return spy, nil
 	}
 	wrappedRecorder := aibridge.NewRecorder(logger, tracer, clientFn)
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, mcp.NewServerProxyManager(nil, testTracer), logger, metrics, tracer)
-	require.NoError(t, err)
+	bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+		Ctx:       ctx,
+		ActorID:   userID,
+		Providers: []aibridge.Provider{provider},
+		Recorder:  wrappedRecorder,
+		Logger:    logger,
+		Metrics:   metrics,
+		Tracer:    tracer,
+	})
 
-	srv := httptest.NewUnstartedServer(bridge)
-	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibridge.AsActor(ctx, userID, nil)
-	}
-	srv.Start()
-	t.Cleanup(srv.Close)
-
-	return srv, mockRecorder
+	return bridgeSrv, spy
 }

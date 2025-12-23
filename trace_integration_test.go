@@ -3,6 +3,7 @@ package aibridge_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -14,6 +15,7 @@ import (
 	"cdr.dev/slog/sloggers/slogtest"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/testutil"
 	"github.com/coder/aibridge/tracing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,7 +24,6 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"golang.org/x/tools/txtar"
 )
 
 // expect 'count' amount of traces named 'name' with status 'status'
@@ -85,18 +86,13 @@ func TestTraceAnthropic(t *testing.T) {
 		},
 	}
 
-	arc := txtar.Parse(antSingleBuiltinTool)
-
-	files := filesMap(arc)
-	require.Contains(t, files, fixtureRequest)
-	require.Contains(t, files, fixtureStreamingResponse)
-	require.Contains(t, files, fixtureNonStreamingResponse)
-
-	fixtureReqBody := files[fixtureRequest]
+	fixture := testutil.MustParseTXTAR(t, antSingleBuiltinTool)
+	fixture.RequireFiles(t, testutil.FixtureRequest, testutil.FixtureStreamingResponse, testutil.FixtureNonStreamingResponse)
+	llm := testutil.MustLLMFixture(t, fixture)
 
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), tc.streaming), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			t.Cleanup(cancel)
 
 			sr := tracetest.NewSpanRecorder()
@@ -104,29 +100,28 @@ func TestTraceAnthropic(t *testing.T) {
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
-			require.NoError(t, err)
+			reqBody := llm.MustRequestBody(t, tc.streaming)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
-			t.Cleanup(mockAPI.Close)
+			upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
 			var bedrockCfg *aibridge.AWSBedrockConfig
 			if tc.bedrock {
-				bedrockCfg = testBedrockCfg(mockAPI.URL)
+				bedrockCfg = testBedrockCfg(upstream.URL)
 			}
-			provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
+			provider := aibridge.NewAnthropicProvider(anthropicCfg(upstream.URL, apiKey), bedrockCfg)
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
-			req := createAnthropicMessagesReq(t, srv.URL, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
+			req := srv.NewProviderRequest(t, provider.Name(), reqBody)
+			resp, err := srv.Client.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			defer resp.Body.Close()
-			srv.Close()
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
 
-			require.Equal(t, 1, len(recorder.interceptions))
-			intcID := recorder.interceptions[0].ID
+			interceptions := recorder.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			intcID := interceptions[0].ID
 
 			model := gjson.Get(string(reqBody), "model").Str
 			if tc.bedrock {
@@ -205,58 +200,48 @@ func TestTraceAnthropicErr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			t.Cleanup(cancel)
 
-			var arc *txtar.Archive
+			fixtureBytes := antNonStreamErr
 			if tc.streaming {
-				arc = txtar.Parse(antMidStreamErr)
-			} else {
-				arc = txtar.Parse(antNonStreamErr)
+				fixtureBytes = antMidStreamErr
 			}
 
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureRequest)
-			if tc.streaming {
-				require.Contains(t, files, fixtureStreamingResponse)
-			} else {
-				require.Contains(t, files, fixtureNonStreamingResponse)
-			}
-
-			fixtureReqBody := files[fixtureRequest]
+			fixture := testutil.MustParseTXTAR(t, fixtureBytes)
+			llm := testutil.MustLLMFixture(t, fixture)
 
 			sr := tracetest.NewSpanRecorder()
 			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
-			require.NoError(t, err)
+			reqBody := llm.MustRequestBody(t, tc.streaming)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
-			t.Cleanup(mockAPI.Close)
+			upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
 			var bedrockCfg *aibridge.AWSBedrockConfig
 			if tc.bedrock {
-				bedrockCfg = testBedrockCfg(mockAPI.URL)
+				bedrockCfg = testBedrockCfg(upstream.URL)
 			}
-			provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
+			provider := aibridge.NewAnthropicProvider(anthropicCfg(upstream.URL, apiKey), bedrockCfg)
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
-			req := createAnthropicMessagesReq(t, srv.URL, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
+			req := srv.NewProviderRequest(t, provider.Name(), reqBody)
+			resp, err := srv.Client.Do(req)
 			require.NoError(t, err)
 			if tc.streaming {
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 			} else {
 				require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 			}
-			defer resp.Body.Close()
-			srv.Close()
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
 
-			require.Equal(t, 1, len(recorder.interceptions))
-			intcID := recorder.interceptions[0].ID
+			interceptions := recorder.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			intcID := interceptions[0].ID
 
 			totalCount := 0
 			for _, e := range tc.expect {
@@ -326,44 +311,32 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+			h := runInjectedToolTest(t, aibridge.ProviderAnthropic, antSingleInjectedTool, tc.streaming, tracer, func(upstreamURL string) []aibridge.Provider {
 				var bedrockCfg *aibridge.AWSBedrockConfig
 				if tc.bedrock {
-					bedrockCfg = testBedrockCfg(addr)
+					bedrockCfg = testBedrockCfg(upstreamURL)
 				}
-				providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), bedrockCfg)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, tracer)
-			}
+				return []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(upstreamURL, apiKey), bedrockCfg)}
+			})
 
-			var reqBody string
-			var reqPath string
-			reqFunc := func(t *testing.T, baseURL string, input []byte) *http.Request {
-				reqBody = string(input)
-				r := createAnthropicMessagesReq(t, baseURL, input)
-				reqPath = r.URL.Path
-				return r
-			}
+			defer h.Response.Body.Close()
 
-			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, proxies, resp := setupInjectedToolTest(t, antSingleInjectedTool, tc.streaming, configureFn, reqFunc)
+			interceptions := h.Recorder.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			intcID := interceptions[0].ID
 
-			defer resp.Body.Close()
-
-			require.Len(t, recorderClient.interceptions, 1)
-			intcID := recorderClient.interceptions[0].ID
-
-			model := gjson.Get(string(reqBody), "model").Str
+			reqBody := string(h.RequestBody)
+			model := gjson.Get(reqBody, "model").Str
 			if tc.bedrock {
 				model = "beddel"
 			}
 
-			for _, proxy := range proxies {
+			for _, proxy := range h.MCPProxiers {
 				require.NotEmpty(t, proxy.ListTools())
 				tool := proxy.ListTools()[0]
 
 				attrs := []attribute.KeyValue{
-					attribute.String(tracing.RequestPath, reqPath),
+					attribute.String(tracing.RequestPath, h.RequestPath),
 					attribute.String(tracing.InterceptionID, intcID),
 					attribute.String(tracing.Provider, aibridge.ProviderAnthropic),
 					attribute.String(tracing.Model, model),
@@ -421,42 +394,36 @@ func TestTraceOpenAI(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(t.Name(), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			t.Cleanup(cancel)
 
-			arc := txtar.Parse(tc.fixture)
-
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureRequest)
-			require.Contains(t, files, fixtureStreamingResponse)
-			require.Contains(t, files, fixtureNonStreamingResponse)
-
-			fixtureReqBody := files[fixtureRequest]
+			fixture := testutil.MustParseTXTAR(t, tc.fixture)
+			fixture.RequireFiles(t, testutil.FixtureRequest, testutil.FixtureStreamingResponse, testutil.FixtureNonStreamingResponse)
+			llm := testutil.MustLLMFixture(t, fixture)
 
 			sr := tracetest.NewSpanRecorder()
 			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
-			require.NoError(t, err)
+			reqBody := llm.MustRequestBody(t, tc.streaming)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
-			t.Cleanup(mockAPI.Close)
-			provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
+			upstream := testutil.NewUpstreamServer(t, ctx, llm)
+			provider := aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
-			req := createOpenAIChatCompletionsReq(t, srv.URL, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
+			req := srv.NewProviderRequest(t, provider.Name(), reqBody)
+			resp, err := srv.Client.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			defer resp.Body.Close()
-			srv.Close()
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
 
-			require.Equal(t, 1, len(recorder.interceptions))
-			intcID := recorder.interceptions[0].ID
+			interceptions := recorder.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			intcID := interceptions[0].ID
 
 			totalCount := 0
 			for _, e := range tc.expect {
@@ -511,54 +478,44 @@ func TestTraceOpenAIErr(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(t.Name(), func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			t.Cleanup(cancel)
 
-			var arc *txtar.Archive
+			fixtureBytes := oaiNonStreamErr
 			if tc.streaming {
-				arc = txtar.Parse(oaiMidStreamErr)
-			} else {
-				arc = txtar.Parse(oaiNonStreamErr)
+				fixtureBytes = oaiMidStreamErr
 			}
 
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureRequest)
-			if tc.streaming {
-				require.Contains(t, files, fixtureStreamingResponse)
-			} else {
-				require.Contains(t, files, fixtureNonStreamingResponse)
-			}
-
-			fixtureReqBody := files[fixtureRequest]
+			fixture := testutil.MustParseTXTAR(t, fixtureBytes)
+			llm := testutil.MustLLMFixture(t, fixture)
 
 			sr := tracetest.NewSpanRecorder()
 			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
-			require.NoError(t, err)
+			reqBody := llm.MustRequestBody(t, tc.streaming)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
-			t.Cleanup(mockAPI.Close)
-			provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
+			upstream := testutil.NewUpstreamServer(t, ctx, llm)
+			provider := aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
-			req := createOpenAIChatCompletionsReq(t, srv.URL, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
+			req := srv.NewProviderRequest(t, provider.Name(), reqBody)
+			resp, err := srv.Client.Do(req)
 			require.NoError(t, err)
 			if tc.streaming {
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 			} else {
 				require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 			}
-			defer resp.Body.Close()
-			srv.Close()
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
 
-			require.Equal(t, 1, len(recorder.interceptions))
-			intcID := recorder.interceptions[0].ID
+			interceptions := recorder.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			intcID := interceptions[0].ID
 
 			totalCount := 0
 			for _, e := range tc.expect {
@@ -591,38 +548,25 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, tracer)
-			}
+			h := runInjectedToolTest(t, aibridge.ProviderOpenAI, oaiSingleInjectedTool, streaming, tracer, func(upstreamURL string) []aibridge.Provider {
+				return []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(upstreamURL, apiKey))}
+			})
 
-			var reqBody string
-			var reqPath string
-			reqFunc := func(t *testing.T, baseURL string, input []byte) *http.Request {
-				reqBody = string(input)
-				r := createOpenAIChatCompletionsReq(t, baseURL, input)
-				reqPath = r.URL.Path
-				return r
-			}
+			defer h.Response.Body.Close()
 
-			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, proxies, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, reqFunc)
+			interceptions := h.Recorder.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			intcID := interceptions[0].ID
 
-			defer resp.Body.Close()
-
-			require.Len(t, recorderClient.interceptions, 1)
-			intcID := recorderClient.interceptions[0].ID
-
-			for _, proxy := range proxies {
+			for _, proxy := range h.MCPProxiers {
 				require.NotEmpty(t, proxy.ListTools())
 				tool := proxy.ListTools()[0]
 
 				attrs := []attribute.KeyValue{
-					attribute.String(tracing.RequestPath, reqPath),
+					attribute.String(tracing.RequestPath, h.RequestPath),
 					attribute.String(tracing.InterceptionID, intcID),
 					attribute.String(tracing.Provider, aibridge.ProviderOpenAI),
-					attribute.String(tracing.Model, gjson.Get(reqBody, "model").Str),
+					attribute.String(tracing.Model, gjson.Get(string(h.RequestBody), "model").Str),
 					attribute.String(tracing.InitiatorID, userID),
 					attribute.String(tracing.MCPInput, "{\"owner\":\"admin\"}"),
 					attribute.String(tracing.MCPToolName, "coder_list_workspaces"),
@@ -639,13 +583,13 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 func TestTracePassthrough(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiFallthrough)
-	files := filesMap(arc)
+	fixture := testutil.MustParseTXTAR(t, oaiFallthrough)
+	respBody := fixture.MustFile(t, testutil.FixtureResponse)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(files[fixtureResponse])
+		_, _ = w.Write(respBody)
 	}))
 	t.Cleanup(upstream.Close)
 
@@ -687,9 +631,7 @@ func TestNewServerProxyManagerTraces(t *testing.T) {
 	defer func() { _ = tp.Shutdown(t.Context()) }()
 
 	serverName := "serverName"
-	srv, _ := createMockMCPSrv(t)
-	mcpSrv := httptest.NewServer(srv)
-	t.Cleanup(mcpSrv.Close)
+	mcpSrv := testutil.NewMCPServer(t, testutil.DefaultCoderToolNames())
 
 	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 	proxy, err := mcp.NewStreamableHTTPServerProxy(serverName, mcpSrv.URL, nil, nil, nil, logger, tracer)
