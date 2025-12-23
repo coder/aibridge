@@ -1,13 +1,14 @@
-package aibridge
+package config
 
-type ProviderConfig struct {
-	BaseURL, Key string
-}
-
-type (
-	OpenAIConfig    ProviderConfig
-	AnthropicConfig ProviderConfig
+const (
+	ProviderAnthropic = "anthropic"
+	ProviderOpenAI    = "openai"
 )
+
+type AnthropicConfig struct {
+	BaseURL string
+	Key     string
+}
 
 type AWSBedrockConfig struct {
 	Region                     string
@@ -18,8 +19,7 @@ type AWSBedrockConfig struct {
 	EndpointOverride string
 }
 
-type Config struct {
-	OpenAI    ProviderConfig
-	Anthropic ProviderConfig
-	Bedrock   AWSBedrockConfig
+type OpenAIConfig struct {
+	BaseURL string
+	Key     string
 }

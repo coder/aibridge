@@ -8,17 +8,19 @@ import (
 	"time"
 
 	"cdr.dev/slog"
+	"github.com/coder/aibridge/metrics"
+	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // newPassthroughRouter returns a simple reverse-proxy implementation which will be used when a route is not handled specifically
-// by a [Provider].
-func newPassthroughRouter(provider Provider, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) http.HandlerFunc {
+// by a [intercept.Provider].
+func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if metrics != nil {
-			metrics.PassthroughCount.WithLabelValues(provider.Name(), r.URL.Path, r.Method).Add(1)
+		if m != nil {
+			m.PassthroughCount.WithLabelValues(provider.Name(), r.URL.Path, r.Method).Add(1)
 		}
 
 		ctx, span := tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(

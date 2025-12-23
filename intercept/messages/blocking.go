@@ -1,4 +1,4 @@
-package aibridge
+package messages
 
 import (
 	"context"
@@ -8,26 +8,26 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/intercept/eventstream"
+	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
-	mcplib "github.com/mark3labs/mcp-go/mcp" // TODO: abstract this away so callers need no knowledge of underlying lib.
+	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/coder/aibridge/mcp"
-	"github.com/coder/aibridge/tracing"
-
 	"cdr.dev/slog"
 )
 
-var _ Interceptor = &AnthropicMessagesBlockingInterception{}
-
-type AnthropicMessagesBlockingInterception struct {
-	AnthropicMessagesInterceptionBase
+type BlockingInterception struct {
+	InterceptionBase
 }
 
-func NewAnthropicMessagesBlockingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig, tracer trace.Tracer) *AnthropicMessagesBlockingInterception {
-	return &AnthropicMessagesBlockingInterception{AnthropicMessagesInterceptionBase: AnthropicMessagesInterceptionBase{
+func NewBlockingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, cfg config.AnthropicConfig, bedrockCfg *config.AWSBedrockConfig, tracer trace.Tracer) *BlockingInterception {
+	return &BlockingInterception{InterceptionBase: InterceptionBase{
 		id:         id,
 		req:        req,
 		cfg:        cfg,
@@ -36,19 +36,19 @@ func NewAnthropicMessagesBlockingInterception(id uuid.UUID, req *MessageNewParam
 	}}
 }
 
-func (i *AnthropicMessagesBlockingInterception) Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) {
-	i.AnthropicMessagesInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+func (i *BlockingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	i.InterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
-func (i *AnthropicMessagesBlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return i.AnthropicMessagesInterceptionBase.baseTraceAttributes(r, false)
+func (i *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return i.InterceptionBase.BaseTraceAttributes(r, false)
 }
 
-func (s *AnthropicMessagesBlockingInterception) Streaming() bool {
+func (s *BlockingInterception) Streaming() bool {
 	return false
 }
 
-func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
+func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
@@ -56,7 +56,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
 	defer tracing.EndSpanErr(span, &outErr)
 
-	i.injectTools()
+	i.InjectTools()
 
 	var (
 		prompt *string
@@ -72,7 +72,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 
 	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 60)} // TODO: configurable timeout
 
-	svc, err := i.newMessagesService(ctx, opts...)
+	svc, err := i.NewMessagesService(ctx, opts...)
 	if err != nil {
 		err = fmt.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -90,13 +90,13 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
 		resp, err = i.newMessage(ctx, svc, messages)
 		if err != nil {
-			if isConnError(err) {
+			if eventstream.IsConnError(err) {
 				// Can't write a response, just error out.
 				return fmt.Errorf("upstream connection closed: %w", err)
 			}
 
-			if antErr := getAnthropicErrorResponse(err); antErr != nil {
-				i.writeUpstreamError(w, antErr)
+			if antErr := GetErrorResponse(err); antErr != nil {
+				i.WriteUpstreamError(w, antErr)
 				return fmt.Errorf("anthropic API error: %w", err)
 			}
 
@@ -105,7 +105,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 		}
 
 		if prompt != nil {
-			_ = i.recorder.RecordPromptUsage(ctx, &PromptUsageRecord{
+			_ = i.recorder.RecordPromptUsage(ctx, &recorder.PromptUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          resp.ID,
 				Prompt:         *prompt,
@@ -113,7 +113,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 			prompt = nil
 		}
 
-		_ = i.recorder.RecordTokenUsage(ctx, &TokenUsageRecord{
+		_ = i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
 			InterceptionID: i.ID().String(),
 			MsgID:          resp.ID,
 			Input:          resp.Usage.InputTokens,
@@ -127,7 +127,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 			},
 		})
 
-		accumulateUsage(&cumulativeUsage, resp.Usage)
+		AccumulateUsage(&cumulativeUsage, resp.Usage)
 
 		// Handle tool calls for non-streaming.
 		var pendingToolCalls []anthropic.ToolUseBlock
@@ -143,7 +143,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 			}
 
 			// If tool is not injected, track it since the client will be handling it.
-			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
+			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          resp.ID,
 				Tool:           toolUse.Name,
@@ -179,7 +179,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 
 			res, err := tool.Call(ctx, tc.Input, i.tracer)
 
-			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
+			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           resp.ID,
 				ServerURL:       &tool.ServerURL,
@@ -298,7 +298,7 @@ func (i *AnthropicMessagesBlockingInterception) ProcessRequest(w http.ResponseWr
 	return nil
 }
 
-func (i *AnthropicMessagesBlockingInterception) newMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {
+func (i *BlockingInterception) newMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {
 	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer tracing.EndSpanErr(span, &outErr)
 

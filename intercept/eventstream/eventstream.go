@@ -1,4 +1,4 @@
-package aibridge
+package eventstream
 
 import (
 	"context"
@@ -22,7 +22,7 @@ const pingInterval = time.Second * 10
 
 type event []byte
 
-type eventStream struct {
+type EventStream struct {
 	ctx    context.Context
 	logger slog.Logger
 
@@ -39,9 +39,9 @@ type eventStream struct {
 	doneCh chan struct{}
 }
 
-// newEventStream creates a new SSE stream, with an optional payload which is used to send pings every [pingInterval].
-func newEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte) *eventStream {
-	return &eventStream{
+// NewEventStream creates a new SSE stream, with an optional payload which is used to send pings every [pingInterval].
+func NewEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte) *EventStream {
+	return &EventStream{
 		ctx:    ctx,
 		logger: logger,
 
@@ -52,8 +52,8 @@ func newEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte)
 	}
 }
 
-// start handles sending Server-Sent Event to the client.
-func (s *eventStream) start(w http.ResponseWriter, r *http.Request) {
+// Start handles sending Server-Sent Event to the client.
+func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 	// Signal completion on exit so senders don't block indefinitely after closure.
 	defer close(s.doneCh)
 
@@ -94,7 +94,7 @@ func (s *eventStream) start(w http.ResponseWriter, r *http.Request) {
 				// request prior to the stream starting, in which case the SSE headers are inappropriate to
 				// send to the client.
 				//
-				// See use of isStreaming().
+				// See use of IsStreaming().
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.Header().Set("Cache-Control", "no-cache")
 				w.Header().Set("Connection", "keep-alive")
@@ -118,7 +118,7 @@ func (s *eventStream) start(w http.ResponseWriter, r *http.Request) {
 
 		_, err := w.Write(ev)
 		if err != nil {
-			if isConnError(err) {
+			if IsConnError(err) {
 				s.logger.Debug(ctx, "client disconnected during SSE write", slog.Error(err))
 			} else {
 				s.logger.Warn(ctx, "failed to write SSE event", slog.Error(err))
@@ -138,7 +138,7 @@ func (s *eventStream) start(w http.ResponseWriter, r *http.Request) {
 
 // Send enqueues an event in a non-blocking fashion, but if the channel is full
 // then it will block.
-func (s *eventStream) Send(ctx context.Context, payload []byte) error {
+func (s *EventStream) Send(ctx context.Context, payload []byte) error {
 	// Save an unnecessary marshaling if possible.
 	select {
 	case <-ctx.Done():
@@ -150,10 +150,10 @@ func (s *eventStream) Send(ctx context.Context, payload []byte) error {
 	default:
 	}
 
-	return s.sendRaw(ctx, payload)
+	return s.SendRaw(ctx, payload)
 }
 
-func (s *eventStream) sendRaw(ctx context.Context, payload []byte) error {
+func (s *EventStream) SendRaw(ctx context.Context, payload []byte) error {
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
@@ -168,11 +168,11 @@ func (s *eventStream) sendRaw(ctx context.Context, payload []byte) error {
 
 // Shutdown gracefully shuts down the stream, sending any supplementary events downstream if required.
 // ONLY call this once all events have been submitted.
-func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
+func (s *EventStream) Shutdown(shutdownCtx context.Context) error {
 	s.shutdownOnce.Do(func() {
 		s.logger.Debug(shutdownCtx, "shutdown initiated", slog.F("outstanding_events", len(s.eventsCh)))
 
-		// Now it is safe to close the events channel; the start() loop will exit
+		// Now it is safe to close the events channel; the Start() loop will exit
 		// after draining remaining events and receivers will stop ranging.
 		close(s.eventsCh)
 	})
@@ -188,19 +188,19 @@ func (s *eventStream) Shutdown(shutdownCtx context.Context) error {
 		return nil
 	}
 
-	// Even if the context is canceled, we need to wait for start() to complete.
+	// Even if the context is canceled, we need to wait for Start() to complete.
 	<-s.doneCh
 	return err
 }
 
-// isStreaming checks if the stream has been initiated, or
+// IsStreaming checks if the stream has been initiated, or
 // when events are buffered which - when processed - will initiate the stream.
-func (s *eventStream) isStreaming() bool {
+func (s *EventStream) IsStreaming() bool {
 	return s.initiated.Load() || len(s.eventsCh) > 0
 }
 
-// isConnError checks if an error is related to client disconnection or context cancellation.
-func isConnError(err error) bool {
+// IsConnError checks if an error is related to client disconnection or context cancellation.
+func IsConnError(err error) bool {
 	if err == nil {
 		return false
 	}
@@ -218,12 +218,12 @@ func isConnError(err error) bool {
 		strings.Contains(errStr, "connection reset by peer")
 }
 
-func isUnrecoverableError(err error) bool {
+func IsUnrecoverableError(err error) bool {
 	if errors.Is(err, context.Canceled) {
 		return true
 	}
 
-	return isConnError(err)
+	return IsConnError(err)
 }
 
 func flush(w http.ResponseWriter) (err error) {

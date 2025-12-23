@@ -1,9 +1,8 @@
-package aibridge_test
+package chatcompletions
 
 import (
 	"testing"
 
-	"github.com/coder/aibridge"
 	"github.com/openai/openai-go/v2"
 	"github.com/stretchr/testify/require"
 )
@@ -13,7 +12,7 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		wrapper     *aibridge.ChatCompletionNewParamsWrapper
+		wrapper     *ChatCompletionNewParamsWrapper
 		expected    string
 		expectError bool
 		errorMsg    string
@@ -25,7 +24,7 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 		},
 		{
 			name: "no messages",
-			wrapper: &aibridge.ChatCompletionNewParamsWrapper{
+			wrapper: &ChatCompletionNewParamsWrapper{
 				ChatCompletionNewParams: openai.ChatCompletionNewParams{
 					Messages: []openai.ChatCompletionMessageParamUnion{},
 				},
@@ -35,7 +34,7 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 		},
 		{
 			name: "last message not from user",
-			wrapper: &aibridge.ChatCompletionNewParamsWrapper{
+			wrapper: &ChatCompletionNewParamsWrapper{
 				ChatCompletionNewParams: openai.ChatCompletionNewParams{
 					Messages: []openai.ChatCompletionMessageParamUnion{
 						openai.UserMessage("user message"),
@@ -46,7 +45,7 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 		},
 		{
 			name: "user message with string content",
-			wrapper: &aibridge.ChatCompletionNewParamsWrapper{
+			wrapper: &ChatCompletionNewParamsWrapper{
 				ChatCompletionNewParams: openai.ChatCompletionNewParams{
 					Messages: []openai.ChatCompletionMessageParamUnion{
 						openai.UserMessage("Hello, world!"),
@@ -57,7 +56,7 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 		},
 		{
 			name: "user message with empty string",
-			wrapper: &aibridge.ChatCompletionNewParamsWrapper{
+			wrapper: &ChatCompletionNewParamsWrapper{
 				ChatCompletionNewParams: openai.ChatCompletionNewParams{
 					Messages: []openai.ChatCompletionMessageParamUnion{
 						openai.UserMessage(""),
@@ -67,7 +66,7 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 		},
 		{
 			name: "user message with array content - text at end",
-			wrapper: &aibridge.ChatCompletionNewParamsWrapper{
+			wrapper: &ChatCompletionNewParamsWrapper{
 				ChatCompletionNewParams: openai.ChatCompletionNewParams{
 					Messages: []openai.ChatCompletionMessageParamUnion{
 						openai.UserMessage([]openai.ChatCompletionContentPartUnionParam{
@@ -87,7 +86,7 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 		},
 		{
 			name: "user message with array content - no text",
-			wrapper: &aibridge.ChatCompletionNewParamsWrapper{
+			wrapper: &ChatCompletionNewParamsWrapper{
 				ChatCompletionNewParams: openai.ChatCompletionNewParams{
 					Messages: []openai.ChatCompletionMessageParamUnion{
 						openai.UserMessage([]openai.ChatCompletionContentPartUnionParam{
@@ -101,7 +100,7 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 		},
 		{
 			name: "user message with empty array",
-			wrapper: &aibridge.ChatCompletionNewParamsWrapper{
+			wrapper: &ChatCompletionNewParamsWrapper{
 				ChatCompletionNewParams: openai.ChatCompletionNewParams{
 					Messages: []openai.ChatCompletionMessageParamUnion{
 						openai.UserMessage([]openai.ChatCompletionContentPartUnionParam{}),
