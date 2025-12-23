@@ -81,8 +81,14 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 		return
 	}
 
+	tools := i.mcpProxy.ListTools()
+	if len(tools) == 0 {
+		// No injected tools: no need to influence parallel tool calling.
+		return
+	}
+
 	// Inject tools.
-	for _, tool := range i.mcpProxy.ListTools() {
+	for _, tool := range tools {
 		i.req.Tools = append(i.req.Tools, anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				InputSchema: anthropic.ToolInputSchemaParam{
