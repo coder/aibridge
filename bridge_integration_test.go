@@ -1,20 +1,15 @@
 package aibridge_test
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -25,19 +20,15 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/testutil"
 	"github.com/google/uuid"
-	mcplib "github.com/mark3labs/mcp-go/mcp"
-	"github.com/mark3labs/mcp-go/server"
 	"github.com/openai/openai-go/v2"
 	oaissestream "github.com/openai/openai-go/v2/packages/ssestream"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/goleak"
-	"golang.org/x/tools/txtar"
 )
 
 var (
@@ -71,13 +62,6 @@ var (
 )
 
 const (
-	fixtureRequest                  = "request"
-	fixtureStreamingResponse        = "streaming"
-	fixtureNonStreamingResponse     = "non-streaming"
-	fixtureStreamingToolResponse    = "streaming/tool-call"
-	fixtureNonStreamingToolResponse = "non-streaming/tool-call"
-	fixtureResponse                 = "response"
-
 	apiKey = "api-key"
 	userID = "ae235cc1-9f8f-417d-a636-a7b170bac62e"
 )
@@ -113,45 +97,31 @@ func TestAnthropicMessages(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), tc.streaming), func(t *testing.T) {
 				t.Parallel()
 
-				arc := txtar.Parse(antSingleBuiltinTool)
+				arc := testutil.MustParseTXTAR(t, antSingleBuiltinTool)
 				t.Logf("%s: %s", t.Name(), arc.Comment)
 
-				files := filesMap(arc)
-				require.Len(t, files, 3)
-				require.Contains(t, files, fixtureRequest)
-				require.Contains(t, files, fixtureStreamingResponse)
-				require.Contains(t, files, fixtureNonStreamingResponse)
+				llm := testutil.MustLLMFixture(t, arc)
 
-				reqBody := files[fixtureRequest]
-
-				// Add the stream param to the request.
-				newBody, err := setJSON(reqBody, "stream", tc.streaming)
-				require.NoError(t, err)
-				reqBody = newBody
-
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 				t.Cleanup(cancel)
-				srv := newMockServer(ctx, t, files, nil)
-				t.Cleanup(srv.Close)
 
-				recorderClient := &mockRecorderClient{}
+				upstream := testutil.NewUpstreamServer(t, ctx, llm)
+
+				recorderClient := &testutil.RecorderSpy{}
 
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(srv.URL, apiKey), nil)}
-				b, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
-				require.NoError(t, err)
+				bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+					Ctx:       ctx,
+					ActorID:   userID,
+					Providers: []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(upstream.URL, apiKey), nil)},
+					Recorder:  recorderClient,
+					Logger:    logger,
+					Tracer:    testTracer,
+				})
 
-				mockSrv := httptest.NewUnstartedServer(b)
-				t.Cleanup(mockSrv.Close)
-				mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-					return aibridge.AsActor(ctx, userID, nil)
-				}
-				mockSrv.Start()
-
-				// Make API call to aibridge for Anthropic /v1/messages
-				req := createAnthropicMessagesReq(t, mockSrv.URL, reqBody)
-				client := &http.Client{}
-				resp, err := client.Do(req)
+				reqBody := llm.MustRequestBody(t, tc.streaming)
+				req := bridgeSrv.NewProviderRequest(t, aibridge.ProviderAnthropic, reqBody)
+				resp, err := bridgeSrv.Client.Do(req)
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 				defer resp.Body.Close()
@@ -174,8 +144,8 @@ func TestAnthropicMessages(t *testing.T) {
 				tokenUsages := recorderClient.RecordedTokenUsages()
 				require.Len(t, tokenUsages, expectedTokenRecordings)
 
-				assert.EqualValues(t, tc.expectedInputTokens, calculateTotalInputTokens(tokenUsages), "input tokens miscalculated")
-				assert.EqualValues(t, tc.expectedOutputTokens, calculateTotalOutputTokens(tokenUsages), "output tokens miscalculated")
+				assert.EqualValues(t, tc.expectedInputTokens, testutil.TotalInputTokens(tokenUsages), "input tokens miscalculated")
+				assert.EqualValues(t, tc.expectedOutputTokens, testutil.TotalOutputTokens(tokenUsages), "output tokens miscalculated")
 
 				toolUsages := recorderClient.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
@@ -190,7 +160,7 @@ func TestAnthropicMessages(t *testing.T) {
 				require.Len(t, promptUsages, 1)
 				assert.Equal(t, "read the foo file", promptUsages[0].Prompt)
 
-				recorderClient.verifyAllInterceptionsEnded(t)
+				recorderClient.RequireAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -202,11 +172,10 @@ func TestAWSBedrockIntegration(t *testing.T) {
 	t.Run("invalid config", func(t *testing.T) {
 		t.Parallel()
 
-		arc := txtar.Parse(antSingleBuiltinTool)
-		files := filesMap(arc)
-		reqBody := files[fixtureRequest]
+		arc := testutil.MustParseTXTAR(t, antSingleBuiltinTool)
+		reqBody := arc.MustFile(t, testutil.FixtureRequest)
 
-		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+		ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 		t.Cleanup(cancel)
 
 		// Invalid bedrock config - missing region
@@ -218,22 +187,21 @@ func TestAWSBedrockIntegration(t *testing.T) {
 			SmallFastModel:  "test-haiku",
 		}
 
-		recorderClient := &mockRecorderClient{}
+		recorderClient := &testutil.RecorderSpy{}
 		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
-		b, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{
-			aibridge.NewAnthropicProvider(anthropicCfg("http://unused", apiKey), bedrockCfg),
-		}, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
-		require.NoError(t, err)
+		bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+			Ctx:     ctx,
+			ActorID: userID,
+			Providers: []aibridge.Provider{
+				aibridge.NewAnthropicProvider(anthropicCfg("http://unused", apiKey), bedrockCfg),
+			},
+			Recorder: recorderClient,
+			Logger:   logger,
+			Tracer:   testTracer,
+		})
 
-		mockSrv := httptest.NewUnstartedServer(b)
-		t.Cleanup(mockSrv.Close)
-		mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-			return aibridge.AsActor(ctx, userID, nil)
-		}
-		mockSrv.Start()
-
-		req := createAnthropicMessagesReq(t, mockSrv.URL, reqBody)
-		resp, err := http.DefaultClient.Do(req)
+		req := bridgeSrv.NewProviderRequest(t, aibridge.ProviderAnthropic, reqBody)
+		resp, err := bridgeSrv.Client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -249,60 +217,15 @@ func TestAWSBedrockIntegration(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), streaming), func(t *testing.T) {
 				t.Parallel()
 
-				arc := txtar.Parse(antSingleBuiltinTool)
+				arc := testutil.MustParseTXTAR(t, antSingleBuiltinTool)
 				t.Logf("%s: %s", t.Name(), arc.Comment)
 
-				files := filesMap(arc)
-				require.Len(t, files, 3)
-				require.Contains(t, files, fixtureRequest)
+				llm := testutil.MustLLMFixture(t, arc)
 
-				reqBody := files[fixtureRequest]
-
-				newBody, err := setJSON(reqBody, "stream", streaming)
-				require.NoError(t, err)
-				reqBody = newBody
-
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 				t.Cleanup(cancel)
 
-				var receivedModelName string
-				var requestCount int
-
-				// Create a mock server that intercepts requests to capture model name and return fixtures.
-				srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					requestCount++
-					t.Logf("Mock server received request #%d: %s %s (streaming=%v)", requestCount, r.Method, r.URL.Path, streaming)
-					t.Logf("Request headers: %v", r.Header)
-
-					// AWS Bedrock encodes the model name in the URL path: /model/{model-id}/invoke or /model/{model-id}/invoke-with-response-stream.
-					// Extract the model name from the path.
-					pathParts := strings.Split(r.URL.Path, "/")
-					if len(pathParts) >= 3 && pathParts[1] == "model" {
-						receivedModelName = pathParts[2]
-						t.Logf("Extracted model name from path: %s", receivedModelName)
-					}
-
-					// Return appropriate fixture response.
-					var respBody []byte
-					if streaming {
-						respBody = files[fixtureStreamingResponse]
-						w.Header().Set("Content-Type", "text/event-stream")
-						w.Header().Set("Cache-Control", "no-cache")
-						w.Header().Set("Connection", "keep-alive")
-					} else {
-						respBody = files[fixtureNonStreamingResponse]
-						w.Header().Set("Content-Type", "application/json")
-					}
-
-					w.WriteHeader(http.StatusOK)
-					_, _ = w.Write(respBody)
-				}))
-
-				srv.Config.BaseContext = func(_ net.Listener) context.Context {
-					return ctx
-				}
-				srv.Start()
-				t.Cleanup(srv.Close)
+				upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
 				// Configure Bedrock with test credentials and model names.
 				// The EndpointOverride will make requests go to the mock server instead of real AWS endpoints.
@@ -312,47 +235,51 @@ func TestAWSBedrockIntegration(t *testing.T) {
 					AccessKeySecret:  "test-secret-key",
 					Model:            "danthropic",      // This model should override the request's given one.
 					SmallFastModel:   "danthropic-mini", // Unused but needed for validation.
-					EndpointOverride: srv.URL,
+					EndpointOverride: upstream.URL,
 				}
 
-				recorderClient := &mockRecorderClient{}
+				recorderClient := &testutil.RecorderSpy{}
 
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
-				b, err := aibridge.NewRequestBridge(
-					ctx, []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(srv.URL, apiKey), bedrockCfg)},
-					recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
-				require.NoError(t, err)
+				bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+					Ctx:       ctx,
+					ActorID:   userID,
+					Providers: []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(upstream.URL, apiKey), bedrockCfg)},
+					Recorder:  recorderClient,
+					Logger:    logger,
+					Tracer:    testTracer,
+				})
 
-				mockBridgeSrv := httptest.NewUnstartedServer(b)
-				t.Cleanup(mockBridgeSrv.Close)
-				mockBridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-					return aibridge.AsActor(ctx, userID, nil)
-				}
-				mockBridgeSrv.Start()
-
-				// Make API call to aibridge for Anthropic /v1/messages, which will be routed via AWS Bedrock.
-				// We override the AWS Bedrock client to route requests through our mock server.
-				req := createAnthropicMessagesReq(t, mockBridgeSrv.URL, reqBody)
-				client := &http.Client{}
-				resp, err := client.Do(req)
+				reqBody := llm.MustRequestBody(t, streaming)
+				req := bridgeSrv.NewProviderRequest(t, aibridge.ProviderAnthropic, reqBody)
+				resp, err := bridgeSrv.Client.Do(req)
 				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, resp.StatusCode)
 				defer resp.Body.Close()
 
 				// For streaming responses, consume the body to allow the stream to complete.
 				if streaming {
-					// Read the streaming response.
 					_, err = io.ReadAll(resp.Body)
 					require.NoError(t, err)
 				}
 
+				reqs := upstream.Requests()
+				require.Len(t, reqs, 1)
+
+				// AWS Bedrock encodes the model name in the URL path: /model/{model-id}/invoke or /model/{model-id}/invoke-with-response-stream.
+				pathParts := strings.Split(reqs[0].Path, "/")
+				receivedModelName := ""
+				if len(pathParts) >= 3 && pathParts[1] == "model" {
+					receivedModelName = pathParts[2]
+				}
+
 				// Verify that Bedrock-specific model name was used in the request to the mock server
 				// and the interception data.
-				require.Equal(t, requestCount, 1)
 				require.Equal(t, bedrockCfg.Model, receivedModelName)
 				interceptions := recorderClient.RecordedInterceptions()
 				require.Len(t, interceptions, 1)
 				require.Equal(t, interceptions[0].Model, bedrockCfg.Model)
-				recorderClient.verifyAllInterceptionsEnded(t)
+				recorderClient.RequireAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -384,45 +311,32 @@ func TestOpenAIChatCompletions(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), tc.streaming), func(t *testing.T) {
 				t.Parallel()
 
-				arc := txtar.Parse(oaiSingleBuiltinTool)
+				arc := testutil.MustParseTXTAR(t, oaiSingleBuiltinTool)
 				t.Logf("%s: %s", t.Name(), arc.Comment)
 
-				files := filesMap(arc)
-				require.Len(t, files, 3)
-				require.Contains(t, files, fixtureRequest)
-				require.Contains(t, files, fixtureStreamingResponse)
-				require.Contains(t, files, fixtureNonStreamingResponse)
+				llm := testutil.MustLLMFixture(t, arc)
 
-				reqBody := files[fixtureRequest]
-
-				// Add the stream param to the request.
-				newBody, err := setJSON(reqBody, "stream", tc.streaming)
-				require.NoError(t, err)
-				reqBody = newBody
-
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 				t.Cleanup(cancel)
-				srv := newMockServer(ctx, t, files, nil)
-				t.Cleanup(srv.Close)
 
-				recorderClient := &mockRecorderClient{}
+				upstream := testutil.NewUpstreamServer(t, ctx, llm)
+
+				recorderClient := &testutil.RecorderSpy{}
 
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(srv.URL, apiKey))}
-				b, err := aibridge.NewRequestBridge(t.Context(), providers, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
-				require.NoError(t, err)
+				bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+					Ctx:       ctx,
+					ActorID:   userID,
+					Providers: []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))},
+					Recorder:  recorderClient,
+					Logger:    logger,
+					Tracer:    testTracer,
+				})
 
-				mockSrv := httptest.NewUnstartedServer(b)
-				t.Cleanup(mockSrv.Close)
-				mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-					return aibridge.AsActor(ctx, userID, nil)
-				}
-				mockSrv.Start()
-				// Make API call to aibridge for OpenAI /v1/chat/completions
-				req := createOpenAIChatCompletionsReq(t, mockSrv.URL, reqBody)
+				reqBody := llm.MustRequestBody(t, tc.streaming)
+				req := bridgeSrv.NewProviderRequest(t, aibridge.ProviderOpenAI, reqBody)
 
-				client := &http.Client{}
-				resp, err := client.Do(req)
+				resp, err := bridgeSrv.Client.Do(req)
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 				defer resp.Body.Close()
@@ -443,8 +357,8 @@ func TestOpenAIChatCompletions(t *testing.T) {
 
 				tokenUsages := recorderClient.RecordedTokenUsages()
 				require.Len(t, tokenUsages, 1)
-				assert.EqualValues(t, tc.expectedInputTokens, calculateTotalInputTokens(tokenUsages), "input tokens miscalculated")
-				assert.EqualValues(t, tc.expectedOutputTokens, calculateTotalOutputTokens(tokenUsages), "output tokens miscalculated")
+				assert.EqualValues(t, tc.expectedInputTokens, testutil.TotalInputTokens(tokenUsages), "input tokens miscalculated")
+				assert.EqualValues(t, tc.expectedOutputTokens, testutil.TotalOutputTokens(tokenUsages), "output tokens miscalculated")
 
 				toolUsages := recorderClient.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
@@ -457,7 +371,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				require.Len(t, promptUsages, 1)
 				assert.Equal(t, "how large is the README.md file in my current path", promptUsages[0].Prompt)
 
-				recorderClient.verifyAllInterceptionsEnded(t)
+				recorderClient.RequireAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -471,7 +385,6 @@ func TestSimple(t *testing.T) {
 		fixture           []byte
 		configureFunc     func(string, aibridge.Recorder) (*aibridge.RequestBridge, error)
 		getResponseIDFunc func(bool, *http.Response) (string, error)
-		createRequest     func(*testing.T, string, []byte) *http.Request
 		expectedMsgID     string
 	}{
 		{
@@ -510,7 +423,6 @@ func TestSimple(t *testing.T) {
 				}
 				return message.ID, nil
 			},
-			createRequest: createAnthropicMessagesReq,
 			expectedMsgID: "msg_01Pvyf26bY17RcjmWfJsXGBn",
 		},
 		{
@@ -549,7 +461,6 @@ func TestSimple(t *testing.T) {
 				}
 				return message.ID, nil
 			},
-			createRequest: createOpenAIChatCompletionsReq,
 			expectedMsgID: "chatcmpl-BwoiPTGRbKkY5rncfaM0s9KtWrq5N",
 		},
 	}
@@ -562,43 +473,30 @@ func TestSimple(t *testing.T) {
 				t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
 					t.Parallel()
 
-					arc := txtar.Parse(tc.fixture)
+					arc := testutil.MustParseTXTAR(t, tc.fixture)
 					t.Logf("%s: %s", t.Name(), arc.Comment)
 
-					files := filesMap(arc)
-					require.Len(t, files, 3)
-					require.Contains(t, files, fixtureRequest)
-					require.Contains(t, files, fixtureStreamingResponse)
-					require.Contains(t, files, fixtureNonStreamingResponse)
+					llm := testutil.MustLLMFixture(t, arc)
 
-					reqBody := files[fixtureRequest]
-
-					// Add the stream param to the request.
-					newBody, err := setJSON(reqBody, "stream", streaming)
-					require.NoError(t, err)
-					reqBody = newBody
-
-					// Given: a mock API server and a Bridge through which the requests will flow.
-					ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+					ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 					t.Cleanup(cancel)
-					srv := newMockServer(ctx, t, files, nil)
-					t.Cleanup(srv.Close)
 
-					recorderClient := &mockRecorderClient{}
+					upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
-					b, err := tc.configureFunc(srv.URL, recorderClient)
+					recorderClient := &testutil.RecorderSpy{}
+
+					bridge, err := tc.configureFunc(upstream.URL, recorderClient)
 					require.NoError(t, err)
 
-					mockSrv := httptest.NewUnstartedServer(b)
-					t.Cleanup(mockSrv.Close)
-					mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-						return aibridge.AsActor(ctx, userID, nil)
-					}
-					mockSrv.Start()
-					// When: calling the "API server" with the fixture's request body.
-					req := tc.createRequest(t, mockSrv.URL, reqBody)
-					client := &http.Client{}
-					resp, err := client.Do(req)
+					bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+						Ctx:     ctx,
+						ActorID: userID,
+						Handler: bridge,
+					})
+
+					reqBody := llm.MustRequestBody(t, streaming)
+					req := bridgeSrv.NewProviderRequest(t, tc.name, reqBody)
+					resp, err := bridgeSrv.Client.Do(req)
 					require.NoError(t, err)
 					require.Equal(t, http.StatusOK, resp.StatusCode)
 					defer resp.Body.Close()
@@ -627,16 +525,11 @@ func TestSimple(t *testing.T) {
 					require.GreaterOrEqual(t, len(tokenUsages), 1)
 					require.Equal(t, tokenUsages[0].MsgID, tc.expectedMsgID)
 
-					recorderClient.verifyAllInterceptionsEnded(t)
+					recorderClient.RequireAllInterceptionsEnded(t)
 				})
 			}
 		})
 	}
-}
-
-func setJSON(in []byte, key string, val bool) ([]byte, error) {
-	out, err := sjson.Set(string(in), key, val)
-	return []byte(out), err
 }
 
 func TestFallthrough(t *testing.T) {
@@ -675,14 +568,11 @@ func TestFallthrough(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			arc := txtar.Parse(tc.fixture)
+			arc := testutil.MustParseTXTAR(t, tc.fixture)
 			t.Logf("%s: %s", t.Name(), arc.Comment)
 
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureResponse)
-
 			var receivedHeaders *http.Header
-			respBody := files[fixtureResponse]
+			respBody := arc.MustFile(t, testutil.FixtureResponse)
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.URL.Path != "/v1/models" {
 					t.Errorf("unexpected request path: %q", r.URL.Path)
@@ -697,21 +587,20 @@ func TestFallthrough(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			recorderClient := &mockRecorderClient{}
+			recorderClient := &testutil.RecorderSpy{}
 
 			provider, bridge := tc.configureFunc(upstream.URL, recorderClient)
 
-			bridgeSrv := httptest.NewUnstartedServer(bridge)
-			bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibridge.AsActor(t.Context(), userID, nil)
-			}
-			bridgeSrv.Start()
-			t.Cleanup(bridgeSrv.Close)
+			bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+				Ctx:     t.Context(),
+				ActorID: userID,
+				Handler: bridge,
+			})
 
 			req, err := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("%s/%s/v1/models", bridgeSrv.URL, tc.name), nil)
 			require.NoError(t, err)
 
-			resp, err := http.DefaultClient.Do(req)
+			resp, err := bridgeSrv.Client.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
@@ -734,309 +623,9 @@ func TestFallthrough(t *testing.T) {
 	}
 }
 
-// setupMCPServerProxiesForTest creates a mock MCP server, initializes the MCP bridge, and returns the tools
-func setupMCPServerProxiesForTest(t *testing.T, tracer trace.Tracer) (map[string]mcp.ServerProxier, *callAccumulator) {
-	t.Helper()
-
-	// Setup Coder MCP integration
-	srv, acc := createMockMCPSrv(t)
-	mcpSrv := httptest.NewServer(srv)
-	t.Cleanup(mcpSrv.Close)
-
-	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-	proxy, err := mcp.NewStreamableHTTPServerProxy("coder", mcpSrv.URL, nil, nil, nil, logger, tracer)
-	require.NoError(t, err)
-
-	// Initialize MCP client, fetch tools, and inject into bridge
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-	t.Cleanup(cancel)
-	require.NoError(t, proxy.Init(ctx))
-	tools := proxy.ListTools()
-	require.NotEmpty(t, tools)
-
-	return map[string]mcp.ServerProxier{proxy.Name(): proxy}, acc
-}
-
 type (
-	configureFunc     func(string, aibridge.Recorder, *mcp.ServerProxyManager) (*aibridge.RequestBridge, error)
-	createRequestFunc func(*testing.T, string, []byte) *http.Request
+	configureFunc func(string, aibridge.Recorder, *mcp.ServerProxyManager) (*aibridge.RequestBridge, error)
 )
-
-func TestAnthropicInjectedTools(t *testing.T) {
-	t.Parallel()
-
-	for _, streaming := range []bool{true, false} {
-		t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
-			t.Parallel()
-
-			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), nil)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, testTracer)
-			}
-
-			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, antSingleInjectedTool, streaming, configureFn, createAnthropicMessagesReq)
-
-			// Ensure expected tool was invoked with expected input.
-			toolUsages := recorderClient.RecordedToolUsages()
-			require.Len(t, toolUsages, 1)
-			require.Equal(t, mockToolName, toolUsages[0].Tool)
-			expected, err := json.Marshal(map[string]any{"owner": "admin"})
-			require.NoError(t, err)
-			actual, err := json.Marshal(toolUsages[0].Args)
-			require.NoError(t, err)
-			require.EqualValues(t, expected, actual)
-			invocations := mcpCalls.getCallsByTool(mockToolName)
-			require.Len(t, invocations, 1)
-			actual, err = json.Marshal(invocations[0])
-			require.NoError(t, err)
-			require.EqualValues(t, expected, actual)
-
-			var (
-				content *anthropic.ContentBlockUnion
-				message anthropic.Message
-			)
-			if streaming {
-				// Parse the response stream.
-				decoder := ssestream.NewDecoder(resp)
-				stream := ssestream.NewStream[anthropic.MessageStreamEventUnion](decoder, nil)
-				for stream.Next() {
-					event := stream.Current()
-					require.NoError(t, message.Accumulate(event), "accumulate event")
-				}
-
-				require.NoError(t, stream.Err(), "stream error")
-				require.Len(t, message.Content, 2)
-
-				content = &message.Content[1]
-			} else {
-				// Parse & unmarshal the response.
-				body, err := io.ReadAll(resp.Body)
-				require.NoError(t, err, "read response body")
-
-				require.NoError(t, json.Unmarshal(body, &message), "unmarshal response")
-				require.GreaterOrEqual(t, len(message.Content), 1)
-
-				content = &message.Content[0]
-			}
-
-			// Ensure tool returned expected value.
-			require.NotNil(t, content)
-			require.Contains(t, content.Text, "dd711d5c-83c6-4c08-a0af-b73055906e8c") // The ID of the workspace to be returned.
-
-			// Check the token usage from the client's perspective.
-			//
-			// We overwrite the final message_delta which is relayed to the client to include the
-			// accumulated tokens but currently the SDK only supports accumulating output tokens
-			// for message_delta events.
-			//
-			// For non-streaming requests the token usage is also overwritten and should be faithfully
-			// represented in the response.
-			//
-			// See https://github.com/anthropics/anthropic-sdk-go/blob/v1.12.0/message.go#L2619-L2622
-			if !streaming {
-				assert.EqualValues(t, 15308, message.Usage.InputTokens)
-			}
-			assert.EqualValues(t, 204, message.Usage.OutputTokens)
-
-			// Ensure tokens used during injected tool invocation are accounted for.
-			tokenUsages := recorderClient.RecordedTokenUsages()
-			assert.EqualValues(t, 15308, calculateTotalInputTokens(tokenUsages))
-			assert.EqualValues(t, 204, calculateTotalOutputTokens(tokenUsages))
-
-			// Ensure we received exactly one prompt.
-			promptUsages := recorderClient.RecordedPromptUsages()
-			require.Len(t, promptUsages, 1)
-		})
-	}
-}
-
-func TestOpenAIInjectedTools(t *testing.T) {
-	t.Parallel()
-
-	for _, streaming := range []bool{true, false} {
-		t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
-			t.Parallel()
-
-			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, testTracer)
-			}
-
-			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
-
-			// Ensure expected tool was invoked with expected input.
-			toolUsages := recorderClient.RecordedToolUsages()
-			require.Len(t, toolUsages, 1)
-			require.Equal(t, mockToolName, toolUsages[0].Tool)
-			expected, err := json.Marshal(map[string]any{"owner": "admin"})
-			require.NoError(t, err)
-			actual, err := json.Marshal(toolUsages[0].Args)
-			require.NoError(t, err)
-			require.EqualValues(t, expected, actual)
-			invocations := mcpCalls.getCallsByTool(mockToolName)
-			require.Len(t, invocations, 1)
-			actual, err = json.Marshal(invocations[0])
-			require.NoError(t, err)
-			require.EqualValues(t, expected, actual)
-
-			var (
-				content *openai.ChatCompletionChoice
-				message openai.ChatCompletion
-			)
-			if streaming {
-				// Parse the response stream.
-				decoder := oaissestream.NewDecoder(resp)
-				stream := oaissestream.NewStream[openai.ChatCompletionChunk](decoder, nil)
-				var acc openai.ChatCompletionAccumulator
-				detectedToolCalls := make(map[string]struct{})
-				for stream.Next() {
-					chunk := stream.Current()
-					acc.AddChunk(chunk)
-
-					if len(chunk.Choices) == 0 {
-						continue
-					}
-
-					for _, c := range chunk.Choices {
-						if len(c.Delta.ToolCalls) == 0 {
-							continue
-						}
-
-						for _, t := range c.Delta.ToolCalls {
-							if t.Function.Name == "" {
-								continue
-							}
-
-							detectedToolCalls[t.Function.Name] = struct{}{}
-						}
-					}
-				}
-
-				// Verify that no injected tool call events (or partials thereof) were sent to the client.
-				require.Len(t, detectedToolCalls, 0)
-
-				message = acc.ChatCompletion
-				require.NoError(t, stream.Err(), "stream error")
-			} else {
-				// Parse & unmarshal the response.
-				body, err := io.ReadAll(resp.Body)
-				require.NoError(t, err, "read response body")
-				require.NoError(t, json.Unmarshal(body, &message), "unmarshal response")
-
-				// Verify that no injected tools were sent to the client.
-				require.GreaterOrEqual(t, len(message.Choices), 1)
-				require.Len(t, message.Choices[0].Message.ToolCalls, 0)
-			}
-
-			require.GreaterOrEqual(t, len(message.Choices), 1)
-			content = &message.Choices[0]
-
-			// Ensure tool returned expected value.
-			require.NotNil(t, content)
-			require.Contains(t, content.Message.Content, "dd711d5c-83c6-4c08-a0af-b73055906e8c") // The ID of the workspace to be returned.
-
-			// Check the token usage from the client's perspective.
-			// This *should* work but the openai SDK doesn't accumulate the prompt token details :(.
-			// See https://github.com/openai/openai-go/blob/v2.7.0/streamaccumulator.go#L145-L147.
-			// assert.EqualValues(t, 5047, message.Usage.PromptTokens-message.Usage.PromptTokensDetails.CachedTokens)
-			assert.EqualValues(t, 105, message.Usage.CompletionTokens)
-
-			// Ensure tokens used during injected tool invocation are accounted for.
-			tokenUsages := recorderClient.RecordedTokenUsages()
-			require.EqualValues(t, 5047, calculateTotalInputTokens(tokenUsages))
-			require.EqualValues(t, 105, calculateTotalOutputTokens(tokenUsages))
-
-			// Ensure we received exactly one prompt.
-			promptUsages := recorderClient.RecordedPromptUsages()
-			require.Len(t, promptUsages, 1)
-		})
-	}
-}
-
-// setupInjectedToolTest abstracts the common aspects required for the Test*InjectedTools tests.
-// Kinda fugly right now, we can refactor this later.
-func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configureFn configureFunc, createRequestFn func(*testing.T, string, []byte) *http.Request) (*mockRecorderClient, *callAccumulator, map[string]mcp.ServerProxier, *http.Response) {
-	t.Helper()
-
-	arc := txtar.Parse(fixture)
-	t.Logf("%s: %s", t.Name(), arc.Comment)
-
-	files := filesMap(arc)
-	require.Len(t, files, 5)
-	require.Contains(t, files, fixtureRequest)
-	require.Contains(t, files, fixtureStreamingResponse)
-	require.Contains(t, files, fixtureNonStreamingResponse)
-	require.Contains(t, files, fixtureStreamingToolResponse)
-	require.Contains(t, files, fixtureNonStreamingToolResponse)
-
-	reqBody := files[fixtureRequest]
-
-	// Add the stream param to the request.
-	newBody, err := setJSON(reqBody, "stream", streaming)
-	require.NoError(t, err)
-	reqBody = newBody
-
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-	t.Cleanup(cancel)
-
-	// Setup mock server with response mutator for multi-turn interaction.
-	mockSrv := newMockServer(ctx, t, files, func(reqCount uint32, resp []byte) []byte {
-		if reqCount == 1 {
-			return resp // First request gets the normal response (with tool call).
-		}
-
-		if reqCount > 2 {
-			// This should not happen in single injected tool tests.
-			return resp
-		}
-
-		// Second request gets the tool response.
-		if streaming {
-			return files[fixtureStreamingToolResponse]
-		}
-		return files[fixtureNonStreamingToolResponse]
-	})
-	t.Cleanup(mockSrv.Close)
-
-	recorderClient := &mockRecorderClient{}
-
-	// Setup MCP mcpProxiers.
-	mcpProxiers, acc := setupMCPServerProxiesForTest(t, testTracer)
-
-	// Configure the bridge with injected tools.
-	mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
-	require.NoError(t, mcpMgr.Init(ctx))
-	b, err := configureFn(mockSrv.URL, recorderClient, mcpMgr)
-	require.NoError(t, err)
-
-	// Invoke request to mocked API via aibridge.
-	bridgeSrv := httptest.NewUnstartedServer(b)
-	bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibridge.AsActor(ctx, userID, nil)
-	}
-	bridgeSrv.Start()
-	t.Cleanup(bridgeSrv.Close)
-
-	req := createRequestFn(t, bridgeSrv.URL, reqBody)
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	t.Cleanup(func() {
-		_ = resp.Body.Close()
-	})
-
-	// We must ALWAYS have 2 calls to the bridge for injected tool tests.
-	require.Eventually(t, func() bool {
-		return mockSrv.callCount.Load() == 2
-	}, time.Second*10, time.Millisecond*50)
-
-	return recorderClient, acc, mcpProxiers, resp
-}
 
 func TestErrorHandling(t *testing.T) {
 	t.Parallel()
@@ -1046,14 +635,12 @@ func TestErrorHandling(t *testing.T) {
 		cases := []struct {
 			name              string
 			fixture           []byte
-			createRequestFunc createRequestFunc
 			configureFunc     configureFunc
 			responseHandlerFn func(resp *http.Response)
 		}{
 			{
-				name:              aibridge.ProviderAnthropic,
-				fixture:           antNonStreamErr,
-				createRequestFunc: createAnthropicMessagesReq,
+				name:    aibridge.ProviderAnthropic,
+				fixture: antNonStreamErr,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 					providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), nil)}
@@ -1069,9 +656,8 @@ func TestErrorHandling(t *testing.T) {
 				},
 			},
 			{
-				name:              aibridge.ProviderOpenAI,
-				fixture:           oaiNonStreamErr,
-				createRequestFunc: createOpenAIChatCompletionsReq,
+				name:    aibridge.ProviderOpenAI,
+				fixture: oaiNonStreamErr,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 					providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}
@@ -1096,52 +682,37 @@ func TestErrorHandling(t *testing.T) {
 					t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
 						t.Parallel()
 
-						ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+						ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 						t.Cleanup(cancel)
 
-						arc := txtar.Parse(tc.fixture)
+						arc := testutil.MustParseTXTAR(t, tc.fixture)
 						t.Logf("%s: %s", t.Name(), arc.Comment)
 
-						files := filesMap(arc)
-						require.Len(t, files, 3)
-						require.Contains(t, files, fixtureRequest)
-						require.Contains(t, files, fixtureStreamingResponse)
-						require.Contains(t, files, fixtureNonStreamingResponse)
+						llm := testutil.MustLLMFixture(t, arc)
+						reqBody := llm.MustRequestBody(t, streaming)
 
-						reqBody := files[fixtureRequest]
-						// Add the stream param to the request.
-						newBody, err := setJSON(reqBody, "stream", streaming)
+						mockResp, err := llm.Response(1, streaming)
 						require.NoError(t, err)
-						reqBody = newBody
+						mockSrv := testutil.NewHTTPReflectorServer(t, ctx, mockResp)
 
-						// Setup mock server.
-						mockResp := files[fixtureStreamingResponse]
-						if !streaming {
-							mockResp = files[fixtureNonStreamingResponse]
-						}
-						mockSrv := newMockHTTPReflector(ctx, t, mockResp)
-						t.Cleanup(mockSrv.Close)
+						recorderClient := &testutil.RecorderSpy{}
 
-						recorderClient := &mockRecorderClient{}
-
-						b, err := tc.configureFunc(mockSrv.URL, recorderClient, mcp.NewServerProxyManager(nil, testTracer))
+						bridge, err := tc.configureFunc(mockSrv.URL, recorderClient, mcp.NewServerProxyManager(nil, testTracer))
 						require.NoError(t, err)
 
-						// Invoke request to mocked API via aibridge.
-						bridgeSrv := httptest.NewUnstartedServer(b)
-						bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-							return aibridge.AsActor(ctx, userID, nil)
-						}
-						bridgeSrv.Start()
-						t.Cleanup(bridgeSrv.Close)
+						bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+							Ctx:     ctx,
+							ActorID: userID,
+							Handler: bridge,
+						})
 
-						req := tc.createRequestFunc(t, bridgeSrv.URL, reqBody)
-						resp, err := http.DefaultClient.Do(req)
-						t.Cleanup(func() { _ = resp.Body.Close() })
+						req := bridgeSrv.NewProviderRequest(t, tc.name, reqBody)
+						resp, err := bridgeSrv.Client.Do(req)
 						require.NoError(t, err)
+						defer resp.Body.Close()
 
 						tc.responseHandlerFn(resp)
-						recorderClient.verifyAllInterceptionsEnded(t)
+						recorderClient.RequireAllInterceptionsEnded(t)
 					})
 				}
 			})
@@ -1153,14 +724,12 @@ func TestErrorHandling(t *testing.T) {
 		cases := []struct {
 			name              string
 			fixture           []byte
-			createRequestFunc createRequestFunc
 			configureFunc     configureFunc
 			responseHandlerFn func(resp *http.Response)
 		}{
 			{
-				name:              aibridge.ProviderAnthropic,
-				fixture:           antMidStreamErr,
-				createRequestFunc: createAnthropicMessagesReq,
+				name:    aibridge.ProviderAnthropic,
+				fixture: antMidStreamErr,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 					providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), nil)}
@@ -1177,9 +746,8 @@ func TestErrorHandling(t *testing.T) {
 				},
 			},
 			{
-				name:              aibridge.ProviderOpenAI,
-				fixture:           oaiMidStreamErr,
-				createRequestFunc: createOpenAIChatCompletionsReq,
+				name:    aibridge.ProviderOpenAI,
+				fixture: oaiMidStreamErr,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 					providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}
@@ -1206,45 +774,36 @@ func TestErrorHandling(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 				t.Cleanup(cancel)
 
-				arc := txtar.Parse(tc.fixture)
+				arc := testutil.MustParseTXTAR(t, tc.fixture)
 				t.Logf("%s: %s", t.Name(), arc.Comment)
 
-				files := filesMap(arc)
-				require.Len(t, files, 2)
-				require.Contains(t, files, fixtureRequest)
-				require.Contains(t, files, fixtureStreamingResponse)
+				llm := testutil.MustLLMFixture(t, arc)
 
-				reqBody := files[fixtureRequest]
+				upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
-				// Setup mock server.
-				mockSrv := newMockServer(ctx, t, files, nil)
-				mockSrv.statusCode = http.StatusInternalServerError
-				t.Cleanup(mockSrv.Close)
+				reqBody := llm.MustRequestBody(t, true)
 
-				recorderClient := &mockRecorderClient{}
+				recorderClient := &testutil.RecorderSpy{}
 
-				b, err := tc.configureFunc(mockSrv.URL, recorderClient, mcp.NewServerProxyManager(nil, testTracer))
+				bridge, err := tc.configureFunc(upstream.URL, recorderClient, mcp.NewServerProxyManager(nil, testTracer))
 				require.NoError(t, err)
 
-				// Invoke request to mocked API via aibridge.
-				bridgeSrv := httptest.NewUnstartedServer(b)
-				bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-					return aibridge.AsActor(ctx, userID, nil)
-				}
-				bridgeSrv.Start()
-				t.Cleanup(bridgeSrv.Close)
+				bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+					Ctx:     ctx,
+					ActorID: userID,
+					Handler: bridge,
+				})
 
-				req := tc.createRequestFunc(t, bridgeSrv.URL, reqBody)
-				resp, err := http.DefaultClient.Do(req)
-				t.Cleanup(func() { _ = resp.Body.Close() })
+				req := bridgeSrv.NewProviderRequest(t, tc.name, reqBody)
+				resp, err := bridgeSrv.Client.Do(req)
 				require.NoError(t, err)
-				bridgeSrv.Close()
+				defer resp.Body.Close()
 
 				tc.responseHandlerFn(resp)
-				recorderClient.verifyAllInterceptionsEnded(t)
+				recorderClient.RequireAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -1260,27 +819,22 @@ func TestStableRequestEncoding(t *testing.T) {
 	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 
 	cases := []struct {
-		name              string
-		fixture           []byte
-		createRequestFunc createRequestFunc
-		configureFunc     configureFunc
+		name        string
+		fixture     []byte
+		newProvider func(upstreamURL string) aibridge.Provider
 	}{
 		{
-			name:              aibridge.ProviderAnthropic,
-			fixture:           antSimple,
-			createRequestFunc: createAnthropicMessagesReq,
-			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), nil)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, testTracer)
+			name:    aibridge.ProviderAnthropic,
+			fixture: antSimple,
+			newProvider: func(upstreamURL string) aibridge.Provider {
+				return aibridge.NewAnthropicProvider(anthropicCfg(upstreamURL, apiKey), nil)
 			},
 		},
 		{
-			name:              aibridge.ProviderOpenAI,
-			fixture:           oaiSimple,
-			createRequestFunc: createOpenAIChatCompletionsReq,
-			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, testTracer)
+			name:    aibridge.ProviderOpenAI,
+			fixture: oaiSimple,
+			newProvider: func(upstreamURL string) aibridge.Provider {
+				return aibridge.NewOpenAIProvider(openaiCfg(upstreamURL, apiKey))
 			},
 		},
 	}
@@ -1289,81 +843,52 @@ func TestStableRequestEncoding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			t.Cleanup(cancel)
 
-			// Setup MCP tools.
-			mcpProxiers, _ := setupMCPServerProxiesForTest(t, testTracer)
-
-			// Configure the bridge with injected tools.
-			mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
-			require.NoError(t, mcpMgr.Init(ctx))
-
-			arc := txtar.Parse(tc.fixture)
+			arc := testutil.MustParseTXTAR(t, tc.fixture)
 			t.Logf("%s: %s", t.Name(), arc.Comment)
 
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureRequest)
-			require.Contains(t, files, fixtureNonStreamingResponse)
+			llm := testutil.MustLLMFixture(t, arc)
+			reqBody := arc.MustFile(t, testutil.FixtureRequest)
 
-			var (
-				reference []byte
-				reqCount  atomic.Int32
-			)
+			upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
-			// Create a mock server that captures and compares request bodies.
-			mockSrv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				reqCount.Add(1)
+			// Setup mocked MCP server & tools.
+			mcpSrv := testutil.NewMCPServer(t, testutil.DefaultCoderToolNames())
+			mcpProxiers := mcpSrv.Proxiers(t, "coder", logger, testTracer)
 
-				// Capture the raw request body.
-				raw, err := io.ReadAll(r.Body)
-				defer r.Body.Close()
-				require.NoError(t, err)
-				require.NotEmpty(t, raw)
-
-				// Store the first instance as the reference value.
-				if reference == nil {
-					reference = raw
-				} else {
-					// Compare all subsequent requests to the reference.
-					assert.JSONEq(t, string(reference), string(raw))
-				}
-
-				// Return a valid API response.
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write(files[fixtureNonStreamingResponse])
-			}))
-			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return ctx
-			}
-			mockSrv.Start()
-			t.Cleanup(mockSrv.Close)
-
-			recorder := &mockRecorderClient{}
-			bridge, err := tc.configureFunc(mockSrv.URL, recorder, mcpMgr)
-			require.NoError(t, err)
-
-			// Invoke request to mocked API via aibridge.
-			bridgeSrv := httptest.NewUnstartedServer(bridge)
-			bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibridge.AsActor(ctx, userID, nil)
-			}
-			bridgeSrv.Start()
-			t.Cleanup(bridgeSrv.Close)
+			recorder := &testutil.RecorderSpy{}
+			bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+				Ctx:         ctx,
+				ActorID:     userID,
+				Providers:   []aibridge.Provider{tc.newProvider(upstream.URL)},
+				Recorder:    recorder,
+				MCPProxiers: mcpProxiers,
+				Logger:      logger,
+				Tracer:      testTracer,
+			})
 
 			// Make multiple requests and verify they all have identical payloads.
 			count := 10
-			for range count {
-				req := tc.createRequestFunc(t, bridgeSrv.URL, files[fixtureRequest])
-				client := &http.Client{}
-				resp, err := client.Do(req)
+			for i := 0; i < count; i++ {
+				req := bridgeSrv.NewProviderRequest(t, tc.name, reqBody)
+				resp, err := bridgeSrv.Client.Do(req)
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 				_ = resp.Body.Close()
 			}
 
-			require.EqualValues(t, count, reqCount.Load())
+			upstream.RequireCallCountEventually(t, count)
+			reqs := upstream.Requests()
+			require.Len(t, reqs, count)
+
+			reference := string(reqs[0].Body)
+			for i := 1; i < len(reqs); i++ {
+				assert.JSONEq(t, reference, string(reqs[i].Body))
+			}
+
+			recorder.RequireAllInterceptionsEnded(t)
 		})
 	}
 }
@@ -1423,69 +948,47 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			t.Cleanup(cancel)
 
-			// Configure the bridge.
-			mcpMgr := mcp.NewServerProxyManager(nil, testTracer)
-			require.NoError(t, mcpMgr.Init(ctx))
-
-			arc := txtar.Parse(antSimple)
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureRequest)
-			require.Contains(t, files, fixtureNonStreamingResponse)
+			arc := testutil.MustParseTXTAR(t, antSimple)
+			llm := testutil.MustLLMFixture(t, arc)
 
 			// Prepare request body with tool_choice set.
 			var reqJSON map[string]any
-			require.NoError(t, json.Unmarshal(files[fixtureRequest], &reqJSON))
+			require.NoError(t, json.Unmarshal(arc.MustFile(t, testutil.FixtureRequest), &reqJSON))
 			if tc.toolChoice != nil {
 				reqJSON["tool_choice"] = tc.toolChoice
 			}
 			reqBody, err := json.Marshal(reqJSON)
 			require.NoError(t, err)
 
-			var receivedRequest map[string]any
+			upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
-			// Create a mock server that captures the request body sent upstream.
-			mockSrv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				// Capture the raw request body.
-				raw, err := io.ReadAll(r.Body)
-				defer r.Body.Close()
-				require.NoError(t, err)
-
-				require.NoError(t, json.Unmarshal(raw, &receivedRequest))
-
-				// Return a valid API response.
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write(files[fixtureNonStreamingResponse])
-			}))
-			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return ctx
-			}
-			mockSrv.Start()
-			t.Cleanup(mockSrv.Close)
-
-			recorder := &mockRecorderClient{}
+			recorder := &testutil.RecorderSpy{}
 			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-			providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(mockSrv.URL, apiKey), nil)}
-			bridge, err := aibridge.NewRequestBridge(ctx, providers, recorder, mcpMgr, logger, nil, testTracer)
-			require.NoError(t, err)
+			providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(upstream.URL, apiKey), nil)}
+			bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+				Ctx:       ctx,
+				ActorID:   userID,
+				Providers: providers,
+				Recorder:  recorder,
+				Logger:    logger,
+				Tracer:    testTracer,
+			})
 
-			// Invoke request to mocked API via aibridge.
-			bridgeSrv := httptest.NewUnstartedServer(bridge)
-			bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibridge.AsActor(ctx, userID, nil)
-			}
-			bridgeSrv.Start()
-			t.Cleanup(bridgeSrv.Close)
-
-			req := createAnthropicMessagesReq(t, bridgeSrv.URL, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
+			req := bridgeSrv.NewProviderRequest(t, aibridge.ProviderAnthropic, reqBody)
+			resp, err := bridgeSrv.Client.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			_ = resp.Body.Close()
+
+			upstream.RequireCallCountEventually(t, 1)
+			reqs := upstream.Requests()
+			require.Len(t, reqs, 1)
+
+			var receivedRequest map[string]any
+			require.NoError(t, json.Unmarshal(reqs[0].Body, &receivedRequest))
 
 			// Verify tool_choice in the upstream request.
 			require.NotNil(t, receivedRequest)
@@ -1523,7 +1026,6 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 		name          string
 		fixture       []byte
 		configureFunc func(string, aibridge.Recorder) (*aibridge.RequestBridge, error)
-		createRequest func(*testing.T, string, []byte) *http.Request
 		envVars       map[string]string
 		headerName    string
 	}{
@@ -1535,7 +1037,6 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 				providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), nil)}
 				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
 			},
-			createRequest: createAnthropicMessagesReq,
 			envVars: map[string]string{
 				"ANTHROPIC_AUTH_TOKEN": "should-not-leak",
 			},
@@ -1549,7 +1050,6 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 				providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}
 				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
 			},
-			createRequest: createOpenAIChatCompletionsReq,
 			envVars: map[string]string{
 				"OPENAI_ORG_ID": "should-not-leak",
 			},
@@ -1561,26 +1061,14 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// NOTE: Cannot use t.Parallel() here because t.Setenv requires sequential execution.
 
-			arc := txtar.Parse(tc.fixture)
-			files := filesMap(arc)
-			reqBody := files[fixtureRequest]
+			arc := testutil.MustParseTXTAR(t, tc.fixture)
+			llm := testutil.MustLLMFixture(t, arc)
+			reqBody := arc.MustFile(t, testutil.FixtureRequest)
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			t.Cleanup(cancel)
 
-			// Track headers received by the upstream server.
-			var receivedHeaders http.Header
-			srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				receivedHeaders = r.Header.Clone()
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write(files[fixtureNonStreamingResponse])
-			}))
-			srv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return ctx
-			}
-			srv.Start()
-			t.Cleanup(srv.Close)
+			upstream := testutil.NewUpstreamServer(t, ctx, llm)
 
 			// Set environment variables that the SDK would automatically read.
 			// These should NOT leak into upstream requests.
@@ -1588,355 +1076,32 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 				t.Setenv(key, val)
 			}
 
-			recorderClient := &mockRecorderClient{}
-			b, err := tc.configureFunc(srv.URL, recorderClient)
+			recorderClient := &testutil.RecorderSpy{}
+			bridge, err := tc.configureFunc(upstream.URL, recorderClient)
 			require.NoError(t, err)
 
-			mockSrv := httptest.NewUnstartedServer(b)
-			t.Cleanup(mockSrv.Close)
-			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibridge.AsActor(ctx, userID, nil)
-			}
-			mockSrv.Start()
+			bridgeSrv := testutil.NewBridgeServer(t, testutil.BridgeConfig{
+				Ctx:     ctx,
+				ActorID: userID,
+				Handler: bridge,
+			})
 
-			req := tc.createRequest(t, mockSrv.URL, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
+			req := bridgeSrv.NewProviderRequest(t, tc.name, reqBody)
+			resp, err := bridgeSrv.Client.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			defer resp.Body.Close()
 
+			upstream.RequireCallCountEventually(t, 1)
+			reqs := upstream.Requests()
+			require.Len(t, reqs, 1)
+
 			// Verify that environment values did not leak.
+			receivedHeaders := reqs[0].Header
 			require.NotNil(t, receivedHeaders)
 			require.Empty(t, receivedHeaders.Get(tc.headerName))
 		})
 	}
-}
-
-func calculateTotalInputTokens(in []*aibridge.TokenUsageRecord) int64 {
-	var total int64
-	for _, el := range in {
-		total += el.Input
-	}
-	return total
-}
-
-func calculateTotalOutputTokens(in []*aibridge.TokenUsageRecord) int64 {
-	var total int64
-	for _, el := range in {
-		total += el.Output
-	}
-	return total
-}
-
-type archiveFileMap map[string][]byte
-
-func filesMap(archive *txtar.Archive) archiveFileMap {
-	if len(archive.Files) == 0 {
-		return nil
-	}
-
-	out := make(archiveFileMap, len(archive.Files))
-	for _, f := range archive.Files {
-		out[f.Name] = f.Data
-	}
-	return out
-}
-
-func createAnthropicMessagesReq(t *testing.T, baseURL string, input []byte) *http.Request {
-	t.Helper()
-
-	req, err := http.NewRequestWithContext(t.Context(), "POST", baseURL+"/anthropic/v1/messages", bytes.NewReader(input))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	return req
-}
-
-func createOpenAIChatCompletionsReq(t *testing.T, baseURL string, input []byte) *http.Request {
-	t.Helper()
-
-	req, err := http.NewRequestWithContext(t.Context(), "POST", baseURL+"/openai/v1/chat/completions", bytes.NewReader(input))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-
-	return req
-}
-
-type mockHTTPReflector struct {
-	*httptest.Server
-}
-
-func newMockHTTPReflector(ctx context.Context, t *testing.T, resp []byte) *mockHTTPReflector {
-	ref := &mockHTTPReflector{}
-
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mock, err := http.ReadResponse(bufio.NewReader(bytes.NewBuffer(resp)), r)
-		require.NoError(t, err)
-		defer mock.Body.Close()
-
-		// Copy headers from the mocked response.
-		for key, values := range mock.Header {
-			for _, value := range values {
-				w.Header().Add(key, value)
-			}
-		}
-
-		// Write the status code.
-		w.WriteHeader(mock.StatusCode)
-
-		// Copy the body.
-		_, err = io.Copy(w, mock.Body)
-		require.NoError(t, err)
-	}))
-	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return ctx
-	}
-
-	srv.Start()
-	t.Cleanup(srv.Close)
-
-	ref.Server = srv
-	return ref
-}
-
-// TODO: replace this with mockHTTPReflector.
-type mockServer struct {
-	*httptest.Server
-
-	callCount atomic.Uint32
-
-	statusCode int
-}
-
-func newMockServer(ctx context.Context, t *testing.T, files archiveFileMap, responseMutatorFn func(reqCount uint32, resp []byte) []byte) *mockServer {
-	t.Helper()
-
-	ms := &mockServer{}
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		statusCode := http.StatusOK
-		if ms.statusCode != 0 {
-			statusCode = ms.statusCode
-		}
-
-		ms.callCount.Add(1)
-
-		body, err := io.ReadAll(r.Body)
-		defer r.Body.Close()
-		require.NoError(t, err)
-
-		type msg struct {
-			Stream bool `json:"stream"`
-		}
-		var reqMsg msg
-		require.NoError(t, json.Unmarshal(body, &reqMsg))
-
-		if !reqMsg.Stream && !strings.HasSuffix(r.URL.Path, "invoke-with-response-stream") {
-			resp := files[fixtureNonStreamingResponse]
-			if responseMutatorFn != nil {
-				resp = responseMutatorFn(ms.callCount.Load(), resp)
-			}
-
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(statusCode)
-			w.Write(resp)
-			return
-		}
-
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-
-		resp := files[fixtureStreamingResponse]
-		if responseMutatorFn != nil {
-			resp = responseMutatorFn(ms.callCount.Load(), resp)
-		}
-
-		scanner := bufio.NewScanner(bytes.NewReader(resp))
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
-			return
-		}
-
-		for scanner.Scan() {
-			line := scanner.Text()
-
-			fmt.Fprintf(w, "%s\n", line)
-			flusher.Flush()
-		}
-
-		if err := scanner.Err(); err != nil {
-			http.Error(w, fmt.Sprintf("Error reading fixture: %v", err), http.StatusInternalServerError)
-			return
-		}
-	}))
-
-	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return ctx
-	}
-
-	srv.Start()
-	t.Cleanup(srv.Close)
-
-	ms.Server = srv
-	return ms
-}
-
-var _ aibridge.Recorder = &mockRecorderClient{}
-
-type mockRecorderClient struct {
-	mu sync.Mutex
-
-	interceptions    []*aibridge.InterceptionRecord
-	tokenUsages      []*aibridge.TokenUsageRecord
-	userPrompts      []*aibridge.PromptUsageRecord
-	toolUsages       []*aibridge.ToolUsageRecord
-	interceptionsEnd map[string]time.Time
-}
-
-func (m *mockRecorderClient) RecordInterception(ctx context.Context, req *aibridge.InterceptionRecord) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.interceptions = append(m.interceptions, req)
-	return nil
-}
-
-func (m *mockRecorderClient) RecordInterceptionEnded(ctx context.Context, req *aibridge.InterceptionRecordEnded) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	if m.interceptionsEnd == nil {
-		m.interceptionsEnd = make(map[string]time.Time)
-	}
-	if !slices.ContainsFunc(m.interceptions, func(intc *aibridge.InterceptionRecord) bool { return intc.ID == req.ID }) {
-		return fmt.Errorf("id not found")
-	}
-	m.interceptionsEnd[req.ID] = req.EndedAt
-	return nil
-}
-
-func (m *mockRecorderClient) RecordPromptUsage(ctx context.Context, req *aibridge.PromptUsageRecord) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.userPrompts = append(m.userPrompts, req)
-	return nil
-}
-
-func (m *mockRecorderClient) RecordTokenUsage(ctx context.Context, req *aibridge.TokenUsageRecord) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.tokenUsages = append(m.tokenUsages, req)
-	return nil
-}
-
-func (m *mockRecorderClient) RecordToolUsage(ctx context.Context, req *aibridge.ToolUsageRecord) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.toolUsages = append(m.toolUsages, req)
-	return nil
-}
-
-// RecordedTokenUsages returns a copy of recorded token usages in a thread-safe manner.
-// Note: This is a shallow clone - the slice is copied but the pointers reference the
-// same underlying records. This is sufficient for our test assertions which only read
-// the data and don't modify the records.
-func (m *mockRecorderClient) RecordedTokenUsages() []*aibridge.TokenUsageRecord {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return slices.Clone(m.tokenUsages)
-}
-
-// RecordedPromptUsages returns a copy of recorded prompt usages in a thread-safe manner.
-// Note: This is a shallow clone (see RecordedTokenUsages for details).
-func (m *mockRecorderClient) RecordedPromptUsages() []*aibridge.PromptUsageRecord {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return slices.Clone(m.userPrompts)
-}
-
-// RecordedToolUsages returns a copy of recorded tool usages in a thread-safe manner.
-// Note: This is a shallow clone (see RecordedTokenUsages for details).
-func (m *mockRecorderClient) RecordedToolUsages() []*aibridge.ToolUsageRecord {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return slices.Clone(m.toolUsages)
-}
-
-// RecordedInterceptions returns a copy of recorded interceptions in a thread-safe manner.
-// Note: This is a shallow clone (see RecordedTokenUsages for details).
-func (m *mockRecorderClient) RecordedInterceptions() []*aibridge.InterceptionRecord {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return slices.Clone(m.interceptions)
-}
-
-// verify all recorded interceptions has been marked as completed
-func (m *mockRecorderClient) verifyAllInterceptionsEnded(t *testing.T) {
-	t.Helper()
-
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	require.Equalf(t, len(m.interceptions), len(m.interceptionsEnd), "got %v interception ended calls, want: %v", len(m.interceptionsEnd), len(m.interceptions))
-	for _, intc := range m.interceptions {
-		require.Containsf(t, m.interceptionsEnd, intc.ID, "interception with id: %v has not been ended", intc.ID)
-	}
-}
-
-const mockToolName = "coder_list_workspaces"
-
-// callAccumulator tracks all tool invocations by name and each instance's arguments.
-type callAccumulator struct {
-	calls   map[string][]any
-	callsMu sync.Mutex
-}
-
-func newCallAccumulator() *callAccumulator {
-	return &callAccumulator{
-		calls: make(map[string][]any),
-	}
-}
-
-func (a *callAccumulator) addCall(tool string, args any) {
-	a.callsMu.Lock()
-	defer a.callsMu.Unlock()
-
-	a.calls[tool] = append(a.calls[tool], args)
-}
-
-func (a *callAccumulator) getCallsByTool(name string) []any {
-	a.callsMu.Lock()
-	defer a.callsMu.Unlock()
-
-	// Protect against concurrent access of the slice.
-	result := make([]any, len(a.calls[name]))
-	copy(result, a.calls[name])
-	return result
-}
-
-func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
-	t.Helper()
-
-	s := server.NewMCPServer(
-		"Mock coder MCP server",
-		"1.0.0",
-		server.WithToolCapabilities(true),
-	)
-
-	// Accumulate tool calls & their arguments.
-	acc := newCallAccumulator()
-
-	for _, name := range []string{mockToolName, "coder_list_templates", "coder_template_version_parameters", "coder_get_authenticated_user", "coder_create_workspace_build"} {
-		tool := mcplib.NewTool(name,
-			mcplib.WithDescription(fmt.Sprintf("Mock of the %s tool", name)),
-		)
-		s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
-			acc.addCall(request.Params.Name, request.Params.Arguments)
-			return mcplib.NewToolResultText("mock"), nil
-		})
-	}
-
-	return server.NewStreamableHTTPServer(s), acc
 }
 
 func openaiCfg(url, key string) aibridge.OpenAIConfig {
