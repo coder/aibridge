@@ -141,7 +141,7 @@ newStream:
 		var message anthropic.Message
 		var lastToolName string
 
-		pendingToolCalls := make(map[string]string)
+		pendingToolCalls := make(map[string]struct{}) // tracks injected tools awaiting invocation
 
 		for stream.Next() {
 			event := stream.Current()
@@ -159,7 +159,7 @@ newStream:
 					lastToolName = block.Name
 
 					if i.mcpProxy != nil && i.mcpProxy.GetTool(block.Name) != nil {
-						pendingToolCalls[block.Name] = block.ID
+						pendingToolCalls[block.Name] = struct{}{}
 						// Don't relay this event back, otherwise the client will try invoke the tool as well.
 						continue
 					}
@@ -243,44 +243,39 @@ newStream:
 			// Don't send message_stop until all tools have been called.
 			case string(constant.ValueOf[constant.MessageStop]()):
 				if len(pendingToolCalls) > 0 {
-					// Append the whole message from this stream as context since we'll be sending a new request with the tool results.
-					messages.Messages = append(messages.Messages, message.ToParam())
-
-					for name, id := range pendingToolCalls {
-						if i.mcpProxy == nil {
+					// Replace tool use IDs with UUIDs in the message param.
+					msgParam := message.ToParam()
+					toolUseIDs := make(map[string]string) // name -> uuid
+					for idx, block := range msgParam.Content {
+						if block.OfToolUse == nil {
 							continue
 						}
-
-						if i.mcpProxy.GetTool(name) == nil {
-							// Not an MCP proxy call, don't do anything.
+						name := block.OfToolUse.Name
+						if _, isPending := pendingToolCalls[name]; !isPending {
 							continue
 						}
+						toolUseIDs[name] = uuid.New().String()
+						msgParam.Content[idx].OfToolUse.ID = toolUseIDs[name]
+					}
 
+					// Append the assistant message with updated IDs.
+					messages.Messages = append(messages.Messages, msgParam)
+
+					// Process each injected tool.
+					for name, toolUseID := range toolUseIDs {
 						tool := i.mcpProxy.GetTool(name)
 						if tool == nil {
 							logger.Warn(ctx, "tool not found in manager", slog.F("tool_name", name))
 							continue
 						}
 
-						var (
-							input      json.RawMessage
-							foundTool  bool
-							foundTools int
-						)
-						for _, block := range message.Content {
-							switch variant := block.AsAny().(type) {
-							case anthropic.ToolUseBlock:
-								foundTools++
-								if variant.Name == name {
-									input = variant.Input
-									foundTool = true
-								}
+						// Find input from accumulated message.
+						var input json.RawMessage
+						for _, contentBlock := range message.Content {
+							if variant, ok := contentBlock.AsAny().(anthropic.ToolUseBlock); ok && variant.Name == name {
+								input = variant.Input
+								break
 							}
-						}
-
-						if !foundTool {
-							logger.Warn(ctx, "failed to find tool input", slog.F("tool_name", name), slog.F("found_tools", foundTools))
-							continue
 						}
 
 						res, err := tool.Call(streamCtx, input, i.tracer)
@@ -288,6 +283,7 @@ newStream:
 						_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 							InterceptionID:  i.ID().String(),
 							MsgID:           message.ID,
+							ToolUseID:       toolUseID,
 							ServerURL:       &tool.ServerURL,
 							Tool:            tool.Name,
 							Args:            input,
@@ -298,7 +294,7 @@ newStream:
 						if err != nil {
 							// Always provide a tool_result even if the tool call failed
 							messages.Messages = append(messages.Messages,
-								anthropic.NewUserMessage(anthropic.NewToolResultBlock(id, fmt.Sprintf("Error calling tool: %v", err), true)),
+								anthropic.NewUserMessage(anthropic.NewToolResultBlock(toolUseID, fmt.Sprintf("Error calling tool: %v", err), true)),
 							)
 							continue
 						}
@@ -306,7 +302,7 @@ newStream:
 						// Process tool result
 						toolResult := anthropic.ContentBlockParamUnion{
 							OfToolResult: &anthropic.ToolResultBlockParam{
-								ToolUseID: id,
+								ToolUseID: toolUseID,
 								IsError:   anthropic.Bool(false),
 							},
 						}
@@ -496,6 +492,16 @@ func (s *AnthropicMessagesStreamingInterception) marshalEvent(event anthropic.Me
 	sj, err = sjson.Set(sj, "usage.output_tokens", event.Usage.OutputTokens)
 	if err != nil {
 		return nil, fmt.Errorf("marshal event usage failed: %w", err)
+	}
+
+	// Replace tool use ID with UUID.
+	if event.Type == string(constant.ValueOf[constant.ContentBlockStart]()) {
+		if _, ok := event.AsContentBlockStart().ContentBlock.AsAny().(anthropic.ToolUseBlock); ok {
+			sj, err = sjson.Set(sj, "content_block.id", uuid.New().String())
+			if err != nil {
+				return nil, fmt.Errorf("marshal tool use id failed: %w", err)
+			}
+		}
 	}
 
 	return s.encodeForStream([]byte(sj), event.Type), nil

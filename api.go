@@ -43,6 +43,7 @@ type PromptUsageRecord struct {
 type ToolUsageRecord struct {
 	InterceptionID  string
 	MsgID, Tool     string
+	ToolUseID       string // UUID identifying this tool use
 	ServerURL       *string
 	Args            ToolArgs
 	Injected        bool
