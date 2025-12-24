@@ -43,7 +43,7 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[0].OfTool.CacheControl.Type)
 	})
 
-	t.Run("cache control breakpoint is preserved and moved to final tool", func(t *testing.T) {
+	t.Run("cache control breakpoint is preserved by prepending injected tools", func(t *testing.T) {
 		t.Parallel()
 
 		// Request has existing tool with cache control.
@@ -72,16 +72,16 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 		i.injectTools()
 
 		require.Len(t, i.req.Tools, 2)
-		// Original tool's cache control should be cleared.
-		require.Equal(t, "existing_tool", i.req.Tools[0].OfTool.Name)
+		// Injected tools are prepended.
+		require.Equal(t, "injected_tool", i.req.Tools[0].OfTool.Name)
 		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
-		// Cache control breakpoint should be moved to the final tool.
-		require.Equal(t, "injected_tool", i.req.Tools[1].OfTool.Name)
+		// Original tool's cache control should be preserved at the end.
+		require.Equal(t, "existing_tool", i.req.Tools[1].OfTool.Name)
 		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[1].OfTool.CacheControl.Type)
 	})
 
-	// Multiple breakpoints should not be set, but if they are we should only move the first one to the end.
-	t.Run("only first cache control breakpoint is moved when multiple exist", func(t *testing.T) {
+	// The cache breakpoint SHOULD be on the final tool, but may not be; we must preserve that intention.
+	t.Run("cache control breakpoint in non-standard location is preserved", func(t *testing.T) {
 		t.Parallel()
 
 		// Request has multiple tools with cache control breakpoints.
@@ -100,9 +100,6 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 						{
 							OfTool: &anthropic.ToolParam{
 								Name: "tool_with_cache_2",
-								CacheControl: anthropic.CacheControlEphemeralParam{
-									Type: constant.ValueOf[constant.Ephemeral](),
-								},
 							},
 						},
 					},
@@ -118,15 +115,14 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 		i.injectTools()
 
 		require.Len(t, i.req.Tools, 3)
-		// First tool's cache control should be cleared (it was captured).
-		require.Equal(t, "tool_with_cache_1", i.req.Tools[0].OfTool.Name)
+		// Injected tool is prepended without cache control.
+		require.Equal(t, "injected_tool", i.req.Tools[0].OfTool.Name)
 		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
-		// Second tool's cache control should remain (loop breaks after first match).
-		require.Equal(t, "tool_with_cache_2", i.req.Tools[1].OfTool.Name)
+		// Both original tools' cache controls should remain.
+		require.Equal(t, "tool_with_cache_1", i.req.Tools[1].OfTool.Name)
 		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[1].OfTool.CacheControl.Type)
-		// Only the first breakpoint is moved to the final tool.
-		require.Equal(t, "injected_tool", i.req.Tools[2].OfTool.Name)
-		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[2].OfTool.CacheControl.Type)
+		require.Equal(t, "tool_with_cache_2", i.req.Tools[2].OfTool.Name)
+		require.Zero(t, i.req.Tools[2].OfTool.CacheControl)
 	})
 
 	t.Run("no cache control added when none originally set", func(t *testing.T) {
@@ -155,10 +151,11 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 		i.injectTools()
 
 		require.Len(t, i.req.Tools, 2)
-		// Neither tool should have cache control.
-		require.Equal(t, "existing_tool_no_cache", i.req.Tools[0].OfTool.Name)
+		// Injected tool is prepended without cache control.
+		require.Equal(t, "injected_tool", i.req.Tools[0].OfTool.Name)
 		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
-		require.Equal(t, "injected_tool", i.req.Tools[1].OfTool.Name)
+		// Original tool remains at the end without cache control.
+		require.Equal(t, "existing_tool_no_cache", i.req.Tools[1].OfTool.Name)
 		require.Zero(t, i.req.Tools[1].OfTool.CacheControl)
 	})
 }

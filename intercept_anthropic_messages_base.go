@@ -83,32 +83,14 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 
 	tools := i.mcpProxy.ListTools()
 	if len(tools) == 0 {
-		// No injected tools: no need to affect cache breakpoints or influence parallel tool calling.
+		// No injected tools: no need to influence parallel tool calling.
 		return
 	}
 
-	// Capture existing cache control breakpoint, if present.
-	var cache *anthropic.CacheControlEphemeralParam
-	for _, t := range i.req.Tools {
-		if t.OfTool == nil {
-			continue
-		}
-
-		if t.OfTool.CacheControl.Type != "" {
-			// Capture existing cache control breakpoint (copy values since we'll be clearing it in the next step).
-			cache = &anthropic.CacheControlEphemeralParam{
-				TTL:  t.OfTool.CacheControl.TTL,
-				Type: t.OfTool.CacheControl.Type,
-			}
-			// Reset it; we'll move this breakpoint to the final tool definition.
-			t.OfTool.CacheControl = anthropic.CacheControlEphemeralParam{}
-			break
-		}
-	}
-
 	// Inject tools.
+	var injectedTools []anthropic.ToolUnionParam
 	for _, tool := range tools {
-		i.req.Tools = append(i.req.Tools, anthropic.ToolUnionParam{
+		injectedTools = append(injectedTools, anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: tool.Params,
@@ -121,14 +103,10 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 		})
 	}
 
-	// If there was a given cache control breakpoint, set it on the final tool as per the docs:
-	// https://platform.claude.com/docs/en/build-with-claude/prompt-caching#prompt-caching-examples (see "Caching tool definitions").
-	count := len(i.req.Tools)
-	if cache != nil && count > 0 {
-		if i.req.Tools[count-1].OfTool != nil {
-			i.req.Tools[count-1].OfTool.CacheControl = *cache
-		}
-	}
+	// Prepend the injected tools in order to maintain any configured cache breakpoints.
+	// The order of injected tools is expected to be stable, and therefore will not cause
+	// any cache invalidation when prepended.
+	i.req.Tools = append(injectedTools, i.req.Tools...)
 
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
 	// https://github.com/coder/aibridge/issues/2
