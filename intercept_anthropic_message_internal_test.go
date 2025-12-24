@@ -159,6 +159,7 @@ func TestInjectTools_ParallelToolCalls(t *testing.T) {
 		// But no parallel tool use modification for "none" type.
 		require.Nil(t, i.req.ToolChoice.OfAuto)
 		require.Nil(t, i.req.ToolChoice.OfAny)
+		require.Nil(t, i.req.ToolChoice.OfTool)
 		require.NotNil(t, i.req.ToolChoice.OfNone)
 	})
 }
