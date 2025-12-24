@@ -15,7 +15,7 @@ type ServerProxier interface {
 	// See https://modelcontextprotocol.io/specification/2025-06-18/basic/transports#session-management.
 	Shutdown(ctx context.Context) error
 
-	// ListTools lists all known tools.
+	// ListTools lists all known tools. These MUST be sorted in a stable order.
 	ListTools() []*Tool
 	// GetTool returns a given tool, if known, or returns nil.
 	GetTool(id string) *Tool

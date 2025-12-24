@@ -88,8 +88,9 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 	}
 
 	// Inject tools.
+	var injectedTools []anthropic.ToolUnionParam
 	for _, tool := range tools {
-		i.req.Tools = append(i.req.Tools, anthropic.ToolUnionParam{
+		injectedTools = append(injectedTools, anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				InputSchema: anthropic.ToolInputSchemaParam{
 					Properties: tool.Params,
@@ -101,6 +102,11 @@ func (i *AnthropicMessagesInterceptionBase) injectTools() {
 			},
 		})
 	}
+
+	// Prepend the injected tools in order to maintain any configured cache breakpoints.
+	// The order of injected tools is expected to be stable, and therefore will not cause
+	// any cache invalidation when prepended.
+	i.req.Tools = append(injectedTools, i.req.Tools...)
 
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
 	// https://github.com/coder/aibridge/issues/2
