@@ -326,7 +326,7 @@ func TestAnthropicLastUserPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := tt.wrapper.LastUserPrompt()
+			result, err := tt.wrapper.lastUserPrompt()
 
 			if tt.expectError {
 				require.Error(t, err)

@@ -104,7 +104,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	// multiple choices were returned.
 	i.req.N = openai.Int(1)
 
-	prompt, err := i.req.LastUserPrompt()
+	prompt, err := i.req.lastUserPrompt()
 	if err != nil {
 		logger.Warn(ctx, "failed to retrieve last user prompt", slog.Error(err))
 	}

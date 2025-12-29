@@ -94,7 +94,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 	// Claude Code uses a "small/fast model" for certain tasks.
 	if !i.isSmallFastModel() {
-		prompt, err = i.req.LastUserPrompt()
+		prompt, err = i.req.lastUserPrompt()
 		if err != nil {
 			logger.Warn(ctx, "failed to determine last user prompt", slog.Error(err))
 		}

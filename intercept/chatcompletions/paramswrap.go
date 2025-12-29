@@ -43,7 +43,7 @@ func (c *ChatCompletionNewParamsWrapper) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-func (c *ChatCompletionNewParamsWrapper) LastUserPrompt() (*string, error) {
+func (c *ChatCompletionNewParamsWrapper) lastUserPrompt() (*string, error) {
 	if c == nil {
 		return nil, errors.New("nil struct")
 	}

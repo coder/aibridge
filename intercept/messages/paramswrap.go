@@ -37,11 +37,7 @@ func (b *MessageNewParamsWrapper) UnmarshalJSON(raw []byte) error {
 	return nil
 }
 
-func (b *MessageNewParamsWrapper) UseStreaming() bool {
-	return b.Stream
-}
-
-func (b *MessageNewParamsWrapper) LastUserPrompt() (*string, error) {
+func (b *MessageNewParamsWrapper) lastUserPrompt() (*string, error) {
 	if b == nil {
 		return nil, errors.New("nil struct")
 	}

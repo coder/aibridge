@@ -9,33 +9,33 @@ import (
 )
 
 const (
-	SSEEventTypeMessage = "message"
-	SSEEventTypeError   = "error"
-	SSEEventTypePing    = "ping"
+	sseEventTypeMessage = "message"
+	sseEventTypeError   = "error"
+	sseEventTypePing    = "ping"
 )
 
-type SSEEvent struct {
+type sseEvent struct {
 	Type  string
 	Data  string
 	ID    string
 	Retry int
 }
 
-type SSEParser struct {
-	events map[string][]SSEEvent
+type sseParser struct {
+	events map[string][]sseEvent
 	mu     sync.RWMutex
 }
 
-func NewSSEParser() *SSEParser {
-	return &SSEParser{
-		events: make(map[string][]SSEEvent),
+func NewSSEParser() *sseParser {
+	return &sseParser{
+		events: make(map[string][]sseEvent),
 	}
 }
 
-func (p *SSEParser) Parse(reader io.Reader) error {
+func (p *sseParser) Parse(reader io.Reader) error {
 	scanner := bufio.NewScanner(reader)
 
-	var currentEvent SSEEvent
+	var currentEvent sseEvent
 	var dataLines []string
 
 	for scanner.Scan() {
@@ -49,7 +49,7 @@ func (p *SSEParser) Parse(reader io.Reader) error {
 
 			// Default to message type if no event type specified
 			if currentEvent.Type == "" {
-				currentEvent.Type = SSEEventTypeMessage
+				currentEvent.Type = sseEventTypeMessage
 			}
 
 			// Store the event
@@ -58,7 +58,7 @@ func (p *SSEParser) Parse(reader io.Reader) error {
 			p.mu.Unlock()
 
 			// Reset for next event
-			currentEvent = SSEEvent{}
+			currentEvent = sseEvent{}
 			dataLines = nil
 			continue
 		}
@@ -96,27 +96,27 @@ func (p *SSEParser) Parse(reader io.Reader) error {
 	return scanner.Err()
 }
 
-func (p *SSEParser) EventsByType(eventType string) []SSEEvent {
+func (p *sseParser) EventsByType(eventType string) []sseEvent {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
 	events := p.events[eventType]
-	result := make([]SSEEvent, len(events))
+	result := make([]sseEvent, len(events))
 	copy(result, events)
 	return result
 }
 
-func (p *SSEParser) MessageEvents() []SSEEvent {
-	return p.EventsByType(SSEEventTypeMessage)
+func (p *sseParser) MessageEvents() []sseEvent {
+	return p.EventsByType(sseEventTypeMessage)
 }
 
-func (p *SSEParser) AllEvents() map[string][]SSEEvent {
+func (p *sseParser) AllEvents() map[string][]sseEvent {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	result := make(map[string][]SSEEvent)
+	result := make(map[string][]sseEvent)
 	for eventType, events := range p.events {
-		eventsCopy := make([]SSEEvent, len(events))
+		eventsCopy := make([]sseEvent, len(events))
 		copy(eventsCopy, events)
 		result[eventType] = eventsCopy
 	}
