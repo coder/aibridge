@@ -12,9 +12,11 @@ import (
 	"cdr.dev/slog"
 	"cdr.dev/slog/sloggers/sloghuman"
 	"github.com/coder/aibridge"
+	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.opentelemetry.io/otel"
 
 	_ "modernc.org/sqlite"
 )
@@ -55,23 +57,28 @@ func main() {
 	reg := prometheus.NewRegistry()
 	metrics := aibridge.NewMetrics(reg)
 
+	// Setup tracing
+	tracer := otel.GetTracerProvider().Tracer("exampleTracer")
+
 	// Optional: Configure MCP server for centralized tool injection.
 	// DeepWiki provides free access to public GitHub repo documentation.
 	// See: https://mcp.deepwiki.com
 	var mcpProxy mcp.ServerProxier
+
 	deepwikiProxy, err := mcp.NewStreamableHTTPServerProxy(
-		logger.Named("mcp.deepwiki"),
 		"deepwiki",                           // server name (tools prefixed as bmcp_deepwiki_*)
 		"https://mcp.deepwiki.com/mcp",       // no auth required for public repos
 		nil,                                  // headers
 		regexp.MustCompile(`^ask_question$`), // allowlist: only ask_question tool
 		nil,                                  // denylist
+		logger.Named("mcp.deepwiki"),
+		tracer,
 	)
 	if err != nil {
 		logger.Fatal(ctx, "create deepwiki mcp proxy", slog.Error(err))
 	}
 
-	mcpProxy = mcp.NewServerProxyManager(map[string]mcp.ServerProxier{"deepwiki": deepwikiProxy})
+	mcpProxy = mcp.NewServerProxyManager(map[string]mcp.ServerProxier{"deepwiki": deepwikiProxy}, tracer)
 	if err := mcpProxy.Init(ctx); err != nil {
 		logger.Warn(ctx, "mcp init warning", slog.Error(err))
 	}
@@ -82,8 +89,9 @@ func main() {
 		providers,
 		recorder,
 		mcpProxy,
-		metrics,
 		logger,
+		metrics,
+		tracer,
 	)
 	if err != nil {
 		logger.Fatal(ctx, "create bridge", slog.Error(err))
@@ -109,7 +117,7 @@ func actorMiddleware(next http.Handler) http.Handler {
 		if userID == "" {
 			userID = "anonymous"
 		}
-		ctx := aibridge.AsActor(r.Context(), userID, nil)
+		ctx := aibcontext.AsActor(r.Context(), userID, nil)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }

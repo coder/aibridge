@@ -1,4 +1,4 @@
-package aibridge
+package messages
 
 import (
 	"context"
@@ -6,10 +6,273 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/mcp"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 )
+
+func TestAWSBedrockValidation(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		cfg         *config.AWSBedrock
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "valid",
+			cfg: &config.AWSBedrock{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+		},
+		{
+			name: "missing region",
+			cfg: &config.AWSBedrock{
+				Region:          "",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+			expectError: true,
+			errorMsg:    "region required",
+		},
+		{
+			name: "missing access key",
+			cfg: &config.AWSBedrock{
+				Region:          "us-east-1",
+				AccessKey:       "",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+			expectError: true,
+			errorMsg:    "access key required",
+		},
+		{
+			name: "missing access key secret",
+			cfg: &config.AWSBedrock{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+			expectError: true,
+			errorMsg:    "access key secret required",
+		},
+		{
+			name: "missing model",
+			cfg: &config.AWSBedrock{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "",
+				SmallFastModel:  "test-small-model",
+			},
+			expectError: true,
+			errorMsg:    "model required",
+		},
+		{
+			name: "missing small fast model",
+			cfg: &config.AWSBedrock{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "",
+			},
+			expectError: true,
+			errorMsg:    "small fast model required",
+		},
+		{
+			name:        "all fields empty",
+			cfg:         &config.AWSBedrock{},
+			expectError: true,
+			errorMsg:    "region required",
+		},
+		{
+			name:        "nil config",
+			cfg:         nil,
+			expectError: true,
+			errorMsg:    "nil config given",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			base := &interceptionBase{}
+			_, err := base.withAWSBedrock(context.Background(), tt.cfg)
+
+			if tt.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestAccumulateUsage(t *testing.T) {
+	t.Run("Usage to Usage", func(t *testing.T) {
+		dest := &anthropic.Usage{
+			InputTokens:              10,
+			OutputTokens:             20,
+			CacheCreationInputTokens: 5,
+			CacheReadInputTokens:     3,
+			CacheCreation: anthropic.CacheCreation{
+				Ephemeral1hInputTokens: 2,
+				Ephemeral5mInputTokens: 1,
+			},
+			ServerToolUse: anthropic.ServerToolUsage{
+				WebSearchRequests: 1,
+			},
+		}
+
+		source := anthropic.Usage{
+			InputTokens:              15,
+			OutputTokens:             25,
+			CacheCreationInputTokens: 8,
+			CacheReadInputTokens:     4,
+			CacheCreation: anthropic.CacheCreation{
+				Ephemeral1hInputTokens: 3,
+				Ephemeral5mInputTokens: 2,
+			},
+			ServerToolUse: anthropic.ServerToolUsage{
+				WebSearchRequests: 2,
+			},
+		}
+
+		accumulateUsage(dest, source)
+
+		require.EqualValues(t, 25, dest.InputTokens)
+		require.EqualValues(t, 45, dest.OutputTokens)
+		require.EqualValues(t, 13, dest.CacheCreationInputTokens)
+		require.EqualValues(t, 7, dest.CacheReadInputTokens)
+		require.EqualValues(t, 5, dest.CacheCreation.Ephemeral1hInputTokens)
+		require.EqualValues(t, 3, dest.CacheCreation.Ephemeral5mInputTokens)
+		require.EqualValues(t, 3, dest.ServerToolUse.WebSearchRequests)
+	})
+
+	t.Run("MessageDeltaUsage to MessageDeltaUsage", func(t *testing.T) {
+		dest := &anthropic.MessageDeltaUsage{
+			InputTokens:              10,
+			OutputTokens:             20,
+			CacheCreationInputTokens: 5,
+			CacheReadInputTokens:     3,
+			ServerToolUse: anthropic.ServerToolUsage{
+				WebSearchRequests: 1,
+			},
+		}
+
+		source := anthropic.MessageDeltaUsage{
+			InputTokens:              15,
+			OutputTokens:             25,
+			CacheCreationInputTokens: 8,
+			CacheReadInputTokens:     4,
+			ServerToolUse: anthropic.ServerToolUsage{
+				WebSearchRequests: 2,
+			},
+		}
+
+		accumulateUsage(dest, source)
+
+		require.EqualValues(t, 25, dest.InputTokens)
+		require.EqualValues(t, 45, dest.OutputTokens)
+		require.EqualValues(t, 13, dest.CacheCreationInputTokens)
+		require.EqualValues(t, 7, dest.CacheReadInputTokens)
+		require.EqualValues(t, 3, dest.ServerToolUse.WebSearchRequests)
+	})
+
+	t.Run("Usage to MessageDeltaUsage", func(t *testing.T) {
+		dest := &anthropic.MessageDeltaUsage{
+			InputTokens:              10,
+			OutputTokens:             20,
+			CacheCreationInputTokens: 5,
+			CacheReadInputTokens:     3,
+			ServerToolUse: anthropic.ServerToolUsage{
+				WebSearchRequests: 1,
+			},
+		}
+
+		source := anthropic.Usage{
+			InputTokens:              15,
+			OutputTokens:             25,
+			CacheCreationInputTokens: 8,
+			CacheReadInputTokens:     4,
+			CacheCreation: anthropic.CacheCreation{
+				Ephemeral1hInputTokens: 3, // These won't be accumulated to MessageDeltaUsage
+				Ephemeral5mInputTokens: 2,
+			},
+			ServerToolUse: anthropic.ServerToolUsage{
+				WebSearchRequests: 2,
+			},
+		}
+
+		accumulateUsage(dest, source)
+
+		require.EqualValues(t, 25, dest.InputTokens)
+		require.EqualValues(t, 45, dest.OutputTokens)
+		require.EqualValues(t, 13, dest.CacheCreationInputTokens)
+		require.EqualValues(t, 7, dest.CacheReadInputTokens)
+		require.EqualValues(t, 3, dest.ServerToolUse.WebSearchRequests)
+	})
+
+	t.Run("MessageDeltaUsage to Usage", func(t *testing.T) {
+		dest := &anthropic.Usage{
+			InputTokens:              10,
+			OutputTokens:             20,
+			CacheCreationInputTokens: 5,
+			CacheReadInputTokens:     3,
+			CacheCreation: anthropic.CacheCreation{
+				Ephemeral1hInputTokens: 2,
+				Ephemeral5mInputTokens: 1,
+			},
+			ServerToolUse: anthropic.ServerToolUsage{
+				WebSearchRequests: 1,
+			},
+		}
+
+		source := anthropic.MessageDeltaUsage{
+			InputTokens:              15,
+			OutputTokens:             25,
+			CacheCreationInputTokens: 8,
+			CacheReadInputTokens:     4,
+			ServerToolUse: anthropic.ServerToolUsage{
+				WebSearchRequests: 2,
+			},
+		}
+
+		accumulateUsage(dest, source)
+
+		require.EqualValues(t, 25, dest.InputTokens)
+		require.EqualValues(t, 45, dest.OutputTokens)
+		require.EqualValues(t, 13, dest.CacheCreationInputTokens)
+		require.EqualValues(t, 7, dest.CacheReadInputTokens)
+		// Ephemeral tokens remain unchanged since MessageDeltaUsage doesn't have them
+		require.EqualValues(t, 2, dest.CacheCreation.Ephemeral1hInputTokens)
+		require.EqualValues(t, 1, dest.CacheCreation.Ephemeral5mInputTokens)
+		require.EqualValues(t, 3, dest.ServerToolUse.WebSearchRequests)
+	})
+
+	t.Run("Nil or unsupported types", func(t *testing.T) {
+		// Test with nil dest
+		var nilUsage *anthropic.Usage
+		source := anthropic.Usage{InputTokens: 10}
+		accumulateUsage(nilUsage, source) // Should not panic
+
+		// Test with unsupported types
+		var unsupported string
+		accumulateUsage(&unsupported, source) // Should not panic, just do nothing
+	})
+}
 
 func TestInjectTools_CacheBreakpoints(t *testing.T) {
 	t.Parallel()
@@ -18,7 +281,7 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 		t.Parallel()
 
 		// Request has existing tool with cache control, but no tools to inject.
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					Tools: []anthropic.ToolUnionParam{
@@ -47,7 +310,7 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 		t.Parallel()
 
 		// Request has existing tool with cache control.
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					Tools: []anthropic.ToolUnionParam{
@@ -85,7 +348,7 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 		t.Parallel()
 
 		// Request has multiple tools with cache control breakpoints.
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					Tools: []anthropic.ToolUnionParam{
@@ -129,7 +392,7 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 		t.Parallel()
 
 		// Request has tools but none with cache control.
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					Tools: []anthropic.ToolUnionParam{
@@ -166,7 +429,7 @@ func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Run("does not modify tool choice when no tools to inject", func(t *testing.T) {
 		t.Parallel()
 
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					ToolChoice: anthropic.ToolChoiceUnionParam{
@@ -189,7 +452,7 @@ func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Run("disables parallel tool use for auto tool choice (default)", func(t *testing.T) {
 		t.Parallel()
 
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					// No tool choice set (default).
@@ -210,7 +473,7 @@ func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Run("disables parallel tool use for explicit auto tool choice", func(t *testing.T) {
 		t.Parallel()
 
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					ToolChoice: anthropic.ToolChoiceUnionParam{
@@ -235,7 +498,7 @@ func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Run("disables parallel tool use for any tool choice", func(t *testing.T) {
 		t.Parallel()
 
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					ToolChoice: anthropic.ToolChoiceUnionParam{
@@ -260,7 +523,7 @@ func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Run("disables parallel tool use for tool choice type", func(t *testing.T) {
 		t.Parallel()
 
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					ToolChoice: anthropic.ToolChoiceUnionParam{
@@ -286,7 +549,7 @@ func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Run("no-op for none tool choice type", func(t *testing.T) {
 		t.Parallel()
 
-		i := &AnthropicMessagesInterceptionBase{
+		i := &interceptionBase{
 			req: &MessageNewParamsWrapper{
 				MessageNewParams: anthropic.MessageNewParams{
 					ToolChoice: anthropic.ToolChoiceUnionParam{

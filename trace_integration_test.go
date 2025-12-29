@@ -13,7 +13,9 @@ import (
 	"cdr.dev/slog"
 	"cdr.dev/slog/sloggers/slogtest"
 	"github.com/coder/aibridge"
+	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -110,11 +112,11 @@ func TestTraceAnthropic(t *testing.T) {
 			mockAPI := newMockServer(ctx, t, files, nil)
 			t.Cleanup(mockAPI.Close)
 
-			var bedrockCfg *aibridge.AWSBedrockConfig
+			var bedrockCfg *config.AWSBedrock
 			if tc.bedrock {
 				bedrockCfg = testBedrockCfg(mockAPI.URL)
 			}
-			provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
+			provider := provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
 			req := createAnthropicMessagesReq(t, srv.URL, reqBody)
@@ -141,7 +143,7 @@ func TestTraceAnthropic(t *testing.T) {
 			attrs := []attribute.KeyValue{
 				attribute.String(tracing.RequestPath, req.URL.Path),
 				attribute.String(tracing.InterceptionID, intcID),
-				attribute.String(tracing.Provider, aibridge.ProviderAnthropic),
+				attribute.String(tracing.Provider, config.ProviderAnthropic),
 				attribute.String(tracing.Model, model),
 				attribute.String(tracing.InitiatorID, userID),
 				attribute.Bool(tracing.Streaming, tc.streaming),
@@ -236,11 +238,11 @@ func TestTraceAnthropicErr(t *testing.T) {
 			mockAPI := newMockServer(ctx, t, files, nil)
 			t.Cleanup(mockAPI.Close)
 
-			var bedrockCfg *aibridge.AWSBedrockConfig
+			var bedrockCfg *config.AWSBedrock
 			if tc.bedrock {
 				bedrockCfg = testBedrockCfg(mockAPI.URL)
 			}
-			provider := aibridge.NewAnthropicProvider(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
+			provider := provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
 			req := createAnthropicMessagesReq(t, srv.URL, reqBody)
@@ -275,7 +277,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 			attrs := []attribute.KeyValue{
 				attribute.String(tracing.RequestPath, req.URL.Path),
 				attribute.String(tracing.InterceptionID, intcID),
-				attribute.String(tracing.Provider, aibridge.ProviderAnthropic),
+				attribute.String(tracing.Provider, config.ProviderAnthropic),
 				attribute.String(tracing.Model, model),
 				attribute.String(tracing.InitiatorID, userID),
 				attribute.Bool(tracing.Streaming, tc.streaming),
@@ -328,11 +330,11 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 
 			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				var bedrockCfg *aibridge.AWSBedrockConfig
+				var bedrockCfg *config.AWSBedrock
 				if tc.bedrock {
 					bedrockCfg = testBedrockCfg(addr)
 				}
-				providers := []aibridge.Provider{aibridge.NewAnthropicProvider(anthropicCfg(addr, apiKey), bedrockCfg)}
+				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), bedrockCfg)}
 				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, tracer)
 			}
 
@@ -365,7 +367,7 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 				attrs := []attribute.KeyValue{
 					attribute.String(tracing.RequestPath, reqPath),
 					attribute.String(tracing.InterceptionID, intcID),
-					attribute.String(tracing.Provider, aibridge.ProviderAnthropic),
+					attribute.String(tracing.Provider, config.ProviderAnthropic),
 					attribute.String(tracing.Model, model),
 					attribute.String(tracing.InitiatorID, userID),
 					attribute.String(tracing.MCPInput, "{\"owner\":\"admin\"}"),
@@ -444,7 +446,7 @@ func TestTraceOpenAI(t *testing.T) {
 
 			mockAPI := newMockServer(ctx, t, files, nil)
 			t.Cleanup(mockAPI.Close)
-			provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
+			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
 			req := createOpenAIChatCompletionsReq(t, srv.URL, reqBody)
@@ -467,7 +469,7 @@ func TestTraceOpenAI(t *testing.T) {
 			attrs := []attribute.KeyValue{
 				attribute.String(tracing.RequestPath, req.URL.Path),
 				attribute.String(tracing.InterceptionID, intcID),
-				attribute.String(tracing.Provider, aibridge.ProviderOpenAI),
+				attribute.String(tracing.Provider, config.ProviderOpenAI),
 				attribute.String(tracing.Model, gjson.Get(string(reqBody), "model").Str),
 				attribute.String(tracing.InitiatorID, userID),
 				attribute.Bool(tracing.Streaming, tc.streaming),
@@ -542,7 +544,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 
 			mockAPI := newMockServer(ctx, t, files, nil)
 			t.Cleanup(mockAPI.Close)
-			provider := aibridge.NewOpenAIProvider(openaiCfg(mockAPI.URL, apiKey))
+			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
 			req := createOpenAIChatCompletionsReq(t, srv.URL, reqBody)
@@ -569,7 +571,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			attrs := []attribute.KeyValue{
 				attribute.String(tracing.RequestPath, req.URL.Path),
 				attribute.String(tracing.InterceptionID, intcID),
-				attribute.String(tracing.Provider, aibridge.ProviderOpenAI),
+				attribute.String(tracing.Provider, config.ProviderOpenAI),
 				attribute.String(tracing.Model, gjson.Get(string(reqBody), "model").Str),
 				attribute.String(tracing.InitiatorID, userID),
 				attribute.Bool(tracing.Streaming, tc.streaming),
@@ -593,7 +595,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 
 			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{aibridge.NewOpenAIProvider(openaiCfg(addr, apiKey))}
+				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
 				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, tracer)
 			}
 
@@ -621,7 +623,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 				attrs := []attribute.KeyValue{
 					attribute.String(tracing.RequestPath, reqPath),
 					attribute.String(tracing.InterceptionID, intcID),
-					attribute.String(tracing.Provider, aibridge.ProviderOpenAI),
+					attribute.String(tracing.Provider, config.ProviderOpenAI),
 					attribute.String(tracing.Model, gjson.Get(reqBody, "model").Str),
 					attribute.String(tracing.InitiatorID, userID),
 					attribute.String(tracing.MCPInput, "{\"owner\":\"admin\"}"),
@@ -654,7 +656,7 @@ func TestTracePassthrough(t *testing.T) {
 	tracer := tp.Tracer(t.Name())
 	defer func() { _ = tp.Shutdown(t.Context()) }()
 
-	provider := aibridge.NewOpenAIProvider(openaiCfg(upstream.URL, apiKey))
+	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 	srv, _ := newTestSrv(t, t.Context(), provider, nil, tracer)
 
 	req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/openai/v1/models", nil)
@@ -740,8 +742,8 @@ func verifyTraces(t *testing.T, spanRecorder *tracetest.SpanRecorder, expect []e
 	}
 }
 
-func testBedrockCfg(url string) *aibridge.AWSBedrockConfig {
-	return &aibridge.AWSBedrockConfig{
+func testBedrockCfg(url string) *config.AWSBedrock {
+	return &config.AWSBedrock{
 		Region:           "us-west-2",
 		AccessKey:        "test-access-key",
 		AccessKeySecret:  "test-secret-key",
