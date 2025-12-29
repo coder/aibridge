@@ -71,9 +71,9 @@ func (s *AnthropicMessagesStreamingInterception) TraceAttributes(r *http.Request
 // b) if the tool is injected, it will be invoked by the [mcp.ServerProxier] in the remote MCP server, and its
 // results relayed to the SERVER. The response from the server will be handled synchronously, and this loop
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
-func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
+func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (lastToolCallID string, outErr error) {
 	if i.req == nil {
-		return fmt.Errorf("developer error: req is nil")
+		return "", fmt.Errorf("developer error: req is nil")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -109,7 +109,7 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 	if err != nil {
 		err = fmt.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return err
+		return "", err
 	}
 
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
@@ -137,6 +137,12 @@ newStream:
 		}
 
 		stream := i.newStream(streamCtx, svc, messages)
+
+		// TODO: APPLY THIS CHANGE TO ALL OTHER IMPLS.
+
+		if toolResult := messages.Messages[len(messages.Messages)-1].Content[0].OfToolResult; toolResult != nil {
+			lastToolCallID = toolResult.ToolUseID
+		}
 
 		var message anthropic.Message
 		var lastToolName string
@@ -288,6 +294,7 @@ newStream:
 						_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 							InterceptionID:  i.ID().String(),
 							MsgID:           message.ID,
+							ToolCallID:      id,
 							ServerURL:       &tool.ServerURL,
 							Tool:            tool.Name,
 							Args:            input,
@@ -394,6 +401,7 @@ newStream:
 							_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 								InterceptionID: i.ID().String(),
 								MsgID:          message.ID,
+								ToolCallID:     variant.ID,
 								Tool:           variant.Name,
 								Args:           variant.Input,
 								Injected:       false,
@@ -484,7 +492,7 @@ newStream:
 		break
 	}
 
-	return interceptionErr
+	return lastToolCallID, interceptionErr
 }
 
 func (s *AnthropicMessagesStreamingInterception) marshalEvent(event anthropic.MessageStreamEventUnion) ([]byte, error) {

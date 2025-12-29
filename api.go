@@ -17,8 +17,9 @@ type InterceptionRecord struct {
 }
 
 type InterceptionRecordEnded struct {
-	ID      string
-	EndedAt time.Time
+	ID         string
+	EndedAt    time.Time
+	ToolCallID string
 }
 
 type TokenUsageRecord struct {
@@ -41,14 +42,15 @@ type PromptUsageRecord struct {
 }
 
 type ToolUsageRecord struct {
-	InterceptionID  string
-	MsgID, Tool     string
-	ServerURL       *string
-	Args            ToolArgs
-	Injected        bool
-	InvocationError error
-	Metadata        Metadata
-	CreatedAt       time.Time
+	InterceptionID    string
+	Tool              string
+	MsgID, ToolCallID string
+	ServerURL         *string
+	Args              ToolArgs
+	Injected          bool
+	InvocationError   error
+	Metadata          Metadata
+	CreatedAt         time.Time
 }
 
 // Recorder describes all the possible usage information we need to capture during interactions with AI providers.

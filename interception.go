@@ -26,7 +26,7 @@ type Interceptor interface {
 	// Model returns the model in use for this [Interceptor].
 	Model() string
 	// ProcessRequest handles the HTTP request.
-	ProcessRequest(w http.ResponseWriter, r *http.Request) error
+	ProcessRequest(w http.ResponseWriter, r *http.Request) (lastToolCallID string, err error)
 	// Specifies whether an interceptor handles streaming or not.
 	Streaming() bool
 	// TraceAttributes returns tracing attributes for this [Interceptor]
@@ -110,7 +110,8 @@ func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.Server
 			}()
 		}
 
-		if err := interceptor.ProcessRequest(w, r); err != nil {
+		lastToolCallID, err := interceptor.ProcessRequest(w, r)
+		if err != nil {
 			if metrics != nil {
 				metrics.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), InterceptionCountStatusFailed, route, r.Method, actor.id).Add(1)
 			}
@@ -122,7 +123,7 @@ func newInterceptionProcessor(p Provider, recorder Recorder, mcpProxy mcp.Server
 			}
 			log.Debug(ctx, "interception ended")
 		}
-		asyncRecorder.RecordInterceptionEnded(ctx, &InterceptionRecordEnded{ID: interceptor.ID().String()})
+		asyncRecorder.RecordInterceptionEnded(ctx, &InterceptionRecordEnded{ID: interceptor.ID().String(), ToolCallID: lastToolCallID})
 
 		// Ensure all recording have completed before completing request.
 		asyncRecorder.Wait()

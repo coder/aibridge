@@ -47,9 +47,9 @@ func (s *OpenAIBlockingChatInterception) TraceAttributes(r *http.Request) []attr
 	return s.OpenAIChatInterceptionBase.baseTraceAttributes(r, false)
 }
 
-func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
+func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (lastToolCallID string, outErr error) {
 	if i.req == nil {
-		return fmt.Errorf("developer error: req is nil")
+		return "", fmt.Errorf("developer error: req is nil")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -115,9 +115,11 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 				if i.mcpProxy != nil && i.mcpProxy.GetTool(toolCall.Function.Name) != nil {
 					pendingToolCalls = append(pendingToolCalls, toolCall)
 				} else {
+					lastToolCallID = toolCall.ID
 					_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
 						InterceptionID: i.ID().String(),
 						MsgID:          completion.ID,
+						ToolCallID:     lastToolCallID,
 						Tool:           toolCall.Function.Name,
 						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
 						Injected:       false,
@@ -152,9 +154,11 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 
 			args := i.unmarshalArgs(tc.Function.Arguments)
 			res, err := tool.Call(ctx, args, i.tracer)
+			lastToolCallID = tc.ID
 			_ = i.recorder.RecordToolUsage(ctx, &ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           completion.ID,
+				ToolCallID:      lastToolCallID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
 				Args:            args,
@@ -195,20 +199,20 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 	if err != nil {
 		if isConnError(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return fmt.Errorf("upstream connection closed: %w", err)
+			return "", fmt.Errorf("upstream connection closed: %w", err)
 		}
 
 		if apiErr := getOpenAIErrorResponse(err); apiErr != nil {
 			i.writeUpstreamError(w, apiErr)
-			return fmt.Errorf("openai API error: %w", err)
+			return "", fmt.Errorf("openai API error: %w", err)
 		}
 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return fmt.Errorf("chat completion failed: %w", err)
+		return "", fmt.Errorf("chat completion failed: %w", err)
 	}
 
 	if completion == nil {
-		return nil
+		return "", nil
 	}
 
 	// Overwrite response identifier since proxy obscures injected tool call invocations.
@@ -230,7 +234,7 @@ func (i *OpenAIBlockingChatInterception) ProcessRequest(w http.ResponseWriter, r
 
 	_, _ = w.Write(out)
 
-	return nil
+	return lastToolCallID, nil
 }
 
 func (i *OpenAIBlockingChatInterception) newChatCompletion(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {

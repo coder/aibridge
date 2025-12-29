@@ -62,9 +62,9 @@ func (s *OpenAIStreamingChatInterception) TraceAttributes(r *http.Request) []att
 // b) if the tool is injected, it will be invoked by the [mcp.ServerProxier] in the remote MCP server, and its
 // results relayed to the SERVER. The response from the server will be handled synchronously, and this loop
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
-func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
+func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (lastToolCallID string, outErr error) {
 	if i.req == nil {
-		return fmt.Errorf("developer error: req is nil")
+		return "", fmt.Errorf("developer error: req is nil")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -150,9 +150,11 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 
 		// Builtin tools are not intercepted.
 		if toolCall != nil && i.getInjectedToolByName(toolCall.Name) == nil {
+			lastToolCallID = toolCall.ID
 			_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          processor.getMsgID(),
+				ToolCallID:     lastToolCallID,
 				Tool:           toolCall.Name,
 				Args:           i.unmarshalArgs(toolCall.Arguments),
 				Injected:       false,
@@ -241,11 +243,13 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		i.req.Messages = append(i.req.Messages, processor.getLastCompletion().ToParam())
 
 		id := toolCall.ID
+		lastToolCallID = id
 		args := i.unmarshalArgs(toolCall.Arguments)
 		toolRes, toolErr := tool.Call(streamCtx, args, i.tracer)
 		_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
 			InterceptionID:  i.ID().String(),
 			MsgID:           processor.getMsgID(),
+			ToolCallID:      lastToolCallID,
 			ServerURL:       &tool.ServerURL,
 			Tool:            tool.Name,
 			Args:            args,
@@ -293,7 +297,7 @@ func (i *OpenAIStreamingChatInterception) ProcessRequest(w http.ResponseWriter, 
 		streamCancel(errors.New("gracefully done"))
 	}
 
-	return interceptionErr
+	return lastToolCallID, interceptionErr
 }
 
 func (i *OpenAIStreamingChatInterception) getInjectedToolByName(name string) *mcp.Tool {
