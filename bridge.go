@@ -9,9 +9,9 @@ import (
 
 	"cdr.dev/slog"
 	"github.com/coder/aibridge/mcp"
-	"go.opentelemetry.io/otel/trace"
-
 	"github.com/hashicorp/go-multierror"
+	"github.com/sony/gobreaker/v2"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // RequestBridge is an [http.Handler] which is capable of masquerading as AI providers' APIs;
@@ -48,13 +48,38 @@ var _ http.Handler = &RequestBridge{}
 // A [Recorder] is also required to record prompt, tool, and token use.
 //
 // mcpProxy will be closed when the [RequestBridge] is closed.
+//
+// Circuit breaker configuration is obtained from each provider's CircuitBreakerConfig() method.
+// Providers returning nil will not have circuit breaker protection.
 func NewRequestBridge(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) (*RequestBridge, error) {
 	mux := http.NewServeMux()
 
 	for _, provider := range providers {
+		// Create per-provider circuit breaker if configured
+		cfg := provider.CircuitBreakerConfig()
+		providerName := provider.Name()
+		onChange := func(endpoint string, from, to gobreaker.State) {
+			logger.Info(context.Background(), "circuit breaker state change",
+				slog.F("provider", providerName),
+				slog.F("endpoint", endpoint),
+				slog.F("from", from.String()),
+				slog.F("to", to.String()),
+			)
+			if cfg != nil && metrics != nil {
+				metrics.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(stateToGaugeValue(to))
+				if to == gobreaker.StateOpen {
+					metrics.CircuitBreakerTrips.WithLabelValues(providerName, endpoint).Inc()
+				}
+			}
+		}
+		cbs := NewProviderCircuitBreakers(providerName, cfg, onChange)
+
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range provider.BridgedRoutes() {
-			mux.HandleFunc(path, newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer))
+			handler := newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer)
+			// Wrap with circuit breaker middleware (nil cbs passes through)
+			wrapped := CircuitBreakerMiddleware(cbs, metrics)(handler)
+			mux.Handle(path, wrapped)
 		}
 
 		// Any requests which passthrough to this will be reverse-proxied to the upstream.
