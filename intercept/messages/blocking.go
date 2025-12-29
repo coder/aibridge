@@ -23,11 +23,11 @@ import (
 )
 
 type BlockingInterception struct {
-	InterceptionBase
+	interceptionBase
 }
 
 func NewBlockingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, cfg config.AnthropicConfig, bedrockCfg *config.AWSBedrockConfig, tracer trace.Tracer) *BlockingInterception {
-	return &BlockingInterception{InterceptionBase: InterceptionBase{
+	return &BlockingInterception{interceptionBase: interceptionBase{
 		id:         id,
 		req:        req,
 		cfg:        cfg,
@@ -37,11 +37,11 @@ func NewBlockingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, cfg conf
 }
 
 func (i *BlockingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	i.InterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+	i.interceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
 func (i *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return i.InterceptionBase.BaseTraceAttributes(r, false)
+	return i.interceptionBase.baseTraceAttributes(r, false)
 }
 
 func (s *BlockingInterception) Streaming() bool {
@@ -56,7 +56,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
 	defer tracing.EndSpanErr(span, &outErr)
 
-	i.InjectTools()
+	i.injectTools()
 
 	var (
 		prompt *string
@@ -72,7 +72,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 60)} // TODO: configurable timeout
 
-	svc, err := i.NewMessagesService(ctx, opts...)
+	svc, err := i.newMessagesService(ctx, opts...)
 	if err != nil {
 		err = fmt.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -95,8 +95,8 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				return fmt.Errorf("upstream connection closed: %w", err)
 			}
 
-			if antErr := GetErrorResponse(err); antErr != nil {
-				i.WriteUpstreamError(w, antErr)
+			if antErr := getErrorResponse(err); antErr != nil {
+				i.writeUpstreamError(w, antErr)
 				return fmt.Errorf("anthropic API error: %w", err)
 			}
 
@@ -127,7 +127,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			},
 		})
 
-		AccumulateUsage(&cumulativeUsage, resp.Usage)
+		accumulateUsage(&cumulativeUsage, resp.Usage)
 
 		// Handle tool calls for non-streaming.
 		var pendingToolCalls []anthropic.ToolUseBlock

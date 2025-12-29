@@ -30,7 +30,7 @@ import (
 	"cdr.dev/slog"
 )
 
-type InterceptionBase struct {
+type interceptionBase struct {
 	id  uuid.UUID
 	req *MessageNewParamsWrapper
 
@@ -44,17 +44,17 @@ type InterceptionBase struct {
 	mcpProxy mcp.ServerProxier
 }
 
-func (i *InterceptionBase) ID() uuid.UUID {
+func (i *interceptionBase) ID() uuid.UUID {
 	return i.id
 }
 
-func (i *InterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
 	i.logger = logger
 	i.recorder = recorder
 	i.mcpProxy = mcpProxy
 }
 
-func (i *InterceptionBase) Model() string {
+func (i *interceptionBase) Model() string {
 	if i.req == nil {
 		return "coder-aibridge-unknown"
 	}
@@ -70,7 +70,7 @@ func (i *InterceptionBase) Model() string {
 	return string(i.req.Model)
 }
 
-func (s *InterceptionBase) BaseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
+func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),
 		attribute.String(tracing.InterceptionID, s.id.String()),
@@ -82,7 +82,7 @@ func (s *InterceptionBase) BaseTraceAttributes(r *http.Request, streaming bool) 
 	}
 }
 
-func (i *InterceptionBase) InjectTools() {
+func (i *interceptionBase) injectTools() {
 	if i.req == nil || i.mcpProxy == nil {
 		return
 	}
@@ -145,15 +145,11 @@ func (i *InterceptionBase) InjectTools() {
 // These models are optimized for tasks like code autocomplete and other small, quick operations.
 // See `ANTHROPIC_SMALL_FAST_MODEL`: https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables
 // https://docs.claude.com/en/docs/claude-code/costs#background-token-usage
-func (i *InterceptionBase) IsSmallFastModel() bool {
+func (i *interceptionBase) isSmallFastModel() bool {
 	return strings.Contains(string(i.req.Model), "haiku")
 }
 
-func (i *InterceptionBase) isSmallFastModel() bool {
-	return i.IsSmallFastModel()
-}
-
-func (i *InterceptionBase) NewMessagesService(ctx context.Context, opts ...option.RequestOption) (anthropic.MessageService, error) {
+func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...option.RequestOption) (anthropic.MessageService, error) {
 	opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
 
@@ -182,7 +178,7 @@ func (i *InterceptionBase) NewMessagesService(ctx context.Context, opts ...optio
 	return anthropic.NewMessageService(opts...), nil
 }
 
-func (i *InterceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AWSBedrockConfig) (option.RequestOption, error) {
+func (i *interceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AWSBedrockConfig) (option.RequestOption, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("nil config given")
 	}
@@ -223,7 +219,7 @@ func (i *InterceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AW
 
 // augmentRequestForBedrock will change the model used for the request since AWS Bedrock doesn't support
 // Anthropics' model names.
-func (i *InterceptionBase) augmentRequestForBedrock() {
+func (i *interceptionBase) augmentRequestForBedrock() {
 	if i.bedrockCfg == nil {
 		return
 	}
@@ -231,8 +227,8 @@ func (i *InterceptionBase) augmentRequestForBedrock() {
 	i.req.MessageNewParams.Model = anthropic.Model(i.Model())
 }
 
-// WriteUpstreamError marshals and writes a given error.
-func (i *InterceptionBase) WriteUpstreamError(w http.ResponseWriter, antErr *ErrorResponse) {
+// writeUpstreamError marshals and writes a given error.
+func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *ErrorResponse) {
 	if antErr == nil {
 		return
 	}
@@ -280,12 +276,12 @@ func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error)
 	return t.base.RoundTrip(req)
 }
 
-// AccumulateUsage accumulates usage statistics from source into dest.
+// accumulateUsage accumulates usage statistics from source into dest.
 // It handles both [anthropic.Usage] and [anthropic.MessageDeltaUsage] types through [any].
 // The function uses reflection to handle the differences between the types:
 // - [anthropic.Usage] has CacheCreation field with ephemeral tokens
 // - [anthropic.MessageDeltaUsage] doesn't have CacheCreation field
-func AccumulateUsage(dest, src any) {
+func accumulateUsage(dest, src any) {
 	switch d := dest.(type) {
 	case *anthropic.Usage:
 		if d == nil {
@@ -332,7 +328,7 @@ func AccumulateUsage(dest, src any) {
 	}
 }
 
-func GetErrorResponse(err error) *ErrorResponse {
+func getErrorResponse(err error) *ErrorResponse {
 	var apierr *anthropic.Error
 	if !errors.As(err, &apierr) {
 		return nil
@@ -370,7 +366,7 @@ type ErrorResponse struct {
 	StatusCode int `json:"-"`
 }
 
-func NewErrorResponse(msg error) *ErrorResponse {
+func newErrorResponse(msg error) *ErrorResponse {
 	return &ErrorResponse{
 		ErrorResponse: &shared.ErrorResponse{
 			Error: shared.ErrorObjectUnion{

@@ -22,7 +22,7 @@ import (
 	"cdr.dev/slog"
 )
 
-type InterceptionBase struct {
+type interceptionBase struct {
 	id      uuid.UUID
 	req     *ChatCompletionNewParamsWrapper
 	baseURL string
@@ -35,23 +35,23 @@ type InterceptionBase struct {
 	mcpProxy mcp.ServerProxier
 }
 
-func (i *InterceptionBase) newCompletionsService(baseURL string, key string) openai.ChatCompletionService {
+func (i *interceptionBase) newCompletionsService(baseURL string, key string) openai.ChatCompletionService {
 	opts := []option.RequestOption{option.WithAPIKey(key), option.WithBaseURL(baseURL)}
 
 	return openai.NewChatCompletionService(opts...)
 }
 
-func (i *InterceptionBase) ID() uuid.UUID {
+func (i *interceptionBase) ID() uuid.UUID {
 	return i.id
 }
 
-func (i *InterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
 	i.logger = logger
 	i.recorder = recorder
 	i.mcpProxy = mcpProxy
 }
 
-func (s *InterceptionBase) BaseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
+func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),
 		attribute.String(tracing.InterceptionID, s.id.String()),
@@ -62,7 +62,7 @@ func (s *InterceptionBase) BaseTraceAttributes(r *http.Request, streaming bool) 
 	}
 }
 
-func (i *InterceptionBase) Model() string {
+func (i *interceptionBase) Model() string {
 	if i.req == nil {
 		return "coder-aibridge-unknown"
 	}
@@ -70,14 +70,14 @@ func (i *InterceptionBase) Model() string {
 	return string(i.req.Model)
 }
 
-func (i *InterceptionBase) NewErrorResponse(err error) map[string]any {
+func (i *interceptionBase) newErrorResponse(err error) map[string]any {
 	return map[string]any{
 		"error":   true,
 		"message": err.Error(),
 	}
 }
 
-func (i *InterceptionBase) InjectTools() {
+func (i *interceptionBase) injectTools() {
 	if i.req == nil || i.mcpProxy == nil {
 		return
 	}
@@ -109,7 +109,7 @@ func (i *InterceptionBase) InjectTools() {
 	}
 }
 
-func (i *InterceptionBase) UnmarshalArgs(in string) (args recorder.ToolArgs) {
+func (i *interceptionBase) unmarshalArgs(in string) (args recorder.ToolArgs) {
 	if len(strings.TrimSpace(in)) == 0 {
 		return args // An empty string will fail JSON unmarshaling.
 	}
@@ -121,8 +121,8 @@ func (i *InterceptionBase) UnmarshalArgs(in string) (args recorder.ToolArgs) {
 	return args
 }
 
-// WriteUpstreamError marshals and writes a given error.
-func (i *InterceptionBase) WriteUpstreamError(w http.ResponseWriter, oaiErr *ErrorResponse) {
+// writeUpstreamError marshals and writes a given error.
+func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *errorResponse) {
 	if oaiErr == nil {
 		return
 	}
@@ -146,42 +146,7 @@ func (i *InterceptionBase) WriteUpstreamError(w http.ResponseWriter, oaiErr *Err
 	}
 }
 
-// GetLogger returns the logger for use in subpackage types.
-func (i *InterceptionBase) GetLogger() slog.Logger {
-	return i.logger
-}
-
-// GetRecorder returns the recorder for use in subpackage types.
-func (i *InterceptionBase) GetRecorder() recorder.Recorder {
-	return i.recorder
-}
-
-// GetMCPProxy returns the MCP proxy for use in subpackage types.
-func (i *InterceptionBase) GetMCPProxy() mcp.ServerProxier {
-	return i.mcpProxy
-}
-
-// GetRequest returns the request wrapper for use in subpackage types.
-func (i *InterceptionBase) GetRequest() *ChatCompletionNewParamsWrapper {
-	return i.req
-}
-
-// GetTracer returns the tracer for use in subpackage types.
-func (i *InterceptionBase) GetTracer() trace.Tracer {
-	return i.tracer
-}
-
-// GetBaseURL returns the base URL for use in subpackage types.
-func (i *InterceptionBase) GetBaseURL() string {
-	return i.baseURL
-}
-
-// GetKey returns the API key for use in subpackage types.
-func (i *InterceptionBase) GetKey() string {
-	return i.key
-}
-
-func SumUsage(ref, in openai.CompletionUsage) openai.CompletionUsage {
+func sumUsage(ref, in openai.CompletionUsage) openai.CompletionUsage {
 	return openai.CompletionUsage{
 		CompletionTokens: ref.CompletionTokens + in.CompletionTokens,
 		PromptTokens:     ref.PromptTokens + in.PromptTokens,
@@ -199,8 +164,8 @@ func SumUsage(ref, in openai.CompletionUsage) openai.CompletionUsage {
 	}
 }
 
-// CalculateActualInputTokenUsage accounts for cached tokens which are included in [openai.CompletionUsage].PromptTokens.
-func CalculateActualInputTokenUsage(in openai.CompletionUsage) int64 {
+// calculateActualInputTokenUsage accounts for cached tokens which are included in [openai.CompletionUsage].PromptTokens.
+func calculateActualInputTokenUsage(in openai.CompletionUsage) int64 {
 	// Input *includes* the cached tokens, so we subtract them here to reflect actual input token usage.
 	// The original value can be reconstructed by referencing the "prompt_cached" field in metadata.
 	// See https://platform.openai.com/docs/api-reference/usage/completions_object#usage/completions_object-input_tokens.
@@ -208,13 +173,13 @@ func CalculateActualInputTokenUsage(in openai.CompletionUsage) int64 {
 		in.PromptTokensDetails.CachedTokens /* The aggregated number of text input tokens that has been cached from previous requests. */
 }
 
-func GetErrorResponse(err error) *ErrorResponse {
+func getErrorResponse(err error) *errorResponse {
 	var apiErr *openai.Error
 	if !errors.As(err, &apiErr) {
 		return nil
 	}
 
-	return &ErrorResponse{
+	return &errorResponse{
 		ErrorObject: &shared.ErrorObject{
 			Code:    apiErr.Code,
 			Message: apiErr.Message,
@@ -224,15 +189,15 @@ func GetErrorResponse(err error) *ErrorResponse {
 	}
 }
 
-var _ error = &ErrorResponse{}
+var _ error = &errorResponse{}
 
-type ErrorResponse struct {
+type errorResponse struct {
 	ErrorObject *shared.ErrorObject `json:"error"`
 	StatusCode  int                 `json:"-"`
 }
 
-func NewErrorResponse(msg error) *ErrorResponse {
-	return &ErrorResponse{
+func newErrorResponse(msg error) *errorResponse {
+	return &errorResponse{
 		ErrorObject: &shared.ErrorObject{
 			Code:    "error",
 			Message: msg.Error(),
@@ -241,7 +206,7 @@ func NewErrorResponse(msg error) *ErrorResponse {
 	}
 }
 
-func (a *ErrorResponse) Error() string {
+func (a *errorResponse) Error() string {
 	if a.ErrorObject == nil {
 		return ""
 	}

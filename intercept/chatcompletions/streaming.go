@@ -25,11 +25,11 @@ import (
 )
 
 type StreamingInterception struct {
-	InterceptionBase
+	interceptionBase
 }
 
 func NewStreamingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string, tracer trace.Tracer) *StreamingInterception {
-	return &StreamingInterception{InterceptionBase: InterceptionBase{
+	return &StreamingInterception{interceptionBase: interceptionBase{
 		id:      id,
 		req:     req,
 		baseURL: baseURL,
@@ -39,7 +39,7 @@ func NewStreamingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, 
 }
 
 func (i *StreamingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	i.InterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
+	i.interceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
 func (i *StreamingInterception) Streaming() bool {
@@ -47,7 +47,7 @@ func (i *StreamingInterception) Streaming() bool {
 }
 
 func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.InterceptionBase.BaseTraceAttributes(r, true)
+	return s.interceptionBase.baseTraceAttributes(r, true)
 }
 
 // ProcessRequest handles a request to /v1/chat/completions.
@@ -73,7 +73,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	// Include token usage.
 	i.req.StreamOptions.IncludeUsage = openai.Bool(true)
 
-	i.InjectTools()
+	i.injectTools()
 
 	// Allow us to interrupt watch via cancel.
 	ctx, cancel := context.WithCancel(ctx)
@@ -154,7 +154,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 				InterceptionID: i.ID().String(),
 				MsgID:          processor.getMsgID(),
 				Tool:           toolCall.Name,
-				Args:           i.UnmarshalArgs(toolCall.Arguments),
+				Args:           i.unmarshalArgs(toolCall.Arguments),
 				Injected:       false,
 			})
 			toolCall = nil
@@ -175,7 +175,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 			_ = i.recorder.RecordTokenUsage(streamCtx, &recorder.TokenUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          processor.getMsgID(),
-				Input:          CalculateActualInputTokenUsage(lastUsage),
+				Input:          calculateActualInputTokenUsage(lastUsage),
 				Output:         lastUsage.CompletionTokens,
 				ExtraTokenTypes: map[string]int64{
 					"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,
@@ -194,7 +194,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 				if eventstream.IsUnrecoverableError(streamErr) {
 					logger.Debug(ctx, "stream terminated", slog.Error(streamErr))
 					// We can't reflect an error back if there's a connection error or the request context was canceled.
-				} else if oaiErr := GetErrorResponse(streamErr); oaiErr != nil {
+				} else if oaiErr := getErrorResponse(streamErr); oaiErr != nil {
 					logger.Warn(ctx, "openai stream error", slog.Error(streamErr))
 					interceptionErr = oaiErr
 				} else {
@@ -203,12 +203,12 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 					// into known types (i.e. [shared.OverloadedError]).
 					// See https://github.com/openai/openai-go/blob/v2.7.0/packages/ssestream/ssestream.go#L171
 					// All it does is wrap the payload in an error - which is all we can return, currently.
-					interceptionErr = NewErrorResponse(fmt.Errorf("unknown stream error: %w", streamErr))
+					interceptionErr = newErrorResponse(fmt.Errorf("unknown stream error: %w", streamErr))
 				}
 			} else if lastErr != nil {
 				// Otherwise check if any logical errors occurred during processing.
 				logger.Warn(ctx, "stream failed", slog.Error(lastErr))
-				interceptionErr = NewErrorResponse(fmt.Errorf("processing error: %w", lastErr))
+				interceptionErr = newErrorResponse(fmt.Errorf("processing error: %w", lastErr))
 			}
 
 			if interceptionErr != nil {
@@ -221,7 +221,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 			}
 		} else {
 			// Stream has not started yet; write to response if present.
-			i.WriteUpstreamError(w, GetErrorResponse(stream.Err()))
+			i.writeUpstreamError(w, getErrorResponse(stream.Err()))
 		}
 
 		// No tool call, nothing more to do.
@@ -241,7 +241,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		i.req.Messages = append(i.req.Messages, processor.getLastCompletion().ToParam())
 
 		id := toolCall.ID
-		args := i.UnmarshalArgs(toolCall.Arguments)
+		args := i.unmarshalArgs(toolCall.Arguments)
 		toolRes, toolErr := tool.Call(streamCtx, args, i.tracer)
 		_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 			InterceptionID:  i.ID().String(),
@@ -258,7 +258,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 		if toolErr != nil {
 			// Always provide a tool_result even if the tool call failed.
-			errorJSON, _ := json.Marshal(i.NewErrorResponse(toolErr))
+			errorJSON, _ := json.Marshal(i.newErrorResponse(toolErr))
 			i.req.Messages = append(i.req.Messages, openai.ToolMessage(string(errorJSON), id))
 			continue
 		}
@@ -267,7 +267,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		if err := json.NewEncoder(&out).Encode(toolRes); err != nil {
 			logger.Warn(ctx, "failed to encode tool response", slog.Error(err))
 			// Always provide a tool_result even if encoding failed.
-			errorJSON, _ := json.Marshal(i.NewErrorResponse(err))
+			errorJSON, _ := json.Marshal(i.newErrorResponse(err))
 			i.req.Messages = append(i.req.Messages, openai.ToolMessage(string(errorJSON), id))
 			continue
 		}
@@ -389,7 +389,7 @@ func (s *streamProcessor) process(chunk openai.ChatCompletionChunk) bool {
 
 	// Accumulate token usage.
 	s.lastUsage = chunk.Usage
-	s.cumulativeUsage = SumUsage(s.cumulativeUsage, chunk.Usage)
+	s.cumulativeUsage = sumUsage(s.cumulativeUsage, chunk.Usage)
 
 	// If the stream has reached a terminal state (i.e. call a tool), and this tool is injected,
 	// then it must not be relayed.

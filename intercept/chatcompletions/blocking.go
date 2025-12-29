@@ -22,11 +22,11 @@ import (
 )
 
 type BlockingInterception struct {
-	InterceptionBase
+	interceptionBase
 }
 
 func NewBlockingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string, tracer trace.Tracer) *BlockingInterception {
-	return &BlockingInterception{InterceptionBase: InterceptionBase{
+	return &BlockingInterception{interceptionBase: interceptionBase{
 		id:      id,
 		req:     req,
 		baseURL: baseURL,
@@ -36,7 +36,7 @@ func NewBlockingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, b
 }
 
 func (s *BlockingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	s.InterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+	s.interceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
 func (s *BlockingInterception) Streaming() bool {
@@ -44,7 +44,7 @@ func (s *BlockingInterception) Streaming() bool {
 }
 
 func (s *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.InterceptionBase.BaseTraceAttributes(r, false)
+	return s.interceptionBase.baseTraceAttributes(r, false)
 }
 
 func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
@@ -64,7 +64,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		err             error
 	)
 
-	i.InjectTools()
+	i.injectTools()
 
 	prompt, err := i.req.LastUserPrompt()
 	if err != nil {
@@ -91,12 +91,12 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		}
 
 		lastUsage := completion.Usage
-		cumulativeUsage = SumUsage(cumulativeUsage, completion.Usage)
+		cumulativeUsage = sumUsage(cumulativeUsage, completion.Usage)
 
 		_ = i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
 			InterceptionID: i.ID().String(),
 			MsgID:          completion.ID,
-			Input:          CalculateActualInputTokenUsage(lastUsage),
+			Input:          calculateActualInputTokenUsage(lastUsage),
 			Output:         lastUsage.CompletionTokens,
 			ExtraTokenTypes: map[string]int64{
 				"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,
@@ -119,7 +119,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 						InterceptionID: i.ID().String(),
 						MsgID:          completion.ID,
 						Tool:           toolCall.Function.Name,
-						Args:           i.UnmarshalArgs(toolCall.Function.Arguments),
+						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
 						Injected:       false,
 					})
 				}
@@ -150,7 +150,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				appendedPrevMsg = true
 			}
 
-			args := i.UnmarshalArgs(tc.Function.Arguments)
+			args := i.unmarshalArgs(tc.Function.Arguments)
 			res, err := tool.Call(ctx, args, i.tracer)
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
@@ -198,8 +198,8 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			return fmt.Errorf("upstream connection closed: %w", err)
 		}
 
-		if apiErr := GetErrorResponse(err); apiErr != nil {
-			i.WriteUpstreamError(w, apiErr)
+		if apiErr := getErrorResponse(err); apiErr != nil {
+			i.writeUpstreamError(w, apiErr)
 			return fmt.Errorf("openai API error: %w", err)
 		}
 
@@ -222,7 +222,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Content-Type", "application/json")
 	out, err := json.Marshal(completion)
 	if err != nil {
-		out, _ = json.Marshal(i.NewErrorResponse(fmt.Errorf("failed to marshal response: %w", err)))
+		out, _ = json.Marshal(i.newErrorResponse(fmt.Errorf("failed to marshal response: %w", err)))
 		w.WriteHeader(http.StatusInternalServerError)
 	} else {
 		w.WriteHeader(http.StatusOK)

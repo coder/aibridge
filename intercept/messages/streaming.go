@@ -28,11 +28,11 @@ import (
 )
 
 type StreamingInterception struct {
-	InterceptionBase
+	interceptionBase
 }
 
 func NewStreamingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, cfg config.AnthropicConfig, bedrockCfg *config.AWSBedrockConfig, tracer trace.Tracer) *StreamingInterception {
-	return &StreamingInterception{InterceptionBase: InterceptionBase{
+	return &StreamingInterception{interceptionBase: interceptionBase{
 		id:         id,
 		req:        req,
 		cfg:        cfg,
@@ -42,7 +42,7 @@ func NewStreamingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, cfg con
 }
 
 func (s *StreamingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	s.InterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
+	s.interceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
 func (s *StreamingInterception) Streaming() bool {
@@ -50,7 +50,7 @@ func (s *StreamingInterception) Streaming() bool {
 }
 
 func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.InterceptionBase.BaseTraceAttributes(r, true)
+	return s.interceptionBase.baseTraceAttributes(r, true)
 }
 
 // ProcessRequest handles a request to /v1/messages.
@@ -100,13 +100,13 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		}
 
 		// Only inject tools into "actual" request.
-		i.InjectTools()
+		i.injectTools()
 	}
 
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
 	defer streamCancel(errors.New("deferred"))
 
-	svc, err := i.NewMessagesService(streamCtx)
+	svc, err := i.newMessagesService(streamCtx)
 	if err != nil {
 		err = fmt.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -181,7 +181,7 @@ newStream:
 				}
 			case string(constant.ValueOf[constant.MessageStart]()):
 				start := event.AsMessageStart()
-				AccumulateUsage(&cumulativeUsage, start.Message.Usage)
+				accumulateUsage(&cumulativeUsage, start.Message.Usage)
 
 				_ = i.recorder.RecordTokenUsage(streamCtx, &recorder.TokenUsageRecord{
 					InterceptionID: i.ID().String(),
@@ -205,7 +205,7 @@ newStream:
 				}
 			case string(constant.ValueOf[constant.MessageDelta]()):
 				delta := event.AsMessageDelta()
-				AccumulateUsage(&cumulativeUsage, delta.Usage)
+				accumulateUsage(&cumulativeUsage, delta.Usage)
 
 				// Only output tokens should change in message_delta.
 				_ = i.recorder.RecordTokenUsage(streamCtx, &recorder.TokenUsageRecord{
@@ -438,7 +438,7 @@ newStream:
 				if eventstream.IsUnrecoverableError(streamErr) {
 					logger.Debug(ctx, "stream terminated", slog.Error(streamErr))
 					// We can't reflect an error back if there's a connection error or the request context was canceled.
-				} else if antErr := GetErrorResponse(streamErr); antErr != nil {
+				} else if antErr := getErrorResponse(streamErr); antErr != nil {
 					logger.Warn(ctx, "anthropic stream error", slog.Error(streamErr))
 					interceptionErr = antErr
 				} else {
@@ -447,12 +447,12 @@ newStream:
 					// into known types (i.e. [shared.OverloadedError]).
 					// See https://github.com/anthropics/anthropic-sdk-go/blob/v1.12.0/packages/ssestream/ssestream.go#L172-L174
 					// All it does is wrap the payload in an error - which is all we can return, currently.
-					interceptionErr = NewErrorResponse(fmt.Errorf("unknown stream error: %w", streamErr))
+					interceptionErr = newErrorResponse(fmt.Errorf("unknown stream error: %w", streamErr))
 				}
 			} else if lastErr != nil {
 				// Otherwise check if any logical errors occurred during processing.
 				logger.Warn(ctx, "stream failed", slog.Error(lastErr))
-				interceptionErr = NewErrorResponse(fmt.Errorf("processing error: %w", lastErr))
+				interceptionErr = newErrorResponse(fmt.Errorf("processing error: %w", lastErr))
 			}
 
 			if interceptionErr != nil {
@@ -465,7 +465,7 @@ newStream:
 			}
 		} else {
 			// Stream has not started yet; write to response if present.
-			i.WriteUpstreamError(w, GetErrorResponse(stream.Err()))
+			i.writeUpstreamError(w, getErrorResponse(stream.Err()))
 		}
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, time.Second*30)

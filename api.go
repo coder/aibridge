@@ -25,8 +25,6 @@ type (
 	PromptUsageRecord       = recorder.PromptUsageRecord
 	ToolUsageRecord         = recorder.ToolUsageRecord
 	Recorder                = recorder.Recorder
-	RecorderWrapper         = recorder.RecorderWrapper
-	AsyncRecorder           = recorder.AsyncRecorder
 	Metadata                = recorder.Metadata
 
 	AnthropicConfig  = config.AnthropicConfig
@@ -50,6 +48,6 @@ func NewMetrics(reg prometheus.Registerer) *metrics.Metrics {
 	return metrics.NewMetrics(reg)
 }
 
-func NewRecorder(logger slog.Logger, tracer trace.Tracer, clientFn func() (Recorder, error)) *RecorderWrapper {
+func NewRecorder(logger slog.Logger, tracer trace.Tracer, clientFn func() (Recorder, error)) Recorder {
 	return recorder.NewRecorder(logger, tracer, clientFn)
 }
