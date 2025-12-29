@@ -17,13 +17,13 @@ func TestAWSBedrockValidation(t *testing.T) {
 
 	tests := []struct {
 		name        string
-		cfg         *config.AWSBedrockConfig
+		cfg         *config.AWSBedrock
 		expectError bool
 		errorMsg    string
 	}{
 		{
 			name: "valid",
-			cfg: &config.AWSBedrockConfig{
+			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
 				AccessKeySecret: "test-secret",
@@ -33,7 +33,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 		},
 		{
 			name: "missing region",
-			cfg: &config.AWSBedrockConfig{
+			cfg: &config.AWSBedrock{
 				Region:          "",
 				AccessKey:       "test-key",
 				AccessKeySecret: "test-secret",
@@ -45,7 +45,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 		},
 		{
 			name: "missing access key",
-			cfg: &config.AWSBedrockConfig{
+			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "",
 				AccessKeySecret: "test-secret",
@@ -57,7 +57,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 		},
 		{
 			name: "missing access key secret",
-			cfg: &config.AWSBedrockConfig{
+			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
 				AccessKeySecret: "",
@@ -69,7 +69,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 		},
 		{
 			name: "missing model",
-			cfg: &config.AWSBedrockConfig{
+			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
 				AccessKeySecret: "test-secret",
@@ -81,7 +81,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 		},
 		{
 			name: "missing small fast model",
-			cfg: &config.AWSBedrockConfig{
+			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
 				AccessKeySecret: "test-secret",
@@ -93,7 +93,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 		},
 		{
 			name:        "all fields empty",
-			cfg:         &config.AWSBedrockConfig{},
+			cfg:         &config.AWSBedrock{},
 			expectError: true,
 			errorMsg:    "region required",
 		},

@@ -112,7 +112,7 @@ func TestTraceAnthropic(t *testing.T) {
 			mockAPI := newMockServer(ctx, t, files, nil)
 			t.Cleanup(mockAPI.Close)
 
-			var bedrockCfg *config.AWSBedrockConfig
+			var bedrockCfg *config.AWSBedrock
 			if tc.bedrock {
 				bedrockCfg = testBedrockCfg(mockAPI.URL)
 			}
@@ -238,7 +238,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 			mockAPI := newMockServer(ctx, t, files, nil)
 			t.Cleanup(mockAPI.Close)
 
-			var bedrockCfg *config.AWSBedrockConfig
+			var bedrockCfg *config.AWSBedrock
 			if tc.bedrock {
 				bedrockCfg = testBedrockCfg(mockAPI.URL)
 			}
@@ -330,7 +330,7 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 
 			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				var bedrockCfg *config.AWSBedrockConfig
+				var bedrockCfg *config.AWSBedrock
 				if tc.bedrock {
 					bedrockCfg = testBedrockCfg(addr)
 				}
@@ -742,8 +742,8 @@ func verifyTraces(t *testing.T, spanRecorder *tracetest.SpanRecorder, expect []e
 	}
 }
 
-func testBedrockCfg(url string) *config.AWSBedrockConfig {
-	return &config.AWSBedrockConfig{
+func testBedrockCfg(url string) *config.AWSBedrock {
+	return &config.AWSBedrock{
 		Region:           "us-west-2",
 		AccessKey:        "test-access-key",
 		AccessKeySecret:  "test-secret-key",

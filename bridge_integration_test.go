@@ -214,7 +214,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 		t.Cleanup(cancel)
 
 		// Invalid bedrock config - missing region
-		bedrockCfg := &config.AWSBedrockConfig{
+		bedrockCfg := &config.AWSBedrock{
 			Region:          "",
 			AccessKey:       "test-key",
 			AccessKeySecret: "test-secret",
@@ -310,7 +310,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 
 				// Configure Bedrock with test credentials and model names.
 				// The EndpointOverride will make requests go to the mock server instead of real AWS endpoints.
-				bedrockCfg := &config.AWSBedrockConfig{
+				bedrockCfg := &config.AWSBedrock{
 					Region:           "us-west-2",
 					AccessKey:        "test-access-key",
 					AccessKeySecret:  "test-secret-key",
@@ -1971,15 +1971,15 @@ func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
 	return server.NewStreamableHTTPServer(s), acc
 }
 
-func openaiCfg(url, key string) config.OpenAIConfig {
-	return config.OpenAIConfig{
+func openaiCfg(url, key string) config.OpenAI {
+	return config.OpenAI{
 		BaseURL: url,
 		Key:     key,
 	}
 }
 
-func anthropicCfg(url, key string) config.AnthropicConfig {
-	return config.AnthropicConfig{
+func anthropicCfg(url, key string) config.Anthropic {
+	return config.Anthropic{
 		BaseURL: url,
 		Key:     key,
 	}

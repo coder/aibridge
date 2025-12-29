@@ -20,13 +20,13 @@ var _ Provider = &Anthropic{}
 
 // Anthropic allows for interactions with the Anthropic API.
 type Anthropic struct {
-	cfg        config.AnthropicConfig
-	bedrockCfg *config.AWSBedrockConfig
+	cfg        config.Anthropic
+	bedrockCfg *config.AWSBedrock
 }
 
 const routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
 
-func NewAnthropic(cfg config.AnthropicConfig, bedrockCfg *config.AWSBedrockConfig) *Anthropic {
+func NewAnthropic(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) *Anthropic {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.anthropic.com/"
 	}

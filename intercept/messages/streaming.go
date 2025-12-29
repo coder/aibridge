@@ -31,7 +31,7 @@ type StreamingInterception struct {
 	interceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, cfg config.AnthropicConfig, bedrockCfg *config.AWSBedrockConfig, tracer trace.Tracer) *StreamingInterception {
+func NewStreamingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, cfg config.Anthropic, bedrockCfg *config.AWSBedrock, tracer trace.Tracer) *StreamingInterception {
 	return &StreamingInterception{interceptionBase: interceptionBase{
 		id:         id,
 		req:        req,

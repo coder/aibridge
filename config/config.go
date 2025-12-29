@@ -5,12 +5,12 @@ const (
 	ProviderOpenAI    = "openai"
 )
 
-type AnthropicConfig struct {
+type Anthropic struct {
 	BaseURL string
 	Key     string
 }
 
-type AWSBedrockConfig struct {
+type AWSBedrock struct {
 	Region                     string
 	AccessKey, AccessKeySecret string
 	Model, SmallFastModel      string
@@ -19,7 +19,7 @@ type AWSBedrockConfig struct {
 	EndpointOverride string
 }
 
-type OpenAIConfig struct {
+type OpenAI struct {
 	BaseURL string
 	Key     string
 }

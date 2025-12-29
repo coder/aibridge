@@ -26,7 +26,7 @@ type OpenAI struct {
 
 var _ Provider = &OpenAI{}
 
-func NewOpenAI(cfg config.OpenAIConfig) *OpenAI {
+func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1/"
 	}

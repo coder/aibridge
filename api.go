@@ -27,20 +27,20 @@ type (
 	Recorder                = recorder.Recorder
 	Metadata                = recorder.Metadata
 
-	AnthropicConfig  = config.AnthropicConfig
-	AWSBedrockConfig = config.AWSBedrockConfig
-	OpenAIConfig     = config.OpenAIConfig
+	AnthropicConfig  = config.Anthropic
+	AWSBedrockConfig = config.AWSBedrock
+	OpenAIConfig     = config.OpenAI
 )
 
 func AsActor(ctx context.Context, actorID string, metadata recorder.Metadata) context.Context {
 	return aibcontext.AsActor(ctx, actorID, metadata)
 }
 
-func NewAnthropicProvider(cfg config.AnthropicConfig, bedrockCfg *config.AWSBedrockConfig) provider.Provider {
+func NewAnthropicProvider(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) provider.Provider {
 	return provider.NewAnthropic(cfg, bedrockCfg)
 }
 
-func NewOpenAIProvider(cfg config.OpenAIConfig) provider.Provider {
+func NewOpenAIProvider(cfg config.OpenAI) provider.Provider {
 	return provider.NewOpenAI(cfg)
 }
 

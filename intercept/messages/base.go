@@ -34,8 +34,8 @@ type interceptionBase struct {
 	id  uuid.UUID
 	req *MessageNewParamsWrapper
 
-	cfg        aibconfig.AnthropicConfig
-	bedrockCfg *aibconfig.AWSBedrockConfig
+	cfg        aibconfig.Anthropic
+	bedrockCfg *aibconfig.AWSBedrock
 
 	tracer trace.Tracer
 	logger slog.Logger
@@ -178,7 +178,7 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	return anthropic.NewMessageService(opts...), nil
 }
 
-func (i *interceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AWSBedrockConfig) (option.RequestOption, error) {
+func (i *interceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AWSBedrock) (option.RequestOption, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("nil config given")
 	}
