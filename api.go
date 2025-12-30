@@ -13,7 +13,12 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Type + function aliases for backwards compatibility.
+// Const + Type + function aliases for backwards compatibility.
+const (
+	ProviderAnthropic = config.ProviderAnthropic
+	ProviderOpenAI    = config.ProviderOpenAI
+)
+
 type (
 	Metrics = metrics.Metrics
 
