@@ -6,7 +6,6 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/param"
-	"github.com/coder/aibridge/utils"
 )
 
 // MessageNewParamsWrapper exists because the "stream" param is not included in anthropic.MessageNewParams.
@@ -23,18 +22,30 @@ func (b MessageNewParamsWrapper) MarshalJSON() ([]byte, error) {
 }
 
 func (b *MessageNewParamsWrapper) UnmarshalJSON(raw []byte) error {
-	convertedRaw, err := convertStringContentToArray(raw)
+	// Parse JSON once and extract both stream field and do content conversion
+	// to avoid double-parsing the same payload.
+	var modifiedJSON map[string]any
+	if err := json.Unmarshal(raw, &modifiedJSON); err != nil {
+		return err
+	}
+
+	// Extract stream field from already-parsed map
+	if stream, ok := modifiedJSON["stream"].(bool); ok {
+		b.Stream = stream
+	}
+
+	// Convert string content to array format if needed
+	if _, hasMessages := modifiedJSON["messages"]; hasMessages {
+		convertStringContentRecursive(modifiedJSON)
+	}
+
+	// Marshal back for SDK parsing
+	convertedRaw, err := json.Marshal(modifiedJSON)
 	if err != nil {
 		return err
 	}
 
-	err = b.MessageNewParams.UnmarshalJSON(convertedRaw)
-	if err != nil {
-		return err
-	}
-
-	b.Stream = utils.ExtractJSONField[bool](raw, "stream")
-	return nil
+	return b.MessageNewParams.UnmarshalJSON(convertedRaw)
 }
 
 func (b *MessageNewParamsWrapper) lastUserPrompt() (*string, error) {
@@ -67,28 +78,6 @@ func (b *MessageNewParamsWrapper) lastUserPrompt() (*string, error) {
 	}
 
 	return nil, nil
-}
-
-// convertStringContentToArray converts string content to array format for Anthropic messages.
-// https://docs.anthropic.com/en/api/messages#body-messages
-//
-// Each input message content may be either a single string or an array of content blocks, where each block has a
-// specific type. Using a string for content is shorthand for an array of one content block of type "text".
-func convertStringContentToArray(raw []byte) ([]byte, error) {
-	var modifiedJSON map[string]any
-	if err := json.Unmarshal(raw, &modifiedJSON); err != nil {
-		return raw, err
-	}
-
-	// Check if messages exist and need content conversion
-	if _, hasMessages := modifiedJSON["messages"]; hasMessages {
-		convertStringContentRecursive(modifiedJSON)
-
-		// Marshal back to JSON
-		return json.Marshal(modifiedJSON)
-	}
-
-	return raw, nil
 }
 
 // convertStringContentRecursive recursively scans JSON data and converts string "content" fields
