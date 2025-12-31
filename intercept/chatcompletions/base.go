@@ -11,7 +11,7 @@ import (
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
-	"github.com/coder/aibridge/intercept/requestlog"
+	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
@@ -38,8 +38,8 @@ type interceptionBase struct {
 func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService {
 	opts := []option.RequestOption{option.WithAPIKey(i.cfg.Key), option.WithBaseURL(i.cfg.BaseURL)}
 
-	// Add request logging if configured
-	if mw := requestlog.NewMiddleware(i.cfg.RequestLogDir, config.ProviderOpenAI, i.Model(), i.id); mw != nil {
+	// Add API dump middleware if configured
+	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, config.ProviderOpenAI, i.Model(), i.id); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))
 	}
 
