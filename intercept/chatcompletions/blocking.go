@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -25,13 +26,12 @@ type BlockingInterception struct {
 	interceptionBase
 }
 
-func NewBlockingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string, tracer trace.Tracer) *BlockingInterception {
+func NewBlockingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, cfg config.OpenAI, tracer trace.Tracer) *BlockingInterception {
 	return &BlockingInterception{interceptionBase: interceptionBase{
-		id:      id,
-		req:     req,
-		baseURL: baseURL,
-		key:     key,
-		tracer:  tracer,
+		id:     id,
+		req:    req,
+		cfg:    cfg,
+		tracer: tracer,
 	}}
 }
 
@@ -55,7 +55,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
 	defer tracing.EndSpanErr(span, &outErr)
 
-	svc := i.newCompletionsService(i.baseURL, i.key)
+	svc := i.newCompletionsService()
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	var (

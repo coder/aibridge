@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -25,6 +26,7 @@ import (
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/intercept/requestlog"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
@@ -1851,9 +1853,124 @@ func openaiCfg(url, key string) config.OpenAI {
 	}
 }
 
+func openaiCfgWithLogDir(url, key, logDir string) config.OpenAI {
+	return config.OpenAI{
+		BaseURL:       url,
+		Key:           key,
+		RequestLogDir: logDir,
+	}
+}
+
 func anthropicCfg(url, key string) config.Anthropic {
 	return config.Anthropic{
 		BaseURL: url,
 		Key:     key,
+	}
+}
+
+func anthropicCfgWithLogDir(url, key, logDir string) config.Anthropic {
+	return config.Anthropic{
+		BaseURL:       url,
+		Key:           key,
+		RequestLogDir: logDir,
+	}
+}
+
+func TestRequestLogging(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name              string
+		fixture           []byte
+		providerName      string
+		configureFunc     func(string, string, aibridge.Recorder) (*aibridge.RequestBridge, error)
+		createRequestFunc createRequestFunc
+	}{
+		{
+			name:         config.ProviderAnthropic,
+			fixture:      fixtures.AntSimple,
+			providerName: config.ProviderAnthropic,
+			configureFunc: func(addr, logDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
+				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithLogDir(addr, apiKey, logDir), nil)}
+				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			},
+			createRequestFunc: createAnthropicMessagesReq,
+		},
+		{
+			name:         config.ProviderOpenAI,
+			fixture:      fixtures.OaiChatSimple,
+			providerName: config.ProviderOpenAI,
+			configureFunc: func(addr, logDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
+				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfgWithLogDir(addr, apiKey, logDir))}
+				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			},
+			createRequestFunc: createOpenAIChatCompletionsReq,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			arc := txtar.Parse(tc.fixture)
+			files := filesMap(arc)
+			require.Contains(t, files, fixtureRequest)
+			require.Contains(t, files, fixtureNonStreamingResponse)
+
+			reqBody := files[fixtureRequest]
+
+			// Setup mock upstream server.
+			srv := newMockServer(ctx, t, files, nil)
+			t.Cleanup(srv.Close)
+
+			// Create temp dir for request logs.
+			logDir := t.TempDir()
+
+			recorderClient := &testutil.MockRecorder{}
+			b, err := tc.configureFunc(srv.URL, logDir, recorderClient)
+			require.NoError(t, err)
+
+			mockSrv := httptest.NewUnstartedServer(b)
+			t.Cleanup(mockSrv.Close)
+			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return aibcontext.AsActor(ctx, userID, nil)
+			}
+			mockSrv.Start()
+
+			req := tc.createRequestFunc(t, mockSrv.URL, reqBody)
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			defer resp.Body.Close()
+			_, _ = io.ReadAll(resp.Body)
+
+			// Verify log files were created.
+			interceptions := recorderClient.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			interceptionID, err := uuid.Parse(interceptions[0].ID)
+			require.NoError(t, err)
+			model := interceptions[0].Model
+
+			reqLogFile := requestlog.LogPath(logDir, tc.providerName, model, interceptionID, "req")
+			respLogFile := requestlog.LogPath(logDir, tc.providerName, model, interceptionID, "resp")
+
+			// Verify request log exists and contains expected HTTP request format.
+			reqLogData, err := os.ReadFile(reqLogFile)
+			require.NoError(t, err, "request log file should exist")
+			require.Contains(t, string(reqLogData), "POST ")
+			require.Contains(t, string(reqLogData), "Host:")
+
+			// Verify response log exists and contains expected HTTP response format.
+			respLogData, err := os.ReadFile(respLogFile)
+			require.NoError(t, err, "response log file should exist")
+			require.Contains(t, string(respLogData), "200 OK")
+
+			recorderClient.VerifyAllInterceptionsEnded(t)
+		})
 	}
 }

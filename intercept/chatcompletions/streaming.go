@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -28,13 +29,12 @@ type StreamingInterception struct {
 	interceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, baseURL, key string, tracer trace.Tracer) *StreamingInterception {
+func NewStreamingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, cfg config.OpenAI, tracer trace.Tracer) *StreamingInterception {
 	return &StreamingInterception{interceptionBase: interceptionBase{
-		id:      id,
-		req:     req,
-		baseURL: baseURL,
-		key:     key,
-		tracer:  tracer,
+		id:     id,
+		req:    req,
+		cfg:    cfg,
+		tracer: tracer,
 	}}
 }
 
@@ -80,7 +80,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
-	svc := i.newCompletionsService(i.baseURL, i.key)
+	svc := i.newCompletionsService()
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
