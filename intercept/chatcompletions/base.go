@@ -11,6 +11,7 @@ import (
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/intercept/requestlog"
 	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
@@ -23,10 +24,9 @@ import (
 )
 
 type interceptionBase struct {
-	id      uuid.UUID
-	req     *ChatCompletionNewParamsWrapper
-	baseURL string
-	key     string
+	id  uuid.UUID
+	req *ChatCompletionNewParamsWrapper
+	cfg config.OpenAI
 
 	logger slog.Logger
 	tracer trace.Tracer
@@ -35,8 +35,13 @@ type interceptionBase struct {
 	mcpProxy mcp.ServerProxier
 }
 
-func (i *interceptionBase) newCompletionsService(baseURL string, key string) openai.ChatCompletionService {
-	opts := []option.RequestOption{option.WithAPIKey(key), option.WithBaseURL(baseURL)}
+func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService {
+	opts := []option.RequestOption{option.WithAPIKey(i.cfg.Key), option.WithBaseURL(i.cfg.BaseURL)}
+
+	// Add request logging if configured
+	if mw := requestlog.NewMiddleware(i.cfg.RequestLogDir, config.ProviderOpenAI, i.Model(), i.id); mw != nil {
+		opts = append(opts, option.WithMiddleware(mw))
+	}
 
 	return openai.NewChatCompletionService(opts...)
 }
