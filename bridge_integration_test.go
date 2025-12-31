@@ -26,7 +26,7 @@ import (
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/intercept/requestlog"
+	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
@@ -1853,11 +1853,11 @@ func openaiCfg(url, key string) config.OpenAI {
 	}
 }
 
-func openaiCfgWithLogDir(url, key, logDir string) config.OpenAI {
+func openaiCfgWithAPIDump(url, key, dumpDir string) config.OpenAI {
 	return config.OpenAI{
-		BaseURL:       url,
-		Key:           key,
-		RequestLogDir: logDir,
+		BaseURL:    url,
+		Key:        key,
+		APIDumpDir: dumpDir,
 	}
 }
 
@@ -1868,15 +1868,15 @@ func anthropicCfg(url, key string) config.Anthropic {
 	}
 }
 
-func anthropicCfgWithLogDir(url, key, logDir string) config.Anthropic {
+func anthropicCfgWithAPIDump(url, key, dumpDir string) config.Anthropic {
 	return config.Anthropic{
-		BaseURL:       url,
-		Key:           key,
-		RequestLogDir: logDir,
+		BaseURL:    url,
+		Key:        key,
+		APIDumpDir: dumpDir,
 	}
 }
 
-func TestRequestLogging(t *testing.T) {
+func TestAPIDump(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
@@ -1890,9 +1890,9 @@ func TestRequestLogging(t *testing.T) {
 			name:         config.ProviderAnthropic,
 			fixture:      fixtures.AntSimple,
 			providerName: config.ProviderAnthropic,
-			configureFunc: func(addr, logDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
+			configureFunc: func(addr, dumpDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithLogDir(addr, apiKey, logDir), nil)}
+				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)}
 				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
 			},
 			createRequestFunc: createAnthropicMessagesReq,
@@ -1901,9 +1901,9 @@ func TestRequestLogging(t *testing.T) {
 			name:         config.ProviderOpenAI,
 			fixture:      fixtures.OaiChatSimple,
 			providerName: config.ProviderOpenAI,
-			configureFunc: func(addr, logDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
+			configureFunc: func(addr, dumpDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfgWithLogDir(addr, apiKey, logDir))}
+				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
 				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
 			},
 			createRequestFunc: createOpenAIChatCompletionsReq,
@@ -1928,11 +1928,11 @@ func TestRequestLogging(t *testing.T) {
 			srv := newMockServer(ctx, t, files, nil)
 			t.Cleanup(srv.Close)
 
-			// Create temp dir for request logs.
-			logDir := t.TempDir()
+			// Create temp dir for API dumps.
+			dumpDir := t.TempDir()
 
 			recorderClient := &testutil.MockRecorder{}
-			b, err := tc.configureFunc(srv.URL, logDir, recorderClient)
+			b, err := tc.configureFunc(srv.URL, dumpDir, recorderClient)
 			require.NoError(t, err)
 
 			mockSrv := httptest.NewUnstartedServer(b)
@@ -1949,26 +1949,26 @@ func TestRequestLogging(t *testing.T) {
 			defer resp.Body.Close()
 			_, _ = io.ReadAll(resp.Body)
 
-			// Verify log files were created.
+			// Verify dump files were created.
 			interceptions := recorderClient.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
 			interceptionID, err := uuid.Parse(interceptions[0].ID)
 			require.NoError(t, err)
 			model := interceptions[0].Model
 
-			reqLogFile := requestlog.LogPath(logDir, tc.providerName, model, interceptionID, "req")
-			respLogFile := requestlog.LogPath(logDir, tc.providerName, model, interceptionID, "resp")
+			reqDumpFile := apidump.DumpPath(dumpDir, tc.providerName, model, interceptionID, "req")
+			respDumpFile := apidump.DumpPath(dumpDir, tc.providerName, model, interceptionID, "resp")
 
-			// Verify request log exists and contains expected HTTP request format.
-			reqLogData, err := os.ReadFile(reqLogFile)
-			require.NoError(t, err, "request log file should exist")
-			require.Contains(t, string(reqLogData), "POST ")
-			require.Contains(t, string(reqLogData), "Host:")
+			// Verify request dump exists and contains expected HTTP request format.
+			reqDumpData, err := os.ReadFile(reqDumpFile)
+			require.NoError(t, err, "request dump file should exist")
+			require.Contains(t, string(reqDumpData), "POST ")
+			require.Contains(t, string(reqDumpData), "Host:")
 
-			// Verify response log exists and contains expected HTTP response format.
-			respLogData, err := os.ReadFile(respLogFile)
-			require.NoError(t, err, "response log file should exist")
-			require.Contains(t, string(respLogData), "200 OK")
+			// Verify response dump exists and contains expected HTTP response format.
+			respDumpData, err := os.ReadFile(respDumpFile)
+			require.NoError(t, err, "response dump file should exist")
+			require.Contains(t, string(respDumpData), "200 OK")
 
 			recorderClient.VerifyAllInterceptionsEnded(t)
 		})

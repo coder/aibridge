@@ -21,7 +21,7 @@ import (
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
-	"github.com/coder/aibridge/intercept/requestlog"
+	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/tracing"
 
 	"github.com/google/uuid"
@@ -154,8 +154,8 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
 
-	// Add request logging if configured
-	if mw := requestlog.NewMiddleware(i.cfg.RequestLogDir, aibconfig.ProviderAnthropic, i.Model(), i.id); mw != nil {
+	// Add API dump middleware if configured
+	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, aibconfig.ProviderAnthropic, i.Model(), i.id); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))
 	}
 
