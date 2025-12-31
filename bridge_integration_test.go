@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -1978,9 +1980,124 @@ func openaiCfg(url, key string) config.OpenAI {
 	}
 }
 
+func openaiCfgWithAPIDump(url, key, dumpDir string) config.OpenAI {
+	return config.OpenAI{
+		BaseURL:    url,
+		Key:        key,
+		APIDumpDir: dumpDir,
+	}
+}
+
 func anthropicCfg(url, key string) config.Anthropic {
 	return config.Anthropic{
 		BaseURL: url,
 		Key:     key,
+	}
+}
+
+func anthropicCfgWithAPIDump(url, key, dumpDir string) config.Anthropic {
+	return config.Anthropic{
+		BaseURL:    url,
+		Key:        key,
+		APIDumpDir: dumpDir,
+	}
+}
+
+func TestAPIDump(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name              string
+		fixture           []byte
+		providerName      string
+		configureFunc     func(string, string, aibridge.Recorder) (*aibridge.RequestBridge, error)
+		createRequestFunc createRequestFunc
+	}{
+		{
+			name:         config.ProviderAnthropic,
+			fixture:      antSimple,
+			providerName: config.ProviderAnthropic,
+			configureFunc: func(addr, dumpDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
+				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)}
+				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			},
+			createRequestFunc: createAnthropicMessagesReq,
+		},
+		{
+			name:         config.ProviderOpenAI,
+			fixture:      oaiSimple,
+			providerName: config.ProviderOpenAI,
+			configureFunc: func(addr, dumpDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
+				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
+				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			},
+			createRequestFunc: createOpenAIChatCompletionsReq,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			arc := txtar.Parse(tc.fixture)
+			files := filesMap(arc)
+			require.Contains(t, files, fixtureRequest)
+			require.Contains(t, files, fixtureNonStreamingResponse)
+
+			reqBody := files[fixtureRequest]
+
+			// Setup mock upstream server.
+			srv := newMockServer(ctx, t, files, nil)
+			t.Cleanup(srv.Close)
+
+			// Create temp dir for API dumps.
+			dumpDir := t.TempDir()
+
+			recorderClient := &mockRecorderClient{}
+			b, err := tc.configureFunc(srv.URL, dumpDir, recorderClient)
+			require.NoError(t, err)
+
+			mockSrv := httptest.NewUnstartedServer(b)
+			t.Cleanup(mockSrv.Close)
+			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return aibcontext.AsActor(ctx, userID, nil)
+			}
+			mockSrv.Start()
+
+			req := tc.createRequestFunc(t, mockSrv.URL, reqBody)
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			defer resp.Body.Close()
+			_, _ = io.ReadAll(resp.Body)
+
+			// Verify dump files were created.
+			interceptions := recorderClient.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			interceptionID, err := uuid.Parse(interceptions[0].ID)
+			require.NoError(t, err)
+			model := interceptions[0].Model
+
+			reqDumpFile := apidump.DumpPath(dumpDir, tc.providerName, model, interceptionID, "req")
+			respDumpFile := apidump.DumpPath(dumpDir, tc.providerName, model, interceptionID, "resp")
+
+			// Verify request dump exists and contains expected HTTP request format.
+			reqDumpData, err := os.ReadFile(reqDumpFile)
+			require.NoError(t, err, "request dump file should exist")
+			require.Contains(t, string(reqDumpData), "POST ")
+			require.Contains(t, string(reqDumpData), "Host:")
+
+			// Verify response dump exists and contains expected HTTP response format.
+			respDumpData, err := os.ReadFile(respDumpFile)
+			require.NoError(t, err, "response dump file should exist")
+			require.Contains(t, string(respDumpData), "200 OK")
+
+			recorderClient.verifyAllInterceptionsEnded(t)
+		})
 	}
 }
