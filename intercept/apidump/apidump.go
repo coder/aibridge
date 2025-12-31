@@ -1,4 +1,4 @@
-package requestlog
+package apidump
 
 import (
 	"bytes"
@@ -19,22 +19,22 @@ type MiddlewareNext = func(*http.Request) (*http.Response, error)
 // Middleware is an HTTP middleware function compatible with SDK WithMiddleware options.
 type Middleware = func(*http.Request, MiddlewareNext) (*http.Response, error)
 
-// LogPath returns the path to a request/response log file for a given interception.
+// DumpPath returns the path to a request/response dump file for a given interception.
 // kind should be "req" or "resp".
-func LogPath(baseDir, provider, model string, interceptionID uuid.UUID, kind string) string {
+func DumpPath(baseDir, provider, model string, interceptionID uuid.UUID, kind string) string {
 	safeModel := strings.ReplaceAll(model, "/", "-")
 	return filepath.Join(baseDir, provider, safeModel, fmt.Sprintf("%s.%s.txt", interceptionID, kind))
 }
 
-// NewMiddleware returns a middleware function that logs requests and responses to files.
-// Files are written to the path returned by LogPath.
+// NewMiddleware returns a middleware function that dumps requests and responses to files.
+// Files are written to the path returned by DumpPath.
 // If baseDir is empty, returns nil (no middleware).
 func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID) Middleware {
 	if baseDir == "" {
 		return nil
 	}
 
-	logger := &logger{
+	d := &dumper{
 		baseDir:        baseDir,
 		provider:       provider,
 		model:          model,
@@ -42,8 +42,8 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID) Mi
 	}
 
 	return func(req *http.Request, next MiddlewareNext) (*http.Response, error) {
-		if err := logger.logRequest(req); err != nil {
-			fmt.Fprintf(os.Stderr, "requestlog: failed to log request: %v\n", err)
+		if err := d.dumpRequest(req); err != nil {
+			fmt.Fprintf(os.Stderr, "apidump: failed to dump request: %v\n", err)
 		}
 
 		resp, err := next(req)
@@ -51,25 +51,25 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID) Mi
 			return resp, err
 		}
 
-		if err := logger.logResponse(resp); err != nil {
-			fmt.Fprintf(os.Stderr, "requestlog: failed to log response: %v\n", err)
+		if err := d.dumpResponse(resp); err != nil {
+			fmt.Fprintf(os.Stderr, "apidump: failed to dump response: %v\n", err)
 		}
 
 		return resp, nil
 	}
 }
 
-type logger struct {
+type dumper struct {
 	baseDir        string
 	provider       string
 	model          string
 	interceptionID uuid.UUID
 }
 
-func (l *logger) logRequest(req *http.Request) error {
-	logPath := LogPath(l.baseDir, l.provider, l.model, l.interceptionID, "req")
-	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
-		return fmt.Errorf("create log dir: %w", err)
+func (d *dumper) dumpRequest(req *http.Request) error {
+	dumpPath := DumpPath(d.baseDir, d.provider, d.model, d.interceptionID, "req")
+	if err := os.MkdirAll(filepath.Dir(dumpPath), 0o755); err != nil {
+		return fmt.Errorf("create dump dir: %w", err)
 	}
 
 	// Read and restore body
@@ -95,11 +95,11 @@ func (l *logger) logRequest(req *http.Request) error {
 	fmt.Fprintf(&buf, "\r\n")
 	buf.Write(prettyPrintJSON(bodyBytes))
 
-	return os.WriteFile(logPath, buf.Bytes(), 0o644)
+	return os.WriteFile(dumpPath, buf.Bytes(), 0o644)
 }
 
-func (l *logger) logResponse(resp *http.Response) error {
-	logPath := LogPath(l.baseDir, l.provider, l.model, l.interceptionID, "resp")
+func (d *dumper) dumpResponse(resp *http.Response) error {
+	dumpPath := DumpPath(d.baseDir, d.provider, d.model, d.interceptionID, "resp")
 
 	// Read and restore body
 	var bodyBytes []byte
@@ -123,7 +123,7 @@ func (l *logger) logResponse(resp *http.Response) error {
 	fmt.Fprintf(&buf, "\r\n")
 	buf.Write(prettyPrintJSON(bodyBytes))
 
-	return os.WriteFile(logPath, buf.Bytes(), 0o644)
+	return os.WriteFile(dumpPath, buf.Bytes(), 0o644)
 }
 
 // prettyPrintJSON returns indented JSON if body is valid JSON, otherwise returns body as-is.

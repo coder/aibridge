@@ -6,9 +6,9 @@ const (
 )
 
 type Anthropic struct {
-	BaseURL       string
-	Key           string
-	RequestLogDir string
+	BaseURL    string
+	Key        string
+	APIDumpDir string
 }
 
 type AWSBedrock struct {
@@ -21,7 +21,7 @@ type AWSBedrock struct {
 }
 
 type OpenAI struct {
-	BaseURL       string
-	Key           string
-	RequestLogDir string
+	BaseURL    string
+	Key        string
+	APIDumpDir string
 }
