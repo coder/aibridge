@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"strings"
 
-	"cdr.dev/slog"
+	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/tracing"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel/attribute"
@@ -59,7 +59,7 @@ func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp
 
 	inputJson, err := json.Marshal(input)
 	if err != nil {
-		t.Logger.Warn(ctx, "failed to marshal tool input, will be omitted from span attrs: %v", err)
+		t.Logger.Warn(ctx, "failed to marshal tool input, will be omitted from span attrs", slog.Error(err))
 	} else {
 		strJson := string(inputJson)
 		if len(strJson) > maxSpanInputAttrLen {
