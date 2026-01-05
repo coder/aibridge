@@ -21,6 +21,7 @@ import (
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/tracing"
 
 	"github.com/google/uuid"
@@ -152,6 +153,11 @@ func (i *interceptionBase) isSmallFastModel() bool {
 func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...option.RequestOption) (anthropic.MessageService, error) {
 	opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
+
+	// Add API dump middleware if configured
+	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, aibconfig.ProviderAnthropic, i.Model(), i.id); mw != nil {
+		opts = append(opts, option.WithMiddleware(mw))
+	}
 
 	if i.bedrockCfg != nil {
 		ctx, cancel := context.WithTimeout(ctx, time.Second*30)
