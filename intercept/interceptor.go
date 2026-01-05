@@ -3,7 +3,7 @@ package intercept
 import (
 	"net/http"
 
-	"cdr.dev/slog"
+	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/google/uuid"

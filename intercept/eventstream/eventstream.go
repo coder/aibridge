@@ -13,7 +13,7 @@ import (
 	"syscall"
 	"time"
 
-	"cdr.dev/slog"
+	"cdr.dev/slog/v3"
 )
 
 var ErrEventStreamClosed = errors.New("event stream closed")

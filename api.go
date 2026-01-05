@@ -3,7 +3,7 @@ package aibridge
 import (
 	"context"
 
-	"cdr.dev/slog"
+	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/metrics"

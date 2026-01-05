@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"cdr.dev/slog"
+	"cdr.dev/slog/v3"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
