@@ -137,11 +137,32 @@ func TestDefaultIsFailure(t *testing.T) {
 		{http.StatusInternalServerError, false},
 		{http.StatusBadGateway, false},
 		{http.StatusServiceUnavailable, true}, // 503
-		{529, true},                           // Anthropic Overloaded
 	}
 
 	for _, tt := range tests {
 		assert.Equal(t, tt.isFailure, DefaultIsFailure(tt.statusCode), "status code %d", tt.statusCode)
+	}
+}
+
+func TestAnthropicIsFailure(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		statusCode int
+		isFailure  bool
+	}{
+		{http.StatusOK, false},
+		{http.StatusBadRequest, false},
+		{http.StatusUnauthorized, false},
+		{http.StatusTooManyRequests, true}, // 429
+		{http.StatusInternalServerError, false},
+		{http.StatusBadGateway, false},
+		{http.StatusServiceUnavailable, true}, // 503
+		{529, true},                           // Anthropic Overloaded
+	}
+
+	for _, tt := range tests {
+		assert.Equal(t, tt.isFailure, AnthropicIsFailure(tt.statusCode), "status code %d", tt.statusCode)
 	}
 }
 
