@@ -58,17 +58,17 @@ var (
 	//go:embed fixtures/anthropic/non_stream_error.txtar
 	antNonStreamErr []byte
 
-	//go:embed fixtures/openai/simple.txtar
+	//go:embed fixtures/openai/chatcompletions/simple.txtar
 	oaiSimple []byte
-	//go:embed fixtures/openai/single_builtin_tool.txtar
+	//go:embed fixtures/openai/chatcompletions/single_builtin_tool.txtar
 	oaiSingleBuiltinTool []byte
-	//go:embed fixtures/openai/single_injected_tool.txtar
+	//go:embed fixtures/openai/chatcompletions/single_injected_tool.txtar
 	oaiSingleInjectedTool []byte
-	//go:embed fixtures/openai/fallthrough.txtar
+	//go:embed fixtures/openai/chatcompletions/fallthrough.txtar
 	oaiFallthrough []byte
-	//go:embed fixtures/openai/stream_error.txtar
+	//go:embed fixtures/openai/chatcompletions/stream_error.txtar
 	oaiMidStreamErr []byte
-	//go:embed fixtures/openai/non_stream_error.txtar
+	//go:embed fixtures/openai/chatcompletions/non_stream_error.txtar
 	oaiNonStreamErr []byte
 
 	testTracer = otel.Tracer("forTesting")
