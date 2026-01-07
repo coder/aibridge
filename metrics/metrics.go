@@ -120,7 +120,7 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 		CircuitBreakerTrips: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "circuit_breaker",
 			Name:      "trips_total",
-			Help:      "Total number of times the circuit breaker has tripped open.",
+			Help:      "Total number of times the circuit breaker transitioned to open state.",
 		}, []string{"provider", "endpoint"}),
 		// Pessimistic cardinality: 2 providers, 5 endpoints = up to 10.
 		CircuitBreakerRejects: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{

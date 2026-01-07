@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"cdr.dev/slog/v3"
-	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/circuitbreaker"
+	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
@@ -77,7 +77,7 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 				slog.F("from", from.String()),
 				slog.F("to", to.String()),
 			)
-			if cfg != nil && m != nil {
+			if m != nil {
 				m.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(circuitbreaker.StateToGaugeValue(to))
 				if to == gobreaker.StateOpen {
 					m.CircuitBreakerTrips.WithLabelValues(providerName, endpoint).Inc()
@@ -90,7 +90,7 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 		for _, path := range prov.BridgedRoutes() {
 			handler := newInterceptionProcessor(prov, rec, mcpProxy, logger, m, tracer)
 			// Wrap with circuit breaker middleware (nil cbs passes through)
-			wrapped := circuitbreaker.Middleware(cbs, m)(handler)
+			wrapped := circuitbreaker.Middleware(cbs, m, logger)(handler)
 			mux.Handle(path, wrapped)
 		}
 

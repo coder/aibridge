@@ -16,9 +16,9 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
-	"github.com/coder/aibridge/mcp"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
@@ -26,7 +26,9 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
-func TestCircuitBreaker_WithNewRequestBridge(t *testing.T) {
+// TestCircuitBreaker_FullRecoveryCycle tests the complete circuit breaker lifecycle:
+// closed → open (after consecutive failures) → half-open (after timeout) → closed (after successful request)
+func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 	t.Parallel()
 
 	type testCase struct {
@@ -136,12 +138,14 @@ func TestCircuitBreaker_WithNewRequestBridge(t *testing.T) {
 			mockSrv.Start()
 
 			makeRequest := func() *http.Response {
-				req, _ := http.NewRequest("POST", mockSrv.URL+"/"+tc.providerName+tc.endpoint, strings.NewReader(tc.requestBody))
+				req, err := http.NewRequest("POST", mockSrv.URL+"/"+tc.providerName+tc.endpoint, strings.NewReader(tc.requestBody))
+				require.NoError(t, err)
 				req.Header.Set("Content-Type", "application/json")
 				tc.setupHeaders(req)
 				resp, err := http.DefaultClient.Do(req)
 				require.NoError(t, err)
-				_, _ = io.ReadAll(resp.Body)
+				_, err = io.ReadAll(resp.Body)
+				require.NoError(t, err)
 				resp.Body.Close()
 				return resp
 			}
@@ -203,6 +207,8 @@ func TestCircuitBreaker_WithNewRequestBridge(t *testing.T) {
 	}
 }
 
+// TestCircuitBreaker_HalfOpenFailure tests that a failed request in half-open state
+// returns the circuit to open: closed → open → half-open → open
 func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 	t.Parallel()
 
@@ -253,13 +259,15 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 	mockSrv.Start()
 
 	makeRequest := func() *http.Response {
-		req, _ := http.NewRequest("POST", mockSrv.URL+"/openai/v1/chat/completions",
+		req, err := http.NewRequest("POST", mockSrv.URL+"/openai/v1/chat/completions",
 			strings.NewReader(`{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`))
+		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("Authorization", "Bearer test-key")
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
-		_, _ = io.ReadAll(resp.Body)
+		_, err = io.ReadAll(resp.Body)
+		require.NoError(t, err)
 		resp.Body.Close()
 		return resp
 	}

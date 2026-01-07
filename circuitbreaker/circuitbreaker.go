@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/metrics"
 	"github.com/sony/gobreaker/v2"
 )
@@ -39,18 +40,24 @@ func DefaultConfig() Config {
 	}
 }
 
-// DefaultIsFailure returns true for status codes that typically indicate
-// upstream overload: 429 (Too Many Requests), 503 (Service Unavailable),
-// and 529 (Anthropic Overloaded).
+// DefaultIsFailure returns true for standard HTTP status codes that typically
+// indicate upstream overload: 429 (Too Many Requests) and 503 (Service Unavailable).
 func DefaultIsFailure(statusCode int) bool {
 	switch statusCode {
 	case http.StatusTooManyRequests, // 429
-		http.StatusServiceUnavailable, // 503
-		529:                           // Anthropic "Overloaded"
+		http.StatusServiceUnavailable: // 503
 		return true
 	default:
 		return false
 	}
+}
+
+// AnthropicIsFailure extends DefaultIsFailure with Anthropic's custom 529 "Overloaded" status.
+func AnthropicIsFailure(statusCode int) bool {
+	if statusCode == 529 {
+		return true
+	}
+	return DefaultIsFailure(statusCode)
 }
 
 // ProviderCircuitBreakers manages per-endpoint circuit breakers for a single provider.
@@ -141,7 +148,7 @@ func (w *statusCapturingWriter) Unwrap() http.ResponseWriter {
 // Middleware returns middleware that wraps handlers with circuit breaker protection.
 // It captures the response status code to determine success/failure without provider-specific logic.
 // If cbs is nil, requests pass through without circuit breaker protection.
-func Middleware(cbs *ProviderCircuitBreakers, m *metrics.Metrics) func(http.Handler) http.Handler {
+func Middleware(cbs *ProviderCircuitBreakers, m *metrics.Metrics, logger slog.Logger) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		// No circuit breaker configured - pass through
 		if cbs == nil {
@@ -170,6 +177,8 @@ func Middleware(cbs *ProviderCircuitBreakers, m *metrics.Metrics) func(http.Hand
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				w.Write([]byte(`{"type":"error","error":{"type":"circuit_breaker_open","message":"circuit breaker is open"}}`))
+			} else if err != nil {
+				logger.Warn(r.Context(), "unexpected circuit breaker error", slog.Error(err))
 			}
 		})
 	}

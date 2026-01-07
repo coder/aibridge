@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"cdr.dev/slog/v3"
+	"cdr.dev/slog/v3/sloggers/slogtest"
+
 	"github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,7 +39,8 @@ func TestMiddleware_PerEndpointIsolation(t *testing.T) {
 		MaxRequests:      1,
 	}, func(endpoint string, from, to gobreaker.State) {})
 
-	handler := Middleware(cbs, nil)(upstream)
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+	handler := Middleware(cbs, nil, logger)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -71,7 +75,8 @@ func TestMiddleware_NotConfigured(t *testing.T) {
 	})
 
 	// No circuit breaker configured (nil)
-	handler := Middleware(nil, nil)(upstream)
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+	handler := Middleware(nil, nil, logger)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -103,7 +108,8 @@ func TestMiddleware_CustomIsFailure(t *testing.T) {
 		},
 	}, func(endpoint string, from, to gobreaker.State) {})
 
-	handler := Middleware(cbs, nil)(upstream)
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+	handler := Middleware(cbs, nil, logger)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
