@@ -1,4 +1,4 @@
-package aibridge
+package messages
 
 import (
 	"bytes"
@@ -13,7 +13,10 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -21,17 +24,15 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"cdr.dev/slog"
+	"cdr.dev/slog/v3"
 )
 
-var _ Interceptor = &AnthropicMessagesStreamingInterception{}
-
-type AnthropicMessagesStreamingInterception struct {
-	AnthropicMessagesInterceptionBase
+type StreamingInterception struct {
+	interceptionBase
 }
 
-func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewParamsWrapper, cfg AnthropicConfig, bedrockCfg *AWSBedrockConfig, tracer trace.Tracer) *AnthropicMessagesStreamingInterception {
-	return &AnthropicMessagesStreamingInterception{AnthropicMessagesInterceptionBase: AnthropicMessagesInterceptionBase{
+func NewStreamingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, cfg config.Anthropic, bedrockCfg *config.AWSBedrock, tracer trace.Tracer) *StreamingInterception {
+	return &StreamingInterception{interceptionBase: interceptionBase{
 		id:         id,
 		req:        req,
 		cfg:        cfg,
@@ -40,16 +41,16 @@ func NewAnthropicMessagesStreamingInterception(id uuid.UUID, req *MessageNewPara
 	}}
 }
 
-func (s *AnthropicMessagesStreamingInterception) Setup(logger slog.Logger, recorder Recorder, mcpProxy mcp.ServerProxier) {
-	s.AnthropicMessagesInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
+func (s *StreamingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	s.interceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
-func (s *AnthropicMessagesStreamingInterception) Streaming() bool {
+func (s *StreamingInterception) Streaming() bool {
 	return true
 }
 
-func (s *AnthropicMessagesStreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.AnthropicMessagesInterceptionBase.baseTraceAttributes(r, true)
+func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return s.interceptionBase.baseTraceAttributes(r, true)
 }
 
 // ProcessRequest handles a request to /v1/messages.
@@ -71,7 +72,7 @@ func (s *AnthropicMessagesStreamingInterception) TraceAttributes(r *http.Request
 // b) if the tool is injected, it will be invoked by the [mcp.ServerProxier] in the remote MCP server, and its
 // results relayed to the SERVER. The response from the server will be handled synchronously, and this loop
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
-func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
+func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
 		return fmt.Errorf("developer error: req is nil")
 	}
@@ -93,7 +94,7 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 
 	// Claude Code uses a "small/fast model" for certain tasks.
 	if !i.isSmallFastModel() {
-		prompt, err = i.req.LastUserPrompt()
+		prompt, err = i.req.lastUserPrompt()
 		if err != nil {
 			logger.Warn(ctx, "failed to determine last user prompt", slog.Error(err))
 		}
@@ -113,8 +114,8 @@ func (i *AnthropicMessagesStreamingInterception) ProcessRequest(w http.ResponseW
 	}
 
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
-	events := newEventStream(streamCtx, logger.Named("sse-sender"), i.pingPayload())
-	go events.start(w, r)
+	events := eventstream.NewEventStream(streamCtx, logger.Named("sse-sender"), i.pingPayload())
+	go events.Start(w, r)
 	defer func() {
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
@@ -182,7 +183,7 @@ newStream:
 				start := event.AsMessageStart()
 				accumulateUsage(&cumulativeUsage, start.Message.Usage)
 
-				_ = i.recorder.RecordTokenUsage(streamCtx, &TokenUsageRecord{
+				_ = i.recorder.RecordTokenUsage(streamCtx, &recorder.TokenUsageRecord{
 					InterceptionID: i.ID().String(),
 					MsgID:          message.ID,
 					Input:          start.Message.Usage.InputTokens,
@@ -207,7 +208,7 @@ newStream:
 				accumulateUsage(&cumulativeUsage, delta.Usage)
 
 				// Only output tokens should change in message_delta.
-				_ = i.recorder.RecordTokenUsage(streamCtx, &TokenUsageRecord{
+				_ = i.recorder.RecordTokenUsage(streamCtx, &recorder.TokenUsageRecord{
 					InterceptionID: i.ID().String(),
 					MsgID:          message.ID,
 					Output:         delta.Usage.OutputTokens,
@@ -285,7 +286,7 @@ newStream:
 
 						res, err := tool.Call(streamCtx, input, i.tracer)
 
-						_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
+						_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 							InterceptionID:  i.ID().String(),
 							MsgID:           message.ID,
 							ServerURL:       &tool.ServerURL,
@@ -391,7 +392,7 @@ newStream:
 								continue
 							}
 
-							_ = i.recorder.RecordToolUsage(streamCtx, &ToolUsageRecord{
+							_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 								InterceptionID: i.ID().String(),
 								MsgID:          message.ID,
 								Tool:           variant.Name,
@@ -411,7 +412,7 @@ newStream:
 				break
 			}
 			if err := events.Send(streamCtx, payload); err != nil {
-				if isUnrecoverableError(err) {
+				if eventstream.IsUnrecoverableError(err) {
 					logger.Debug(ctx, "processing terminated", slog.Error(err))
 					break // Stop processing if client disconnected or context canceled.
 				} else {
@@ -423,7 +424,7 @@ newStream:
 		}
 
 		if prompt != nil {
-			_ = i.recorder.RecordPromptUsage(ctx, &PromptUsageRecord{
+			_ = i.recorder.RecordPromptUsage(ctx, &recorder.PromptUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          message.ID,
 				Prompt:         *prompt,
@@ -431,13 +432,13 @@ newStream:
 			prompt = nil
 		}
 
-		if events.isStreaming() {
+		if events.IsStreaming() {
 			// Check if the stream encountered any errors.
 			if streamErr := stream.Err(); streamErr != nil {
-				if isUnrecoverableError(streamErr) {
+				if eventstream.IsUnrecoverableError(streamErr) {
 					logger.Debug(ctx, "stream terminated", slog.Error(streamErr))
 					// We can't reflect an error back if there's a connection error or the request context was canceled.
-				} else if antErr := getAnthropicErrorResponse(streamErr); antErr != nil {
+				} else if antErr := getErrorResponse(streamErr); antErr != nil {
 					logger.Warn(ctx, "anthropic stream error", slog.Error(streamErr))
 					interceptionErr = antErr
 				} else {
@@ -446,12 +447,12 @@ newStream:
 					// into known types (i.e. [shared.OverloadedError]).
 					// See https://github.com/anthropics/anthropic-sdk-go/blob/v1.12.0/packages/ssestream/ssestream.go#L172-L174
 					// All it does is wrap the payload in an error - which is all we can return, currently.
-					interceptionErr = newAnthropicErr(fmt.Errorf("unknown stream error: %w", streamErr))
+					interceptionErr = newErrorResponse(fmt.Errorf("unknown stream error: %w", streamErr))
 				}
 			} else if lastErr != nil {
 				// Otherwise check if any logical errors occurred during processing.
 				logger.Warn(ctx, "stream failed", slog.Error(lastErr))
-				interceptionErr = newAnthropicErr(fmt.Errorf("processing error: %w", lastErr))
+				interceptionErr = newErrorResponse(fmt.Errorf("processing error: %w", lastErr))
 			}
 
 			if interceptionErr != nil {
@@ -464,7 +465,7 @@ newStream:
 			}
 		} else {
 			// Stream has not started yet; write to response if present.
-			i.writeUpstreamError(w, getAnthropicErrorResponse(stream.Err()))
+			i.writeUpstreamError(w, getErrorResponse(stream.Err()))
 		}
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, time.Second*30)
@@ -487,7 +488,7 @@ newStream:
 	return interceptionErr
 }
 
-func (s *AnthropicMessagesStreamingInterception) marshalEvent(event anthropic.MessageStreamEventUnion) ([]byte, error) {
+func (s *StreamingInterception) marshalEvent(event anthropic.MessageStreamEventUnion) ([]byte, error) {
 	sj, err := sjson.Set(event.RawJSON(), "message.id", s.ID().String())
 	if err != nil {
 		return nil, fmt.Errorf("marshal event id failed: %w", err)
@@ -501,7 +502,7 @@ func (s *AnthropicMessagesStreamingInterception) marshalEvent(event anthropic.Me
 	return s.encodeForStream([]byte(sj), event.Type), nil
 }
 
-func (s *AnthropicMessagesStreamingInterception) marshal(payload any) ([]byte, error) {
+func (s *StreamingInterception) marshal(payload any) ([]byte, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, fmt.Errorf("marshal payload: %w", err)
@@ -521,11 +522,11 @@ func (s *AnthropicMessagesStreamingInterception) marshal(payload any) ([]byte, e
 }
 
 // https://docs.anthropic.com/en/docs/build-with-claude/streaming#basic-streaming-request
-func (s *AnthropicMessagesStreamingInterception) pingPayload() []byte {
+func (s *StreamingInterception) pingPayload() []byte {
 	return s.encodeForStream([]byte(`{"type": "ping"}`), "ping")
 }
 
-func (s *AnthropicMessagesStreamingInterception) encodeForStream(payload []byte, typ string) []byte {
+func (s *StreamingInterception) encodeForStream(payload []byte, typ string) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("event: ")
 	buf.WriteString(typ)
@@ -537,7 +538,7 @@ func (s *AnthropicMessagesStreamingInterception) encodeForStream(payload []byte,
 }
 
 // newStream traces svc.NewStreaming(streamCtx, messages)
-func (s *AnthropicMessagesStreamingInterception) newStream(ctx context.Context, svc anthropic.MessageService, messages anthropic.MessageNewParams) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
+func (s *StreamingInterception) newStream(ctx context.Context, svc anthropic.MessageService, messages anthropic.MessageNewParams) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
 	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 

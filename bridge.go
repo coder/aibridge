@@ -4,13 +4,22 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
-	"cdr.dev/slog"
+	"cdr.dev/slog/v3"
+	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/metrics"
+	"github.com/coder/aibridge/provider"
+	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/tracing"
 	"github.com/hashicorp/go-multierror"
 	"github.com/sony/gobreaker/v2"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -42,22 +51,25 @@ type RequestBridge struct {
 
 var _ http.Handler = &RequestBridge{}
 
+// The duration after which an async recording will be aborted.
+const recordingTimeout = time.Second * 5
+
 // NewRequestBridge creates a new *[RequestBridge] and registers the HTTP routes defined by the given providers.
 // Any routes which are requested but not registered will be reverse-proxied to the upstream service.
 //
-// A [Recorder] is also required to record prompt, tool, and token use.
+// A [intercept.Recorder] is also required to record prompt, tool, and token use.
 //
 // mcpProxy will be closed when the [RequestBridge] is closed.
 //
 // Circuit breaker configuration is obtained from each provider's CircuitBreakerConfig() method.
 // Providers returning nil will not have circuit breaker protection.
-func NewRequestBridge(ctx context.Context, providers []Provider, recorder Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) (*RequestBridge, error) {
+func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec recorder.Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) (*RequestBridge, error) {
 	mux := http.NewServeMux()
 
-	for _, provider := range providers {
+	for _, prov := range providers {
 		// Create per-provider circuit breaker if configured
-		cfg := provider.CircuitBreakerConfig()
-		providerName := provider.Name()
+		cfg := prov.CircuitBreakerConfig()
+		providerName := prov.Name()
 		onChange := func(endpoint string, from, to gobreaker.State) {
 			logger.Info(context.Background(), "circuit breaker state change",
 				slog.F("provider", providerName),
@@ -65,20 +77,20 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 				slog.F("from", from.String()),
 				slog.F("to", to.String()),
 			)
-			if cfg != nil && metrics != nil {
-				metrics.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(stateToGaugeValue(to))
+			if cfg != nil && m != nil {
+				m.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(circuitbreaker.StateToGaugeValue(to))
 				if to == gobreaker.StateOpen {
-					metrics.CircuitBreakerTrips.WithLabelValues(providerName, endpoint).Inc()
+					m.CircuitBreakerTrips.WithLabelValues(providerName, endpoint).Inc()
 				}
 			}
 		}
-		cbs := NewProviderCircuitBreakers(providerName, cfg, onChange)
+		cbs := circuitbreaker.NewProviderCircuitBreakers(providerName, cfg, onChange)
 
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
-		for _, path := range provider.BridgedRoutes() {
-			handler := newInterceptionProcessor(provider, recorder, mcpProxy, logger, metrics, tracer)
+		for _, path := range prov.BridgedRoutes() {
+			handler := newInterceptionProcessor(prov, rec, mcpProxy, logger, m, tracer)
 			// Wrap with circuit breaker middleware (nil cbs passes through)
-			wrapped := CircuitBreakerMiddleware(cbs, metrics)(handler)
+			wrapped := circuitbreaker.Middleware(cbs, m)(handler)
 			mux.Handle(path, wrapped)
 		}
 
@@ -86,9 +98,9 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 		//
 		// We have to whitelist the known-safe routes because an API key with elevated privileges (i.e. admin) might be
 		// configured, so we should just reverse-proxy known-safe routes.
-		ftr := newPassthroughRouter(provider, logger.Named(fmt.Sprintf("passthrough.%s", provider.Name())), metrics, tracer)
-		for _, path := range provider.PassthroughRoutes() {
-			prefix := fmt.Sprintf("/%s", provider.Name())
+		ftr := newPassthroughRouter(prov, logger.Named(fmt.Sprintf("passthrough.%s", prov.Name())), m, tracer)
+		for _, path := range prov.PassthroughRoutes() {
+			prefix := fmt.Sprintf("/%s", prov.Name())
 			route := fmt.Sprintf("%s%s", prefix, path)
 			mux.HandleFunc(route, http.StripPrefix(prefix, ftr).ServeHTTP)
 		}
@@ -110,6 +122,97 @@ func NewRequestBridge(ctx context.Context, providers []Provider, recorder Record
 
 		closed: make(chan struct{}, 1),
 	}, nil
+}
+
+// newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
+// using [Provider] p, recording all usage events using [Recorder] rec.
+func newInterceptionProcessor(p provider.Provider, rec recorder.Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := tracer.Start(r.Context(), "Intercept")
+		defer span.End()
+
+		interceptor, err := p.CreateInterceptor(w, r.WithContext(ctx), tracer)
+		if err != nil {
+			span.SetStatus(codes.Error, fmt.Sprintf("failed to create interceptor: %v", err))
+			logger.Warn(ctx, "failed to create interceptor", slog.Error(err), slog.F("path", r.URL.Path))
+			http.Error(w, fmt.Sprintf("failed to create %q interceptor", r.URL.Path), http.StatusInternalServerError)
+			return
+		}
+
+		if m != nil {
+			start := time.Now()
+			defer func() {
+				m.InterceptionDuration.WithLabelValues(p.Name(), interceptor.Model()).Observe(time.Since(start).Seconds())
+			}()
+		}
+
+		actor := aibcontext.ActorFromContext(ctx)
+		if actor == nil {
+			logger.Warn(ctx, "no actor found in context")
+			http.Error(w, "no actor found", http.StatusBadRequest)
+			return
+		}
+
+		traceAttrs := interceptor.TraceAttributes(r)
+		span.SetAttributes(traceAttrs...)
+		ctx = tracing.WithInterceptionAttributesInContext(ctx, traceAttrs)
+		r = r.WithContext(ctx)
+
+		// Record usage in the background to not block request flow.
+		asyncRecorder := recorder.NewAsyncRecorder(logger, rec, recordingTimeout)
+		asyncRecorder.WithMetrics(m)
+		asyncRecorder.WithProvider(p.Name())
+		asyncRecorder.WithModel(interceptor.Model())
+		asyncRecorder.WithInitiatorID(actor.ID)
+		interceptor.Setup(logger, asyncRecorder, mcpProxy)
+
+		if err := rec.RecordInterception(ctx, &recorder.InterceptionRecord{
+			ID:          interceptor.ID().String(),
+			Metadata:    actor.Metadata,
+			InitiatorID: actor.ID,
+			Provider:    p.Name(),
+			Model:       interceptor.Model(),
+		}); err != nil {
+			span.SetStatus(codes.Error, fmt.Sprintf("failed to record interception: %v", err))
+			logger.Warn(ctx, "failed to record interception", slog.Error(err))
+			http.Error(w, "failed to record interception", http.StatusInternalServerError)
+			return
+		}
+
+		route := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", p.Name()))
+		log := logger.With(
+			slog.F("route", route),
+			slog.F("provider", p.Name()),
+			slog.F("interception_id", interceptor.ID()),
+			slog.F("user_agent", r.UserAgent()),
+			slog.F("streaming", interceptor.Streaming()),
+		)
+
+		log.Debug(ctx, "interception started")
+		if m != nil {
+			m.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Add(1)
+			defer func() {
+				m.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Sub(1)
+			}()
+		}
+
+		if err := interceptor.ProcessRequest(w, r); err != nil {
+			if m != nil {
+				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID).Add(1)
+			}
+			span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
+			log.Warn(ctx, "interception failed", slog.Error(err))
+		} else {
+			if m != nil {
+				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID).Add(1)
+			}
+			log.Debug(ctx, "interception ended")
+		}
+		asyncRecorder.RecordInterceptionEnded(ctx, &recorder.InterceptionRecordEnded{ID: interceptor.ID().String()})
+
+		// Ensure all recording have completed before completing request.
+		asyncRecorder.Wait()
+	}
 }
 
 // ServeHTTP exposes the internal http.Handler, which has all [Provider]s' routes registered.

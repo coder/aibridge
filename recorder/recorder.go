@@ -1,4 +1,4 @@
-package aibridge
+package recorder
 
 import (
 	"context"
@@ -6,8 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"cdr.dev/slog"
+	"cdr.dev/slog/v3"
 
+	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/tracing"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -128,7 +129,7 @@ type AsyncRecorder struct {
 	logger  slog.Logger
 	wrapped Recorder
 	timeout time.Duration
-	metrics *Metrics
+	metrics *metrics.Metrics
 
 	provider, model, initiatorID string
 
@@ -139,8 +140,10 @@ func NewAsyncRecorder(logger slog.Logger, wrapped Recorder, timeout time.Duratio
 	return &AsyncRecorder{logger: logger, wrapped: wrapped, timeout: timeout}
 }
 
-func (a *AsyncRecorder) WithMetrics(metrics *Metrics) {
-	a.metrics = metrics
+func (a *AsyncRecorder) WithMetrics(m any) {
+	if m, ok := m.(*metrics.Metrics); ok {
+		a.metrics = m
+	}
 }
 
 func (a *AsyncRecorder) WithProvider(provider string) {

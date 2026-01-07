@@ -1,10 +1,15 @@
-package aibridge
+package provider
 
 import (
+	"errors"
 	"net/http"
 
+	"github.com/coder/aibridge/circuitbreaker"
+	"github.com/coder/aibridge/intercept"
 	"go.opentelemetry.io/otel/trace"
 )
+
+var UnknownRoute = errors.New("unknown route")
 
 // Provider describes an AI provider client's behaviour.
 // Provider clients are responsible for interacting with upstream AI providers.
@@ -16,7 +21,7 @@ type Provider interface {
 
 	// CreateInterceptor starts a new [Interceptor] which is responsible for intercepting requests,
 	// communicating with the upstream provider and formulating a response to be sent to the requesting client.
-	CreateInterceptor(http.ResponseWriter, *http.Request, trace.Tracer) (Interceptor, error)
+	CreateInterceptor(http.ResponseWriter, *http.Request, trace.Tracer) (intercept.Interceptor, error)
 
 	// BridgedRoutes returns a slice of [http.ServeMux]-compatible routes which will have special handling.
 	// See https://pkg.go.dev/net/http#hdr-Patterns-ServeMux.
@@ -35,5 +40,5 @@ type Provider interface {
 	InjectAuthHeader(*http.Header)
 
 	// CircuitBreakerConfig returns the circuit breaker configuration for the provider.
-	CircuitBreakerConfig() *CircuitBreakerConfig
+	CircuitBreakerConfig() *circuitbreaker.Config
 }

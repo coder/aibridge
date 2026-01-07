@@ -1,4 +1,4 @@
-package aibridge
+package circuitbreaker
 
 import (
 	"net/http"
@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestCircuitBreakerMiddleware_PerEndpointIsolation(t *testing.T) {
+func TestMiddleware_PerEndpointIsolation(t *testing.T) {
 	t.Parallel()
 
 	chatCalls := atomic.Int32{}
@@ -29,14 +29,14 @@ func TestCircuitBreakerMiddleware_PerEndpointIsolation(t *testing.T) {
 		}
 	})
 
-	cbs := NewProviderCircuitBreakers("test", &CircuitBreakerConfig{
+	cbs := NewProviderCircuitBreakers("test", &Config{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
 	}, func(endpoint string, from, to gobreaker.State) {})
 
-	handler := CircuitBreakerMiddleware(cbs, nil)(upstream)
+	handler := Middleware(cbs, nil)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -60,7 +60,7 @@ func TestCircuitBreakerMiddleware_PerEndpointIsolation(t *testing.T) {
 	assert.Equal(t, int32(1), responsesCalls.Load())
 }
 
-func TestCircuitBreakerMiddleware_NotConfigured(t *testing.T) {
+func TestMiddleware_NotConfigured(t *testing.T) {
 	t.Parallel()
 
 	var upstreamCalls atomic.Int32
@@ -71,7 +71,7 @@ func TestCircuitBreakerMiddleware_NotConfigured(t *testing.T) {
 	})
 
 	// No circuit breaker configured (nil)
-	handler := CircuitBreakerMiddleware(nil, nil)(upstream)
+	handler := Middleware(nil, nil)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -85,7 +85,7 @@ func TestCircuitBreakerMiddleware_NotConfigured(t *testing.T) {
 	assert.Equal(t, int32(10), upstreamCalls.Load())
 }
 
-func TestCircuitBreakerMiddleware_CustomIsFailure(t *testing.T) {
+func TestMiddleware_CustomIsFailure(t *testing.T) {
 	t.Parallel()
 
 	upstream := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -93,7 +93,7 @@ func TestCircuitBreakerMiddleware_CustomIsFailure(t *testing.T) {
 	})
 
 	// Custom IsFailure that treats 502 as failure
-	cbs := NewProviderCircuitBreakers("test", &CircuitBreakerConfig{
+	cbs := NewProviderCircuitBreakers("test", &Config{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
@@ -103,7 +103,7 @@ func TestCircuitBreakerMiddleware_CustomIsFailure(t *testing.T) {
 		},
 	}, func(endpoint string, from, to gobreaker.State) {})
 
-	handler := CircuitBreakerMiddleware(cbs, nil)(upstream)
+	handler := Middleware(cbs, nil)(upstream)
 	server := httptest.NewServer(handler)
 	defer server.Close()
 
@@ -142,7 +142,7 @@ func TestDefaultIsFailure(t *testing.T) {
 func TestStateToGaugeValue(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, float64(0), stateToGaugeValue(gobreaker.StateClosed))
-	assert.Equal(t, float64(0.5), stateToGaugeValue(gobreaker.StateHalfOpen))
-	assert.Equal(t, float64(1), stateToGaugeValue(gobreaker.StateOpen))
+	assert.Equal(t, float64(0), StateToGaugeValue(gobreaker.StateClosed))
+	assert.Equal(t, float64(0.5), StateToGaugeValue(gobreaker.StateHalfOpen))
+	assert.Equal(t, float64(1), StateToGaugeValue(gobreaker.StateOpen))
 }

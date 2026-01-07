@@ -11,9 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"cdr.dev/slog"
-	"cdr.dev/slog/sloggers/slogtest"
+	"cdr.dev/slog/v3"
+	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
+	"github.com/coder/aibridge/circuitbreaker"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/metrics"
+	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/mcp"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
@@ -33,13 +37,13 @@ func TestCircuitBreaker_WithNewRequestBridge(t *testing.T) {
 		successBody    string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
-		createProvider func(baseURL string, cbConfig *aibridge.CircuitBreakerConfig) aibridge.Provider
+		createProvider func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider
 	}
 
 	tests := []testCase{
 		{
 			name:         "Anthropic",
-			providerName: aibridge.ProviderAnthropic,
+			providerName: config.ProviderAnthropic,
 			endpoint:     "/v1/messages",
 			errorBody:    `{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`,
 			successBody:  `{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`,
@@ -48,8 +52,8 @@ func TestCircuitBreaker_WithNewRequestBridge(t *testing.T) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
-			createProvider: func(baseURL string, cbConfig *aibridge.CircuitBreakerConfig) aibridge.Provider {
-				return aibridge.NewAnthropicProvider(aibridge.AnthropicConfig{
+			createProvider: func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider {
+				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
 					Key:            "test-key",
 					CircuitBreaker: cbConfig,
@@ -58,7 +62,7 @@ func TestCircuitBreaker_WithNewRequestBridge(t *testing.T) {
 		},
 		{
 			name:         "OpenAI",
-			providerName: aibridge.ProviderOpenAI,
+			providerName: config.ProviderOpenAI,
 			endpoint:     "/v1/chat/completions",
 			errorBody:    `{"error":{"type":"rate_limit_error","message":"rate limited","code":"rate_limit_exceeded"}}`,
 			successBody:  `{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`,
@@ -66,8 +70,8 @@ func TestCircuitBreaker_WithNewRequestBridge(t *testing.T) {
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
-			createProvider: func(baseURL string, cbConfig *aibridge.CircuitBreakerConfig) aibridge.Provider {
-				return aibridge.NewOpenAIProvider(aibridge.OpenAIConfig{
+			createProvider: func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider {
+				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
 					Key:            "test-key",
 					CircuitBreaker: cbConfig,
@@ -100,22 +104,22 @@ func TestCircuitBreaker_WithNewRequestBridge(t *testing.T) {
 			}))
 			defer mockUpstream.Close()
 
-			metrics := aibridge.NewMetrics(prometheus.NewRegistry())
+			metrics := metrics.NewMetrics(prometheus.NewRegistry())
 
 			// Create provider with circuit breaker config
-			cbConfig := &aibridge.CircuitBreakerConfig{
+			cbConfig := &circuitbreaker.Config{
 				FailureThreshold: 2,
 				Interval:         time.Minute,
 				Timeout:          50 * time.Millisecond,
 				MaxRequests:      1,
 			}
-			provider := tc.createProvider(mockUpstream.URL, cbConfig)
+			prov := tc.createProvider(mockUpstream.URL, cbConfig)
 
 			ctx := t.Context()
 			tracer := otel.Tracer("forTesting")
 			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 			bridge, err := aibridge.NewRequestBridge(ctx,
-				[]aibridge.Provider{provider},
+				[]provider.Provider{prov},
 				&mockRecorderClient{},
 				mcp.NewServerProxyManager(nil, tracer),
 				logger,
@@ -214,15 +218,15 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 	}))
 	defer mockUpstream.Close()
 
-	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
+	metrics := metrics.NewMetrics(prometheus.NewRegistry())
 
-	cbConfig := &aibridge.CircuitBreakerConfig{
+	cbConfig := &circuitbreaker.Config{
 		FailureThreshold: 2,
 		Interval:         time.Minute,
 		Timeout:          50 * time.Millisecond,
 		MaxRequests:      1,
 	}
-	provider := aibridge.NewOpenAIProvider(aibridge.OpenAIConfig{
+	prov := provider.NewOpenAI(config.OpenAI{
 		BaseURL:        mockUpstream.URL,
 		Key:            "test-key",
 		CircuitBreaker: cbConfig,
@@ -232,7 +236,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 	tracer := otel.Tracer("forTesting")
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 	bridge, err := aibridge.NewRequestBridge(ctx,
-		[]aibridge.Provider{provider},
+		[]provider.Provider{prov},
 		&mockRecorderClient{},
 		mcp.NewServerProxyManager(nil, tracer),
 		logger,

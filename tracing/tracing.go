@@ -37,6 +37,28 @@ const (
 	APIKeyID = "api_key_id"
 )
 
+// EndSpanErr ends given span and sets Error status if error is not nil
+// uses pointer to error because defer evaluates function arguments
+// when defer statement is executed not when deferred function is called
+//
+// example usage:
+//
+//	func Example() (result any, outErr error) {
+//	    _, span := tracer.Start(...)
+//	    defer tracing.EndSpanErr(span, &outErr)
+//
+// }
+func EndSpanErr(span trace.Span, err *error) {
+	if span == nil {
+		return
+	}
+
+	if err != nil && *err != nil {
+		span.SetStatus(codes.Error, (*err).Error())
+	}
+	span.End()
+}
+
 func WithInterceptionAttributesInContext(ctx context.Context, traceAttrs []attribute.KeyValue) context.Context {
 	return context.WithValue(ctx, traceInterceptionAttrsContextKey{}, traceAttrs)
 }
@@ -61,26 +83,4 @@ func RequestBridgeAttributesFromContext(ctx context.Context) []attribute.KeyValu
 	}
 
 	return attrs
-}
-
-// EndSpanErr ends given span and sets Error status if error is not nil
-// uses pointer to error because defer evaluates function arguments
-// when defer statement is executed not when deferred function is called
-//
-// example usage:
-//
-//	func Example() (result any, outErr error) {
-//	    _, span := tracer.Start(...)
-//	    defer tracing.EndSpanErr(span, &outErr)
-//
-// }
-func EndSpanErr(span trace.Span, err *error) {
-	if span == nil {
-		return
-	}
-
-	if err != nil && *err != nil {
-		span.SetStatus(codes.Error, (*err).Error())
-	}
-	span.End()
 }

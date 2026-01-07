@@ -1,4 +1,4 @@
-package aibridge
+package circuitbreaker
 
 import (
 	"errors"
@@ -8,12 +8,13 @@ import (
 	"sync"
 	"time"
 
+	"github.com/coder/aibridge/metrics"
 	"github.com/sony/gobreaker/v2"
 )
 
-// CircuitBreakerConfig holds configuration for circuit breakers.
+// Config holds configuration for circuit breakers.
 // Fields match gobreaker.Settings for clarity.
-type CircuitBreakerConfig struct {
+type Config struct {
 	// MaxRequests is the maximum number of requests allowed in half-open state.
 	MaxRequests uint32
 	// Interval is the cyclic period of the closed state for clearing internal counts.
@@ -27,9 +28,9 @@ type CircuitBreakerConfig struct {
 	IsFailure func(statusCode int) bool
 }
 
-// DefaultCircuitBreakerConfig returns sensible defaults for circuit breaker configuration.
-func DefaultCircuitBreakerConfig() CircuitBreakerConfig {
-	return CircuitBreakerConfig{
+// DefaultConfig returns sensible defaults for circuit breaker configuration.
+func DefaultConfig() Config {
+	return Config{
 		FailureThreshold: 5,
 		Interval:         10 * time.Second,
 		Timeout:          30 * time.Second,
@@ -55,14 +56,14 @@ func DefaultIsFailure(statusCode int) bool {
 // ProviderCircuitBreakers manages per-endpoint circuit breakers for a single provider.
 type ProviderCircuitBreakers struct {
 	provider string
-	config   CircuitBreakerConfig
+	config   Config
 	breakers sync.Map // endpoint -> *gobreaker.CircuitBreaker[struct{}]
 	onChange func(endpoint string, from, to gobreaker.State)
 }
 
 // NewProviderCircuitBreakers creates circuit breakers for a single provider.
 // Returns nil if config is nil (no circuit breaker protection).
-func NewProviderCircuitBreakers(provider string, config *CircuitBreakerConfig, onChange func(endpoint string, from, to gobreaker.State)) *ProviderCircuitBreakers {
+func NewProviderCircuitBreakers(provider string, config *Config, onChange func(endpoint string, from, to gobreaker.State)) *ProviderCircuitBreakers {
 	if config == nil {
 		return nil
 	}
@@ -137,10 +138,10 @@ func (w *statusCapturingWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
 
-// CircuitBreakerMiddleware returns middleware that wraps handlers with circuit breaker protection.
+// Middleware returns middleware that wraps handlers with circuit breaker protection.
 // It captures the response status code to determine success/failure without provider-specific logic.
 // If cbs is nil, requests pass through without circuit breaker protection.
-func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics) func(http.Handler) http.Handler {
+func Middleware(cbs *ProviderCircuitBreakers, m *metrics.Metrics) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		// No circuit breaker configured - pass through
 		if cbs == nil {
@@ -163,8 +164,8 @@ func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics) fu
 			})
 
 			if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
-				if metrics != nil {
-					metrics.CircuitBreakerRejects.WithLabelValues(cbs.provider, endpoint).Inc()
+				if m != nil {
+					m.CircuitBreakerRejects.WithLabelValues(cbs.provider, endpoint).Inc()
 				}
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
@@ -174,9 +175,9 @@ func CircuitBreakerMiddleware(cbs *ProviderCircuitBreakers, metrics *Metrics) fu
 	}
 }
 
-// stateToGaugeValue converts gobreaker.State to a gauge value.
+// StateToGaugeValue converts gobreaker.State to a gauge value.
 // closed=0, half-open=0.5, open=1
-func stateToGaugeValue(s gobreaker.State) float64 {
+func StateToGaugeValue(s gobreaker.State) float64 {
 	switch s {
 	case gobreaker.StateClosed:
 		return 0
