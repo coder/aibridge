@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -175,6 +176,7 @@ func Middleware(cbs *ProviderCircuitBreakers, m *metrics.Metrics, logger slog.Lo
 					m.CircuitBreakerRejects.WithLabelValues(cbs.provider, endpoint).Inc()
 				}
 				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Retry-After", strconv.FormatInt(int64(cbs.config.Timeout.Seconds()), 10))
 				w.WriteHeader(http.StatusServiceUnavailable)
 				w.Write([]byte(`{"type":"error","error":{"type":"circuit_breaker_open","message":"circuit breaker is open"}}`))
 			} else if err != nil {
