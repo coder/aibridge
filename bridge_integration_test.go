@@ -1090,6 +1090,25 @@ func TestErrorHandling(t *testing.T) {
 					require.Contains(t, gjson.GetBytes(body, "error.message").Str, "Input tokens exceed the configured limit")
 				},
 			},
+			{
+				name:              "responses_API",
+				fixture:           fixtResponsesUpstreamHttpError,
+				createRequestFunc: createOpenAIResponsesReq,
+				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
+					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+					providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
+					return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, testTracer)
+				},
+				responseHandlerFn: func(resp *http.Response) {
+					require.Equal(t, http.StatusBadRequest, resp.StatusCode)
+					body, err := io.ReadAll(resp.Body)
+					require.NoError(t, err)
+
+					require.Equal(t, "mutually_exclusive_parameters", gjson.GetBytes(body, "error.code").Str)
+					require.Equal(t, "invalid_request_error", gjson.GetBytes(body, "error.type").Str)
+					require.Contains(t, gjson.GetBytes(body, "error.message").Str, "Mutually exclusive parameters: ''. Ensure you are only providing one of: 'pre..._id' or 'conversation'.")
+				},
+			},
 		}
 
 		for _, tc := range cases {
