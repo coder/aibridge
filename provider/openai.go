@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/chatcompletions"
@@ -20,8 +21,9 @@ const routeChatCompletions = "/openai/v1/chat/completions" // https://platform.o
 
 // OpenAI allows for interactions with the OpenAI API.
 type OpenAI struct {
-	baseURL string
-	key     string
+	baseURL        string
+	key            string
+	circuitBreaker *circuitbreaker.Config
 }
 
 var _ Provider = &OpenAI{}
@@ -36,8 +38,9 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	}
 
 	return &OpenAI{
-		baseURL: cfg.BaseURL,
-		key:     cfg.Key,
+		baseURL:        cfg.BaseURL,
+		key:            cfg.Key,
+		circuitBreaker: cfg.CircuitBreaker,
 	}
 }
 
@@ -107,4 +110,8 @@ func (p *OpenAI) InjectAuthHeader(headers *http.Header) {
 	}
 
 	headers.Set(p.AuthHeader(), "Bearer "+p.key)
+}
+
+func (p *OpenAI) CircuitBreakerConfig() *circuitbreaker.Config {
+	return p.circuitBreaker
 }

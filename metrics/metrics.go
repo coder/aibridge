@@ -28,6 +28,11 @@ type Metrics struct {
 	// Tool-related metrics.
 	InjectedToolUseCount    *prometheus.CounterVec
 	NonInjectedToolUseCount *prometheus.CounterVec
+
+	// Circuit breaker metrics.
+	CircuitBreakerState   *prometheus.GaugeVec   // Current state (0=closed, 0.5=half-open, 1=open)
+	CircuitBreakerTrips   *prometheus.CounterVec // Total times circuit opened
+	CircuitBreakerRejects *prometheus.CounterVec // Requests rejected due to open circuit
 }
 
 // NewMetrics creates AND registers metrics. It will panic if a collector has already been registered.
@@ -102,5 +107,26 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Name:      "total",
 			Help:      "The number of times an AI model selected a tool to be invoked by the client.",
 		}, append(baseLabels, "name")),
+
+		// Circuit breaker metrics.
+
+		// Pessimistic cardinality: 2 providers, 5 endpoints = up to 10.
+		CircuitBreakerState: promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+			Subsystem: "circuit_breaker",
+			Name:      "state",
+			Help:      "Current state of the circuit breaker (0=closed, 0.5=half-open, 1=open).",
+		}, []string{"provider", "endpoint"}),
+		// Pessimistic cardinality: 2 providers, 5 endpoints = up to 10.
+		CircuitBreakerTrips: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+			Subsystem: "circuit_breaker",
+			Name:      "trips_total",
+			Help:      "Total number of times the circuit breaker transitioned to open state.",
+		}, []string{"provider", "endpoint"}),
+		// Pessimistic cardinality: 2 providers, 5 endpoints = up to 10.
+		CircuitBreakerRejects: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
+			Subsystem: "circuit_breaker",
+			Name:      "rejects_total",
+			Help:      "Total number of requests rejected due to open circuit breaker.",
+		}, []string{"provider", "endpoint"}),
 	}
 }

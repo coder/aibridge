@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/messages"
@@ -101,4 +102,8 @@ func (p *Anthropic) InjectAuthHeader(headers *http.Header) {
 	}
 
 	headers.Set(p.AuthHeader(), p.cfg.Key)
+}
+
+func (p *Anthropic) CircuitBreakerConfig() *circuitbreaker.Config {
+	return p.cfg.CircuitBreaker
 }

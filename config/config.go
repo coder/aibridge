@@ -1,13 +1,16 @@
 package config
 
+import "github.com/coder/aibridge/circuitbreaker"
+
 const (
 	ProviderAnthropic = "anthropic"
 	ProviderOpenAI    = "openai"
 )
 
 type Anthropic struct {
-	BaseURL string
-	Key     string
+	BaseURL        string
+	Key            string
+	CircuitBreaker *circuitbreaker.Config
 }
 
 type AWSBedrock struct {
@@ -20,6 +23,7 @@ type AWSBedrock struct {
 }
 
 type OpenAI struct {
-	BaseURL string
-	Key     string
+	BaseURL        string
+	Key            string
+	CircuitBreaker *circuitbreaker.Config
 }
