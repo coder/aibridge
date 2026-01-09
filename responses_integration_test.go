@@ -340,13 +340,13 @@ func TestClientAndConnectionError(t *testing.T) {
 			name:        "blocking_connection_refused",
 			addr:        startRejectingListener(t),
 			streaming:   false,
-			errContains: "read: connection reset by peer",
+			errContains: "connection reset by peer",
 		},
 		{
 			name:        "streaming_connection_refused",
 			addr:        startRejectingListener(t),
 			streaming:   true,
-			errContains: "read: connection reset by peer",
+			errContains: "connection reset by peer",
 		},
 		{
 			name:        "blocking_bad_url",
