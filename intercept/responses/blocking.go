@@ -3,7 +3,6 @@ package responses
 import (
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 
 	"cdr.dev/slog/v3"
@@ -45,25 +44,22 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 		return err
 	}
 
-	var respBody deltaBuffer
-	srv := NewResponsesService(i.baseURL, i.key, i.logger)
+	var respPayload deltaBuffer
+	srv := NewResponsesService(i.baseURL, i.key)
 
-	opts := i.requestOptions(&respBody)
-	_, err := srv.New(ctx, i.req.ResponseNewParams, opts...)
+	opts := i.requestOptions(&respPayload)
+	_, upstreamErr := srv.New(ctx, i.req.ResponseNewParams, opts...)
 
-	upstreamErr, earlyExit := i.handleUpstreamError(ctx, err, w)
+	upstreamErr, earlyExit := i.handleUpstreamError(ctx, upstreamErr, w)
 	if earlyExit {
 		return upstreamErr
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	out, err := io.ReadAll(&respBody)
-	if err != nil {
-		i.logger.Warn(ctx, "failed to read upstream response", slog.Error(err))
-		return errors.Join(fmt.Errorf("failed to read upstream response: %w", err), upstreamErr)
+	if err := respPayload.drain(); err != nil {
+		i.logger.Warn(ctx, "failed to drain original response body", slog.Error(err))
 	}
-
-	_, err = w.Write(out)
+	w.Header().Set("Content-Type", "application/json")
+	_, err := w.Write(respPayload.readDelta())
 	if err != nil {
 		i.logger.Warn(ctx, "failed to write response", slog.Error(err))
 		return errors.Join(fmt.Errorf("failed to write response: %w", err), upstreamErr)

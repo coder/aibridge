@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"time"
 
@@ -63,15 +62,15 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
 
-	var respBody deltaBuffer
+	var respPayload deltaBuffer
 
-	srv := NewResponsesService(i.baseURL, i.key, i.logger)
-	opts := i.requestOptions(&respBody)
+	srv := NewResponsesService(i.baseURL, i.key)
+	opts := i.requestOptions(&respPayload)
 	stream := srv.NewStreaming(ctx, i.req.ResponseNewParams, opts...)
 	defer stream.Close()
 
 	for stream.Next() {
-		if err := events.Send(ctx, respBody.readDelta()); err != nil {
+		if err := events.Send(ctx, respPayload.readDelta()); err != nil {
 			i.logger.Warn(ctx, "failed to relay chunk", slog.Error(err))
 			err = fmt.Errorf("relay chunk: %w", err)
 			stream.Close()
@@ -84,13 +83,10 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		return upstreamErr
 	}
 
-	// Sometimes stream.Next() returns before respBody buffer is filled
-	lastRead, err := io.ReadAll(&respBody)
-	if err != nil {
-		i.logger.Warn(ctx, "failed to read upstream response", slog.Error(err))
-		return fmt.Errorf("failed to read upstream response: %w", err)
+	if err := respPayload.drain(); err != nil {
+		i.logger.Warn(ctx, "failed to drain original response body", slog.Error(err))
 	}
-	events.Send(ctx, lastRead)
+	events.Send(ctx, respPayload.readDelta())
 
 	// Give the events stream 30 seconds (TODO: configurable) to gracefully shutdown.
 	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, time.Second*30)
