@@ -2,7 +2,6 @@ package responses
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -57,14 +56,13 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		return err
 	}
 
-	streamCtx, streamCancel := context.WithCancelCause(ctx)
-	defer streamCancel(errors.New("deferred"))
-
-	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
-	events := eventstream.NewEventStream(streamCtx, i.logger.Named("sse-sender"), nil)
+	events := eventstream.NewEventStream(ctx, i.logger.Named("sse-sender"), nil)
 	go events.Start(w, r)
 	defer func() {
-		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
+		// Catch-all in case it doesn't get shutdown after stream completes.
+		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, streamShutdownTimeout)
+		defer shutdownCancel()
+		_ = events.Shutdown(shutdownCtx)
 	}()
 
 	var respPayload deltaBuffer
@@ -92,12 +90,6 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		i.logger.Warn(ctx, "failed to drain original response body", slog.Error(err))
 	}
 	events.Send(ctx, respPayload.readDelta())
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, streamShutdownTimeout)
-	defer shutdownCancel()
-	if err := events.Shutdown(shutdownCtx); err != nil {
-		i.logger.Warn(ctx, "event stream shutdown", slog.Error(err))
-	}
 
 	return stream.Err()
 }
