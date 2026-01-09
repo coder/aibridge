@@ -16,14 +16,17 @@ type BlockingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewBlockingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, baseURL, key string) *BlockingResponsesInterceptor {
-	return &BlockingResponsesInterceptor{responsesInterceptionBase: responsesInterceptionBase{
-		id:         id,
-		req:        req,
-		reqPayload: reqPayload,
-		baseURL:    baseURL,
-		key:        key,
-	}}
+func NewBlockingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, baseURL string, key string, model string) *BlockingResponsesInterceptor {
+	return &BlockingResponsesInterceptor{
+		responsesInterceptionBase: responsesInterceptionBase{
+			id:         id,
+			req:        req,
+			reqPayload: reqPayload,
+			baseURL:    baseURL,
+			apiKey:     key,
+			model:      model,
+		},
+	}
 }
 
 func (i *BlockingResponsesInterceptor) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
@@ -45,22 +48,21 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	}
 
 	var respPayload deltaBuffer
-	srv := NewResponsesService(i.baseURL, i.key)
+	srv := i.newResponsesService()
 
-	opts := i.requestOptions(&respPayload)
+	opts := i.requestOptions(&respPayload, w)
 	_, upstreamErr := srv.New(ctx, i.req.ResponseNewParams, opts...)
 
-	upstreamErr, earlyExit := i.handleUpstreamError(ctx, upstreamErr, w)
-	if earlyExit {
+	upstreamErr, failFast := i.handleUpstreamError(ctx, upstreamErr, w)
+	if failFast {
 		return upstreamErr
 	}
 
-	if err := respPayload.drain(); err != nil {
+	if err := respPayload.drainCloser(); err != nil {
 		i.logger.Warn(ctx, "failed to drain original response body", slog.Error(err))
 	}
-	w.Header().Set("Content-Type", "application/json")
-	_, err := w.Write(respPayload.readDelta())
-	if err != nil {
+
+	if _, err := w.Write(respPayload.readDelta()); err != nil {
 		i.logger.Warn(ctx, "failed to write response", slog.Error(err))
 		return errors.Join(fmt.Errorf("failed to write response: %w", err), upstreamErr)
 	}

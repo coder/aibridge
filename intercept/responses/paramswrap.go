@@ -8,8 +8,8 @@ import (
 // ResponsesNewParamsWrapper exists because the "stream" param is not included
 // in responses.ResponseNewParams.
 type ResponsesNewParamsWrapper struct {
-	responses.ResponseNewParams `json:""`
-	Stream                      bool `json:"stream,omitempty"`
+	responses.ResponseNewParams
+	Stream bool `json:"stream,omitempty"`
 }
 
 func (c *ResponsesNewParamsWrapper) UnmarshalJSON(raw []byte) error {

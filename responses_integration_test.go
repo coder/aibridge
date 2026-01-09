@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -52,19 +53,20 @@ var (
 
 	//go:embed fixtures/openai/responses/streaming/wrong_response_format.txtar
 	fixtResponsesStreamingWrongResponseFormat []byte
-
-	//go:embed fixtures/openai/responses/upstream_http_err.txtar
-	fixtResponsesUpstreamHttpError []byte
 )
+
+type keyVal struct {
+	key string
+	val any
+}
 
 func TestResponsesOutputMatchesUpstream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name            string
-		fixture         []byte
-		streaming       bool
-		expectErrStatus int
+		name      string
+		fixture   []byte
+		streaming bool
 	}{
 		{
 			name:    "blocking_simple",
@@ -82,11 +84,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			name:    "blocking_prev_response_id",
 			fixture: fixtResponsesBlockingPrevResponseID,
 		},
-		{
-			name:            "blocking_wrong_format",
-			fixture:         fixtResponsesBlockingWrongResponseFormat,
-			expectErrStatus: 500,
-		},
+
 		{
 			name:      "streaming_simple",
 			fixture:   fixtResponsesStreamingSimple,
@@ -118,7 +116,12 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming: true,
 		},
 
-		{ // sdk seems to ignore not well formatted chunks when streaming
+		// Even when response has wrong json format original response status code, body is kept as is
+		{
+			name:    "blocking_wrong_format",
+			fixture: fixtResponsesBlockingWrongResponseFormat,
+		},
+		{
 			name:      "streaming_wrong_format",
 			fixture:   fixtResponsesStreamingWrongResponseFormat,
 			streaming: true,
@@ -153,15 +156,11 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			resp, err := client.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
-			if tc.expectErrStatus == 0 {
-				require.Equal(t, http.StatusOK, resp.StatusCode)
-				got, err := io.ReadAll(resp.Body)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			got, err := io.ReadAll(resp.Body)
 
-				require.NoError(t, err)
-				require.Equal(t, string(files[fixtResp]), string(got))
-			} else {
-				require.Equal(t, tc.expectErrStatus, resp.StatusCode)
-			}
+			require.NoError(t, err)
+			require.Equal(t, string(files[fixtResp]), string(got))
 		})
 	}
 }
@@ -202,15 +201,7 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 			defer srv.Close()
 
 			// Create a request with background mode enabled
-			reqBody := map[string]any{
-				"input":      "tell me a joke",
-				"model":      "gpt-4o-mini",
-				"stream":     tc.streaming,
-				"background": true,
-			}
-			reqBytes, err := json.Marshal(reqBody)
-			require.NoError(t, err)
-
+			reqBytes := responsesRequestBytes(t, tc.streaming, keyVal{"background", true})
 			req := createOpenAIResponsesReq(t, srv.URL, reqBytes)
 			client := &http.Client{}
 
@@ -298,13 +289,21 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			var receivedRequest map[string]any
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				raw, err := io.ReadAll(r.Body)
 				require.NoError(t, err)
 				defer r.Body.Close()
 
+				var receivedRequest map[string]any
 				require.NoError(t, json.Unmarshal(raw, &receivedRequest))
+				if tc.expectParallelToolCalls {
+					parallelToolCalls, ok := receivedRequest["parallel_tool_calls"].(bool)
+					require.True(t, ok, "parallel_tool_calls should be present in upstream request")
+					require.Equal(t, tc.expectParallelToolCallsValue, parallelToolCalls)
+				} else {
+					_, ok := receivedRequest["parallel_tool_calls"]
+					require.False(t, ok, "parallel_tool_calls should not be present when not set")
+				}
 
 				w.WriteHeader(http.StatusOK)
 			}))
@@ -320,17 +319,158 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			resp, err := client.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
-			_, _ = io.ReadAll(resp.Body)
+			_, err = io.ReadAll(resp.Body)
+			require.NoError(t, err)
+		})
+	}
+}
 
-			require.NotNil(t, receivedRequest)
-			if tc.expectParallelToolCalls {
-				parallelToolCalls, ok := receivedRequest["parallel_tool_calls"].(bool)
-				require.True(t, ok, "parallel_tool_calls should be present in upstream request")
-				require.Equal(t, tc.expectParallelToolCallsValue, parallelToolCalls)
-			} else {
-				_, ok := receivedRequest["parallel_tool_calls"]
-				require.False(t, ok, "parallel_tool_calls should not be present when not set")
-			}
+// TODO set MaxRetries to speed up this test
+// option.WithMaxRetries(0), in base responses interceptor
+func TestClientAndConnectionError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		addr        string
+		streaming   bool
+		errContains string
+	}{
+		{
+			name:        "blocking_connection_refused",
+			addr:        startRejectingListener(t),
+			streaming:   false,
+			errContains: "read: connection reset by peer",
+		},
+		{
+			name:        "streaming_connection_refused",
+			addr:        startRejectingListener(t),
+			streaming:   true,
+			errContains: "read: connection reset by peer",
+		},
+		{
+			name:        "blocking_bad_url",
+			addr:        "not_url",
+			streaming:   false,
+			errContains: "unsupported protocol scheme",
+		},
+		{
+			name:        "streaming_bad_url",
+			addr:        "not_url",
+			streaming:   true,
+			errContains: "unsupported protocol scheme",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			prov := provider.NewOpenAI(openaiCfg(tc.addr, apiKey))
+			srv, _ := newTestSrv(t, ctx, prov, nil, testTracer)
+			defer srv.Close()
+
+			reqBytes := responsesRequestBytes(t, tc.streaming)
+			req := createOpenAIResponsesReq(t, srv.URL, reqBytes)
+			client := &http.Client{}
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
+			require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.Contains(t, string(body), tc.errContains)
+		})
+	}
+}
+
+// TODO set MaxRetries to speed up this test
+// option.WithMaxRetries(0), in base responses interceptor
+func TestUpstreamError(t *testing.T) {
+	t.Parallel()
+
+	responsesError := `{"error":{"message":"Something went wrong","type":"invalid_request_error","param":null,"code":"invalid_request"}}`
+	nonResponsesError := `plain text error`
+
+	tests := []struct {
+		name            string
+		streaming       bool
+		statusCode      int
+		contentType     string
+		body            string
+		expectEmptyBody bool
+	}{
+		{
+			name:        "blocking_responses_error",
+			streaming:   false,
+			statusCode:  http.StatusBadRequest,
+			contentType: "application/json",
+			body:        responsesError,
+		},
+		{
+			name:        "streaming_responses_error",
+			streaming:   true,
+			statusCode:  http.StatusBadRequest,
+			contentType: "application/json",
+			body:        responsesError,
+		},
+		{
+			name:            "blocking_non_responses_error",
+			streaming:       false,
+			statusCode:      http.StatusBadGateway,
+			contentType:     "text/plain",
+			body:            nonResponsesError,
+			expectEmptyBody: true,
+		},
+		{
+			name:            "streaming_non_responses_error",
+			streaming:       true,
+			statusCode:      http.StatusBadGateway,
+			contentType:     "text/plain",
+			body:            nonResponsesError,
+			expectEmptyBody: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tc.contentType)
+				w.WriteHeader(tc.statusCode)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			t.Cleanup(upstream.Close)
+
+			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
+			srv, _ := newTestSrv(t, ctx, prov, nil, testTracer)
+			defer srv.Close()
+
+			reqBytes := responsesRequestBytes(t, tc.streaming)
+			req := createOpenAIResponsesReq(t, srv.URL, reqBytes)
+			client := &http.Client{}
+
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+
+			require.Equal(t, tc.statusCode, resp.StatusCode)
+			require.Equal(t, tc.contentType, resp.Header.Get("Content-Type"))
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+			require.Equal(t, tc.body, string(body))
 		})
 	}
 }
@@ -342,4 +482,47 @@ func createOpenAIResponsesReq(t *testing.T, baseURL string, input []byte) *http.
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	return req
+}
+
+func responsesRequestBytes(t *testing.T, streaming bool, additionalFields ...keyVal) []byte {
+	reqBody := map[string]any{
+		"input":  "tell me a joke",
+		"model":  "gpt-4o-mini",
+		"stream": streaming,
+	}
+
+	for _, kv := range additionalFields {
+		reqBody[kv.key] = kv.val
+	}
+
+	reqBytes, err := json.Marshal(reqBody)
+	require.NoError(t, err)
+	return reqBytes
+}
+
+func startRejectingListener(t *testing.T) (addr string) {
+	t.Helper()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+
+	go func() {
+		for {
+			c, err := ln.Accept()
+			if err != nil {
+				// When ln.Close() is called, Accept returns an error -> exit.
+				return
+			}
+
+			if tc, ok := c.(*net.TCPConn); ok {
+				_ = tc.SetLinger(0)
+			}
+			_ = c.Close()
+		}
+	}()
+
+	return "http://" + ln.Addr().String()
 }

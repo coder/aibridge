@@ -8,12 +8,12 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
-	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/recorder"
@@ -25,23 +25,28 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
-type responsesInterceptionBase struct {
-	id         uuid.UUID
-	req        *ResponsesNewParamsWrapper
-	reqPayload []byte
-	baseURL    string
-	key        string
-	recorder   recorder.Recorder
-	mcpProxy   mcp.ServerProxier
+const (
+	requestTimeout = time.Second * 60 // TODO: configurable timeout
+)
 
-	logger  slog.Logger
-	metrics metrics.Metrics
+type responsesInterceptionBase struct {
+	id          uuid.UUID
+	req         *ResponsesNewParamsWrapper
+	reqPayload  []byte
+	baseURL     string
+	apiKey      string
+	model       string
+	gotResponse atomic.Bool
+	recorder    recorder.Recorder
+	mcpProxy    mcp.ServerProxier
+	logger      slog.Logger
+	metrics     metrics.Metrics
 }
 
-func NewResponsesService(baseURL string, apiKey string) responses.ResponseService {
+func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
 	opts := []option.RequestOption{
-		option.WithBaseURL(baseURL),
-		option.WithAPIKey(apiKey),
+		option.WithBaseURL(i.baseURL),
+		option.WithAPIKey(i.apiKey),
 	}
 
 	return responses.NewResponseService(opts...)
@@ -58,11 +63,7 @@ func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.
 }
 
 func (i *responsesInterceptionBase) Model() string {
-	if i.req == nil {
-		return "coder-aibridge-unknown"
-	}
-
-	return string(i.req.Model)
+	return i.model
 }
 
 func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
@@ -78,7 +79,7 @@ func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streami
 
 func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.ResponseWriter) error {
 	if i.req == nil {
-		return fmt.Errorf("developer error: req is nil")
+		return errors.New("developer error: req is nil")
 	}
 
 	if i.req.Background.Value {
@@ -99,7 +100,7 @@ func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.
 	return nil
 }
 
-func (i *responsesInterceptionBase) requestOptions(payloadBuff *deltaBuffer) []option.RequestOption {
+func (i *responsesInterceptionBase) requestOptions(payloadBuff *deltaBuffer, w http.ResponseWriter) []option.RequestOption {
 	opts := []option.RequestOption{
 		// Sends original payload to solve json re-encoding issues
 		// eg. Codex CLI produces requests without ID set in reasoning items: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-item-reasoning-id
@@ -108,56 +109,59 @@ func (i *responsesInterceptionBase) requestOptions(payloadBuff *deltaBuffer) []o
 		option.WithRequestBody("application/json", i.reqPayload),
 
 		// Reads response body into given buffer
-		option.WithMiddleware(teeMiddleware(payloadBuff)),
+		option.WithMiddleware(i.copyMiddleware(payloadBuff, w)),
 	}
 	if !i.req.Stream {
-		opts = append(opts, option.WithRequestTimeout(time.Second*60)) // TODO: configurable timeout
+		opts = append(opts, option.WithRequestTimeout(requestTimeout))
 	}
 	return opts
 }
 
-// handleUpstreamError checks if error is an openAI error and if caller should exit early.
-// If it is openAI responses error -> sets proper http response code and returns false to not exit early
-// response body will be sent using the same method as non-error response, using teeMiddleware -> deltaBuffer.
-// If it is a connection error or unnknown error -> returns given error + true to indicate early exit
-func (i *responsesInterceptionBase) handleUpstreamError(ctx context.Context, upstreamErr error, w http.ResponseWriter) (error, bool) {
-	if upstreamErr == nil {
-		return nil, false
-	}
-
-	if eventstream.IsConnError(upstreamErr) {
-		http.Error(w, upstreamErr.Error(), http.StatusInternalServerError)
-		return fmt.Errorf("upstream connection closed: %w", upstreamErr), true
-	}
-
-	i.logger.Warn(ctx, "openai responses API error", slog.Error(upstreamErr))
-	var rspErr *responses.Error
-	if errors.As(upstreamErr, &rspErr) {
-		w.WriteHeader(rspErr.StatusCode)
-		return fmt.Errorf("responses API error: %w", rspErr), false
-	}
-
-	w.WriteHeader(http.StatusInternalServerError)
-	return fmt.Errorf("responses API failed: %w", upstreamErr), true
-}
-
-// teeMiddleware copies response body to given buffer leaving original response intact/consumable for openAI SDK
-func teeMiddleware(payloadBuff *deltaBuffer) func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+// copyMiddleware copies Content-Type header, status code and
+// response body to given buffer leaving original response
+// intact/consumable for openAI SDK
+func (i *responsesInterceptionBase) copyMiddleware(payloadBuff *deltaBuffer, w http.ResponseWriter) func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
 	return func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
 		resp, err := next(req)
-		if err != nil || resp == nil || resp.Body == nil {
+		if err != nil || resp == nil {
 			return resp, err
 		}
 
+		// mark that some response has been received
+		i.gotResponse.Store(true)
+
+		w.Header().Set("Content-Type", resp.Header.Get("Content-Type"))
+		w.WriteHeader(resp.StatusCode)
 		payloadBuff.closer = resp.Body
 		resp.Body = io.NopCloser(io.TeeReader(resp.Body, payloadBuff))
 		return resp, nil
 	}
 }
 
-// deltaBuffer is a thread safe byte buffer that supports reading incremental data (added after last read)
+// handleUpstreamError checks if upstream error is from http response or not.
+//   - If it is error from response, original status code/body is forwarded as usual.
+//   - If it is a client/connection error, internal server error is returned with error as plain text.
+func (i *responsesInterceptionBase) handleUpstreamError(ctx context.Context, upstreamErr error, w http.ResponseWriter) (error, bool) {
+	if upstreamErr == nil {
+		return nil, false
+	}
+
+	i.logger.Warn(ctx, "openai responses API upstream error", slog.Error(upstreamErr))
+
+	if i.gotResponse.Load() {
+		// if copyMiddleware received some response forward it as is
+		return fmt.Errorf("responses API error: %w", upstreamErr), false
+	}
+
+	// if no response has been received (eg. client/connection error) return internal server error
+	http.Error(w, upstreamErr.Error(), http.StatusInternalServerError)
+	return fmt.Errorf("upstream connection error: %w", upstreamErr), true
+}
+
+// deltaBuffer is a thread safe byte buffer
+// supports reading incremental data (added after last read)
 type deltaBuffer struct {
-	mu     sync.Mutex
+	mu     sync.RWMutex
 	buf    bytes.Buffer
 	closer io.ReadCloser
 }
@@ -168,8 +172,9 @@ func (d *deltaBuffer) Write(p []byte) (int, error) {
 	return d.buf.Write(p)
 }
 
-// Reads all from original resqusts body so it is properly copied by TeeReader to buffer
-func (d *deltaBuffer) drain() error {
+// Reads all data from original resqusts body
+// so it is properly copied by TeeReader to buffer
+func (d *deltaBuffer) drainCloser() error {
 	if d.closer == nil {
 		return nil
 	}
@@ -180,10 +185,11 @@ func (d *deltaBuffer) drain() error {
 	return err
 }
 
-// readDelta returns only the bytes appended since the last readDelta call.
+// readDelta returns only the bytes appended
+// after the last readDelta call.
 func (d *deltaBuffer) readDelta() []byte {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+	d.mu.RLock()
+	defer d.mu.RUnlock()
 
 	b := bytes.Clone(d.buf.Bytes())
 	d.buf.Reset()

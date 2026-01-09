@@ -15,18 +15,23 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 )
 
+const (
+	streamShutdownTimeout = time.Second * 30 // TODO: configurable
+)
+
 type StreamingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, baseURL, key string) *StreamingResponsesInterceptor {
+func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, baseURL string, key string, model string) *StreamingResponsesInterceptor {
 	return &StreamingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
 			id:         id,
 			req:        req,
 			reqPayload: reqPayload,
 			baseURL:    baseURL,
-			key:        key,
+			apiKey:     key,
+			model:      model,
 		},
 	}
 }
@@ -64,8 +69,8 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	var respPayload deltaBuffer
 
-	srv := NewResponsesService(i.baseURL, i.key)
-	opts := i.requestOptions(&respPayload)
+	srv := i.newResponsesService()
+	opts := i.requestOptions(&respPayload, w)
 	stream := srv.NewStreaming(ctx, i.req.ResponseNewParams, opts...)
 	defer stream.Close()
 
@@ -78,18 +83,17 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		}
 	}
 
-	upstreamErr, earlyExit := i.handleUpstreamError(ctx, stream.Err(), w)
-	if earlyExit {
+	upstreamErr, failFast := i.handleUpstreamError(ctx, stream.Err(), w)
+	if failFast {
 		return upstreamErr
 	}
 
-	if err := respPayload.drain(); err != nil {
+	if err := respPayload.drainCloser(); err != nil {
 		i.logger.Warn(ctx, "failed to drain original response body", slog.Error(err))
 	}
 	events.Send(ctx, respPayload.readDelta())
 
-	// Give the events stream 30 seconds (TODO: configurable) to gracefully shutdown.
-	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, time.Second*30)
+	shutdownCtx, shutdownCancel := context.WithTimeout(ctx, streamShutdownTimeout)
 	defer shutdownCancel()
 	if err := events.Shutdown(shutdownCtx); err != nil {
 		i.logger.Warn(ctx, "event stream shutdown", slog.Error(err))

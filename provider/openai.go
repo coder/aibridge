@@ -102,9 +102,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 		if req.Stream {
-			interceptor = responses.NewStreamingInterceptor(id, &req, payload, p.baseURL, p.key)
+			interceptor = responses.NewStreamingInterceptor(id, &req, payload, p.baseURL, p.key, string(req.Model))
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, &req, payload, p.baseURL, p.key)
+			interceptor = responses.NewBlockingInterceptor(id, &req, payload, p.baseURL, p.key, string(req.Model))
 		}
 
 	default:
