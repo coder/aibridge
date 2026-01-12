@@ -65,6 +65,9 @@ var (
 	//go:embed openai/responses/streaming/simple.txtar
 	OaiResponsesStreamingSimple []byte
 
+	//go:embed openai/responses/streaming/codex_example.txtar
+	ResponsesStreamingCodex []byte
+
 	//go:embed openai/responses/streaming/builtin_tool.txtar
 	OaiResponsesStreamingBuiltinTool []byte
 

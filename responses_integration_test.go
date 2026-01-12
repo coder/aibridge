@@ -54,6 +54,11 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming: true,
 		},
 		{
+			name:      "streaming_codex",
+			fixture:   fixtures.ResponsesStreamingCodex,
+			streaming: true,
+		},
+		{
 			name:      "streaming_builtin_tool",
 			fixture:   fixtures.OaiResponsesStreamingBuiltinTool,
 			streaming: true,
