@@ -14,6 +14,7 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
@@ -33,11 +34,11 @@ func TestMetrics_Interception(t *testing.T) {
 		expectedStatus string
 	}{
 		{
-			fixture:        antSimple,
+			fixture:        fixtures.AntSimple,
 			expectedStatus: metrics.InterceptionCountStatusCompleted,
 		},
 		{
-			fixture:        antNonStreamErr,
+			fixture:        fixtures.AntNonStreamError,
 			expectedStatus: metrics.InterceptionCountStatusFailed,
 		},
 	}
@@ -72,7 +73,7 @@ func TestMetrics_Interception(t *testing.T) {
 func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(antSimple)
+	arc := txtar.Parse(fixtures.AntSimple)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -135,7 +136,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiFallthrough)
+	arc := txtar.Parse(fixtures.OaiFallthrough)
 	files := filesMap(arc)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -165,7 +166,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 func TestMetrics_PromptCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiSimple)
+	arc := txtar.Parse(fixtures.OaiSimple)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -193,7 +194,7 @@ func TestMetrics_PromptCount(t *testing.T) {
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiSingleBuiltinTool)
+	arc := txtar.Parse(fixtures.OaiSingleBuiltinTool)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -221,7 +222,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(antSingleInjectedTool)
+	arc := txtar.Parse(fixtures.AntSingleInjectedTool)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)

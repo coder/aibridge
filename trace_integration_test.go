@@ -14,6 +14,7 @@ import (
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
@@ -87,7 +88,7 @@ func TestTraceAnthropic(t *testing.T) {
 		},
 	}
 
-	arc := txtar.Parse(antSingleBuiltinTool)
+	arc := txtar.Parse(fixtures.AntSingleBuiltinTool)
 
 	files := filesMap(arc)
 	require.Contains(t, files, fixtureRequest)
@@ -212,9 +213,9 @@ func TestTraceAnthropicErr(t *testing.T) {
 
 			var arc *txtar.Archive
 			if tc.streaming {
-				arc = txtar.Parse(antMidStreamErr)
+				arc = txtar.Parse(fixtures.AntMidStreamError)
 			} else {
-				arc = txtar.Parse(antNonStreamErr)
+				arc = txtar.Parse(fixtures.AntNonStreamError)
 			}
 
 			files := filesMap(arc)
@@ -348,7 +349,7 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, proxies, resp := setupInjectedToolTest(t, antSingleInjectedTool, tc.streaming, configureFn, reqFunc)
+			recorderClient, _, proxies, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, tc.streaming, configureFn, reqFunc)
 
 			defer resp.Body.Close()
 
@@ -392,7 +393,7 @@ func TestTraceOpenAI(t *testing.T) {
 	}{
 		{
 			name:      "trace_openai_streaming",
-			fixture:   oaiSimple,
+			fixture:   fixtures.OaiSimple,
 			streaming: true,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
@@ -407,7 +408,7 @@ func TestTraceOpenAI(t *testing.T) {
 		},
 		{
 			name:      "trace_openai_non_streaming",
-			fixture:   oaiSimple,
+			fixture:   fixtures.OaiSimple,
 			streaming: false,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
@@ -519,9 +520,9 @@ func TestTraceOpenAIErr(t *testing.T) {
 
 			var arc *txtar.Archive
 			if tc.streaming {
-				arc = txtar.Parse(oaiMidStreamErr)
+				arc = txtar.Parse(fixtures.OaiMidStreamError)
 			} else {
-				arc = txtar.Parse(oaiNonStreamErr)
+				arc = txtar.Parse(fixtures.OaiNonStreamError)
 			}
 
 			files := filesMap(arc)
@@ -609,7 +610,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, proxies, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, reqFunc)
+			recorderClient, _, proxies, resp := setupInjectedToolTest(t, fixtures.OaiSingleInjectedTool, streaming, configureFn, reqFunc)
 
 			defer resp.Body.Close()
 
@@ -641,7 +642,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 func TestTracePassthrough(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiFallthrough)
+	arc := txtar.Parse(fixtures.OaiFallthrough)
 	files := filesMap(arc)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

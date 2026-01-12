@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	_ "embed"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -25,6 +24,7 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
@@ -44,35 +44,7 @@ import (
 	"golang.org/x/tools/txtar"
 )
 
-var (
-	//go:embed fixtures/anthropic/simple.txtar
-	antSimple []byte
-	//go:embed fixtures/anthropic/single_builtin_tool.txtar
-	antSingleBuiltinTool []byte
-	//go:embed fixtures/anthropic/single_injected_tool.txtar
-	antSingleInjectedTool []byte
-	//go:embed fixtures/anthropic/fallthrough.txtar
-	antFallthrough []byte
-	//go:embed fixtures/anthropic/stream_error.txtar
-	antMidStreamErr []byte
-	//go:embed fixtures/anthropic/non_stream_error.txtar
-	antNonStreamErr []byte
-
-	//go:embed fixtures/openai/chatcompletions/simple.txtar
-	oaiSimple []byte
-	//go:embed fixtures/openai/chatcompletions/single_builtin_tool.txtar
-	oaiSingleBuiltinTool []byte
-	//go:embed fixtures/openai/chatcompletions/single_injected_tool.txtar
-	oaiSingleInjectedTool []byte
-	//go:embed fixtures/openai/chatcompletions/fallthrough.txtar
-	oaiFallthrough []byte
-	//go:embed fixtures/openai/chatcompletions/stream_error.txtar
-	oaiMidStreamErr []byte
-	//go:embed fixtures/openai/chatcompletions/non_stream_error.txtar
-	oaiNonStreamErr []byte
-
-	testTracer = otel.Tracer("forTesting")
-)
+var testTracer = otel.Tracer("forTesting")
 
 const (
 	fixtureRequest                  = "request"
@@ -117,7 +89,7 @@ func TestAnthropicMessages(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), tc.streaming), func(t *testing.T) {
 				t.Parallel()
 
-				arc := txtar.Parse(antSingleBuiltinTool)
+				arc := txtar.Parse(fixtures.AntSingleBuiltinTool)
 				t.Logf("%s: %s", t.Name(), arc.Comment)
 
 				files := filesMap(arc)
@@ -206,7 +178,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 	t.Run("invalid config", func(t *testing.T) {
 		t.Parallel()
 
-		arc := txtar.Parse(antSingleBuiltinTool)
+		arc := txtar.Parse(fixtures.AntSingleBuiltinTool)
 		files := filesMap(arc)
 		reqBody := files[fixtureRequest]
 
@@ -253,7 +225,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), streaming), func(t *testing.T) {
 				t.Parallel()
 
-				arc := txtar.Parse(antSingleBuiltinTool)
+				arc := txtar.Parse(fixtures.AntSingleBuiltinTool)
 				t.Logf("%s: %s", t.Name(), arc.Comment)
 
 				files := filesMap(arc)
@@ -388,7 +360,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), tc.streaming), func(t *testing.T) {
 				t.Parallel()
 
-				arc := txtar.Parse(oaiSingleBuiltinTool)
+				arc := txtar.Parse(fixtures.OaiSingleBuiltinTool)
 				t.Logf("%s: %s", t.Name(), arc.Comment)
 
 				files := filesMap(arc)
@@ -480,7 +452,7 @@ func TestSimple(t *testing.T) {
 	}{
 		{
 			name:    config.ProviderAnthropic,
-			fixture: antSimple,
+			fixture: fixtures.AntSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)}
@@ -519,7 +491,7 @@ func TestSimple(t *testing.T) {
 		},
 		{
 			name:    config.ProviderOpenAI,
-			fixture: oaiSimple,
+			fixture: fixtures.OaiSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
@@ -653,7 +625,7 @@ func TestFallthrough(t *testing.T) {
 	}{
 		{
 			name:    config.ProviderAnthropic,
-			fixture: antFallthrough,
+			fixture: fixtures.AntFallthrough,
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
@@ -664,7 +636,7 @@ func TestFallthrough(t *testing.T) {
 		},
 		{
 			name:    config.ProviderOpenAI,
-			fixture: oaiFallthrough,
+			fixture: fixtures.OaiFallthrough,
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
@@ -780,7 +752,7 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, antSingleInjectedTool, streaming, configureFn, createAnthropicMessagesReq)
+			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, configureFn, createAnthropicMessagesReq)
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := recorderClient.RecordedToolUsages()
@@ -870,7 +842,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, oaiSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
+			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, fixtures.OaiSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := recorderClient.RecordedToolUsages()
@@ -1056,7 +1028,7 @@ func TestErrorHandling(t *testing.T) {
 		}{
 			{
 				name:              config.ProviderAnthropic,
-				fixture:           antNonStreamErr,
+				fixture:           fixtures.AntNonStreamError,
 				createRequestFunc: createAnthropicMessagesReq,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -1074,7 +1046,7 @@ func TestErrorHandling(t *testing.T) {
 			},
 			{
 				name:              config.ProviderOpenAI,
-				fixture:           oaiNonStreamErr,
+				fixture:           fixtures.OaiNonStreamError,
 				createRequestFunc: createOpenAIChatCompletionsReq,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -1163,7 +1135,7 @@ func TestErrorHandling(t *testing.T) {
 		}{
 			{
 				name:              config.ProviderAnthropic,
-				fixture:           antMidStreamErr,
+				fixture:           fixtures.AntMidStreamError,
 				createRequestFunc: createAnthropicMessagesReq,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -1182,7 +1154,7 @@ func TestErrorHandling(t *testing.T) {
 			},
 			{
 				name:              config.ProviderOpenAI,
-				fixture:           oaiMidStreamErr,
+				fixture:           fixtures.OaiMidStreamError,
 				createRequestFunc: createOpenAIChatCompletionsReq,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -1271,7 +1243,7 @@ func TestStableRequestEncoding(t *testing.T) {
 	}{
 		{
 			name:              config.ProviderAnthropic,
-			fixture:           antSimple,
+			fixture:           fixtures.AntSimple,
 			createRequestFunc: createAnthropicMessagesReq,
 			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)}
@@ -1280,7 +1252,7 @@ func TestStableRequestEncoding(t *testing.T) {
 		},
 		{
 			name:              config.ProviderOpenAI,
-			fixture:           oaiSimple,
+			fixture:           fixtures.OaiSimple,
 			createRequestFunc: createOpenAIChatCompletionsReq,
 			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
@@ -1462,7 +1434,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			}
 			require.NoError(t, mcpMgr.Init(ctx))
 
-			arc := txtar.Parse(antSimple)
+			arc := txtar.Parse(fixtures.AntSimple)
 			files := filesMap(arc)
 			require.Contains(t, files, fixtureRequest)
 			require.Contains(t, files, fixtureNonStreamingResponse)
@@ -1561,7 +1533,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 	}{
 		{
 			name:    config.ProviderAnthropic,
-			fixture: antSimple,
+			fixture: fixtures.AntSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)}
@@ -1575,7 +1547,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 		},
 		{
 			name:    config.ProviderOpenAI,
-			fixture: oaiSimple,
+			fixture: fixtures.OaiSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
