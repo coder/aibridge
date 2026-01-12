@@ -3,6 +3,7 @@ package config
 const (
 	ProviderAnthropic = "anthropic"
 	ProviderOpenAI    = "openai"
+	ProviderAmp       = "amp"
 )
 
 type Anthropic struct {
@@ -20,6 +21,11 @@ type AWSBedrock struct {
 }
 
 type OpenAI struct {
+	BaseURL string
+	Key     string
+}
+
+type Amp struct {
 	BaseURL string
 	Key     string
 }
