@@ -130,7 +130,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			t.Cleanup(mockAPI.Close)
 
 			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
-			srv, rec := newTestSrv(t, ctx, provider, nil, testTracer)
+			srv, mockRecorder := newTestSrv(t, ctx, provider, nil, testTracer)
 			defer srv.Close()
 
 			req := createOpenAIResponsesReq(t, srv.URL, files[fixtureRequest])
@@ -147,11 +147,11 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			require.Equal(t, string(files[fixtResp]), string(got))
 
 			if tc.expectPromptRecorded != "" {
-				recordedPrompts := rec.RecordedPromptUsages()
+				recordedPrompts := mockRecorder.RecordedPromptUsages()
 				promptEq := func(pur *recorder.PromptUsageRecord) bool { return pur.Prompt == tc.expectPromptRecorded }
 				require.Truef(t, slices.ContainsFunc(recordedPrompts, promptEq), "promnt not found, got: %v, want: %v", recordedPrompts, tc.expectPromptRecorded)
 			} else {
-				require.Empty(t, rec.RecordedPromptUsages())
+				require.Empty(t, mockRecorder.RecordedPromptUsages())
 			}
 		})
 	}
@@ -364,7 +364,7 @@ func TestClientAndConnectionError(t *testing.T) {
 			t.Cleanup(cancel)
 
 			prov := provider.NewOpenAI(openaiCfg(tc.addr, apiKey))
-			srv, _ := newTestSrv(t, ctx, prov, nil, testTracer)
+			srv, mockRecorder := newTestSrv(t, ctx, prov, nil, testTracer)
 			defer srv.Close()
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
@@ -381,6 +381,7 @@ func TestClientAndConnectionError(t *testing.T) {
 			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 			requireResponsesError(t, http.StatusInternalServerError, tc.errContains, body)
+			require.Empty(t, mockRecorder.RecordedPromptUsages())
 		})
 	}
 }
