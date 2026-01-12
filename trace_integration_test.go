@@ -127,8 +127,8 @@ func TestTraceAnthropic(t *testing.T) {
 			defer resp.Body.Close()
 			srv.Close()
 
-			require.Equal(t, 1, len(recorder.interceptions))
-			intcID := recorder.interceptions[0].ID
+			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
+			intcID := recorder.RecordedInterceptions()[0].ID
 
 			model := gjson.Get(string(reqBody), "model").Str
 			if tc.bedrock {
@@ -257,8 +257,8 @@ func TestTraceAnthropicErr(t *testing.T) {
 			defer resp.Body.Close()
 			srv.Close()
 
-			require.Equal(t, 1, len(recorder.interceptions))
-			intcID := recorder.interceptions[0].ID
+			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
+			intcID := recorder.RecordedInterceptions()[0].ID
 
 			totalCount := 0
 			for _, e := range tc.expect {
@@ -352,8 +352,8 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 
 			defer resp.Body.Close()
 
-			require.Len(t, recorderClient.interceptions, 1)
-			intcID := recorderClient.interceptions[0].ID
+			require.Len(t, recorderClient.RecordedInterceptions(), 1)
+			intcID := recorderClient.RecordedInterceptions()[0].ID
 
 			model := gjson.Get(string(reqBody), "model").Str
 			if tc.bedrock {
@@ -457,8 +457,8 @@ func TestTraceOpenAI(t *testing.T) {
 			defer resp.Body.Close()
 			srv.Close()
 
-			require.Equal(t, 1, len(recorder.interceptions))
-			intcID := recorder.interceptions[0].ID
+			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
+			intcID := recorder.RecordedInterceptions()[0].ID
 
 			totalCount := 0
 			for _, e := range tc.expect {
@@ -559,8 +559,8 @@ func TestTraceOpenAIErr(t *testing.T) {
 			defer resp.Body.Close()
 			srv.Close()
 
-			require.Equal(t, 1, len(recorder.interceptions))
-			intcID := recorder.interceptions[0].ID
+			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
+			intcID := recorder.RecordedInterceptions()[0].ID
 
 			totalCount := 0
 			for _, e := range tc.expect {
@@ -613,8 +613,8 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 
 			defer resp.Body.Close()
 
-			require.Len(t, recorderClient.interceptions, 1)
-			intcID := recorderClient.interceptions[0].ID
+			require.Len(t, recorderClient.RecordedInterceptions(), 1)
+			intcID := recorderClient.RecordedInterceptions()[0].ID
 
 			for _, proxy := range proxies {
 				require.NotEmpty(t, proxy.ListTools())
