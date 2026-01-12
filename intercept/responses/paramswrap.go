@@ -14,15 +14,15 @@ type ResponsesNewParamsWrapper struct {
 	Stream bool `json:"stream,omitempty"`
 }
 
-func (c *ResponsesNewParamsWrapper) UnmarshalJSON(raw []byte) error {
-	err := c.ResponseNewParams.UnmarshalJSON(raw)
+func (r *ResponsesNewParamsWrapper) UnmarshalJSON(raw []byte) error {
+	err := r.ResponseNewParams.UnmarshalJSON(raw)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal response params: %w", err)
 	}
 
-	c.Stream = false
+	r.Stream = false
 	if stream := gjson.Get(string(raw), "stream"); stream.Bool() {
-		c.Stream = stream.Bool()
+		r.Stream = stream.Bool()
 	}
 	return nil
 }

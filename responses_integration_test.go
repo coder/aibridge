@@ -8,12 +8,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/provider"
+	"github.com/coder/aibridge/recorder"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/txtar"
@@ -28,60 +30,72 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		fixture   []byte
-		streaming bool
+		name                 string
+		fixture              []byte
+		streaming            bool
+		expectPromptRecorded string
 	}{
 		{
-			name:    "blocking_simple",
-			fixture: fixtures.OaiResponsesBlockingSimple,
+			name:                 "blocking_simple",
+			fixture:              fixtures.OaiResponsesBlockingSimple,
+			expectPromptRecorded: "tell me a joke",
 		},
 		{
-			name:    "blocking_builtin_tool",
-			fixture: fixtures.OaiResponsesBlockingBuiltinTool,
+			name:                 "blocking_builtin_tool",
+			fixture:              fixtures.OaiResponsesBlockingBuiltinTool,
+			expectPromptRecorded: "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
 		},
 		{
-			name:    "blocking_conversation",
-			fixture: fixtures.OaiResponsesBlockingConversation,
+			name:                 "blocking_conversation",
+			fixture:              fixtures.OaiResponsesBlockingConversation,
+			expectPromptRecorded: "explain why this is funny.",
 		},
 		{
-			name:    "blocking_prev_response_id",
-			fixture: fixtures.OaiResponsesBlockingPrevResponseID,
+			name:                 "blocking_prev_response_id",
+			fixture:              fixtures.OaiResponsesBlockingPrevResponseID,
+			expectPromptRecorded: "explain why this is funny.",
 		},
 		{
-			name:      "streaming_simple",
-			fixture:   fixtures.OaiResponsesStreamingSimple,
-			streaming: true,
+			name:                 "streaming_simple",
+			fixture:              fixtures.OaiResponsesStreamingSimple,
+			streaming:            true,
+			expectPromptRecorded: "tell me a joke",
 		},
 		{
-			name:      "streaming_codex",
-			fixture:   fixtures.ResponsesStreamingCodex,
-			streaming: true,
+			name:                 "streaming_codex",
+			fixture:              fixtures.OaiResponsesStreamingCodex,
+			streaming:            true,
+			expectPromptRecorded: "hello",
 		},
 		{
-			name:      "streaming_builtin_tool",
-			fixture:   fixtures.OaiResponsesStreamingBuiltinTool,
-			streaming: true,
+			name:                 "streaming_builtin_tool",
+			fixture:              fixtures.OaiResponsesStreamingBuiltinTool,
+			streaming:            true,
+			expectPromptRecorded: "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
 		},
 		{
-			name:      "streaming_conversation",
-			fixture:   fixtures.OaiResponsesStreamingConversation,
-			streaming: true,
+			name:                 "streaming_conversation",
+			fixture:              fixtures.OaiResponsesStreamingConversation,
+			streaming:            true,
+			expectPromptRecorded: "explain why this is funny.",
 		},
 		{
-			name:      "streaming_prev_response_id",
-			fixture:   fixtures.OaiResponsesStreamingPrevResponseID,
-			streaming: true,
+			name:                 "streaming_prev_response_id",
+			fixture:              fixtures.OaiResponsesStreamingPrevResponseID,
+			streaming:            true,
+			expectPromptRecorded: "explain why this is funny.",
 		},
 		{
-			name:      "stream_error",
-			fixture:   fixtures.OaiResponsesStreamingStreamError,
-			streaming: true,
+			name:                 "stream_error",
+			fixture:              fixtures.OaiResponsesStreamingStreamError,
+			streaming:            true,
+			expectPromptRecorded: "hello_stream_error",
 		},
 		{
-			name:      "stream_failure",
-			fixture:   fixtures.OaiResponsesStreamingStreamFailure,
-			streaming: true,
+			name:                 "stream_failure",
+			fixture:              fixtures.OaiResponsesStreamingStreamFailure,
+			streaming:            true,
+			expectPromptRecorded: "hello_stream_failure",
 		},
 
 		// Original status code and body is kept even with wrong json format
@@ -90,9 +104,10 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			fixture: fixtures.OaiResponsesBlockingWrongResponseFormat,
 		},
 		{
-			name:      "streaming_wrong_format",
-			fixture:   fixtures.OaiResponsesStreamingWrongResponseFormat,
-			streaming: true,
+			name:                 "streaming_wrong_format",
+			fixture:              fixtures.OaiResponsesStreamingWrongResponseFormat,
+			streaming:            true,
+			expectPromptRecorded: "hello_wrong_format",
 		},
 	}
 
@@ -115,7 +130,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			t.Cleanup(mockAPI.Close)
 
 			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
-			srv, _ := newTestSrv(t, ctx, provider, nil, testTracer)
+			srv, rec := newTestSrv(t, ctx, provider, nil, testTracer)
 			defer srv.Close()
 
 			req := createOpenAIResponsesReq(t, srv.URL, files[fixtureRequest])
@@ -130,6 +145,14 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 
 			require.NoError(t, err)
 			require.Equal(t, string(files[fixtResp]), string(got))
+
+			if tc.expectPromptRecorded != "" {
+				recordedPrompts := rec.RecordedPromptUsages()
+				promptEq := func(pur *recorder.PromptUsageRecord) bool { return pur.Prompt == tc.expectPromptRecorded }
+				require.Truef(t, slices.ContainsFunc(recordedPrompts, promptEq), "promnt not found, got: %v, want: %v", recordedPrompts, tc.expectPromptRecorded)
+			} else {
+				require.Empty(t, rec.RecordedPromptUsages())
+			}
 		})
 	}
 }

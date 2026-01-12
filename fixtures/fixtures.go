@@ -2,6 +2,9 @@ package fixtures
 
 import (
 	_ "embed"
+	"testing"
+
+	"golang.org/x/tools/txtar"
 )
 
 var (
@@ -66,7 +69,7 @@ var (
 	OaiResponsesStreamingSimple []byte
 
 	//go:embed openai/responses/streaming/codex_example.txtar
-	ResponsesStreamingCodex []byte
+	OaiResponsesStreamingCodex []byte
 
 	//go:embed openai/responses/streaming/builtin_tool.txtar
 	OaiResponsesStreamingBuiltinTool []byte
@@ -86,3 +89,16 @@ var (
 	//go:embed openai/responses/streaming/wrong_response_format.txtar
 	OaiResponsesStreamingWrongResponseFormat []byte
 )
+
+func Request(t *testing.T, fixture []byte) []byte {
+	t.Helper()
+
+	archive := txtar.Parse(fixture)
+	for _, f := range archive.Files {
+		if f.Name == "request" {
+			return f.Data
+		}
+	}
+	t.Fatal("request not found in fixture")
+	return []byte{}
+}

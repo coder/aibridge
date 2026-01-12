@@ -12,6 +12,7 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3/responses"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -66,6 +67,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	}()
 
 	var respCopy responseCopier
+	var responseID string
 
 	srv := i.newResponsesService()
 	opts := i.requestOptions(&respCopy)
@@ -91,11 +93,18 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	}
 
 	for stream.Next() {
+		var ev responses.ResponseStreamEventUnion
+		ev = stream.Current()
+
+		if responseID == "" && ev.Response.ID != "" {
+			responseID = ev.Response.ID
+		}
 		if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
 			err = fmt.Errorf("failed to relay chunk: %w", err)
 			return err
 		}
 	}
+	i.recordUserPrompt(ctx, responseID)
 
 	b, err := respCopy.readAll()
 	if err != nil {
