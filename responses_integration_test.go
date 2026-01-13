@@ -9,10 +9,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/coder/aibridge/provider"
+	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/txtar"
 )
@@ -158,6 +160,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			got, err := io.ReadAll(resp.Body)
+			srv.Close()
 
 			require.NoError(t, err)
 			require.Equal(t, string(files[fixtResp]), string(got))
@@ -209,11 +212,12 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
+			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 			require.Equal(t, http.StatusNotImplemented, resp.StatusCode)
 
 			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
-			require.Contains(t, string(body), "background requests are currently not supported by aibridge")
+			requireResponsesError(t, http.StatusNotImplemented, "background requests are currently not supported by AI Bridge", body)
 		})
 	}
 }
@@ -381,12 +385,12 @@ func TestClientAndConnectionError(t *testing.T) {
 			require.NoError(t, err)
 			defer resp.Body.Close()
 
-			require.Equal(t, "text/plain; charset=utf-8", resp.Header.Get("Content-Type"))
+			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 			require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 
 			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
-			require.Contains(t, string(body), tc.errContains)
+			requireResponsesError(t, http.StatusInternalServerError, tc.errContains, body)
 		})
 	}
 }
@@ -400,12 +404,11 @@ func TestUpstreamError(t *testing.T) {
 	nonResponsesError := `plain text error`
 
 	tests := []struct {
-		name            string
-		streaming       bool
-		statusCode      int
-		contentType     string
-		body            string
-		expectEmptyBody bool
+		name        string
+		streaming   bool
+		statusCode  int
+		contentType string
+		body        string
 	}{
 		{
 			name:        "blocking_responses_error",
@@ -422,20 +425,18 @@ func TestUpstreamError(t *testing.T) {
 			body:        responsesError,
 		},
 		{
-			name:            "blocking_non_responses_error",
-			streaming:       false,
-			statusCode:      http.StatusBadGateway,
-			contentType:     "text/plain",
-			body:            nonResponsesError,
-			expectEmptyBody: true,
+			name:        "blocking_non_responses_error",
+			streaming:   false,
+			statusCode:  http.StatusBadGateway,
+			contentType: "text/plain",
+			body:        nonResponsesError,
 		},
 		{
-			name:            "streaming_non_responses_error",
-			streaming:       true,
-			statusCode:      http.StatusBadGateway,
-			contentType:     "text/plain",
-			body:            nonResponsesError,
-			expectEmptyBody: true,
+			name:        "streaming_non_responses_error",
+			streaming:   true,
+			statusCode:  http.StatusBadGateway,
+			contentType: "text/plain",
+			body:        nonResponsesError,
 		},
 	}
 
@@ -449,7 +450,8 @@ func TestUpstreamError(t *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				w.Header().Set("Content-Type", tc.contentType)
 				w.WriteHeader(tc.statusCode)
-				_, _ = w.Write([]byte(tc.body))
+				_, err := w.Write([]byte(tc.body))
+				require.NoError(t, err)
 			}))
 			t.Cleanup(upstream.Close)
 
@@ -482,6 +484,15 @@ func createOpenAIResponsesReq(t *testing.T, baseURL string, input []byte) *http.
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
 	return req
+}
+
+func requireResponsesError(t *testing.T, code int, message string, body []byte) {
+	var respErr responses.Error
+	err := json.Unmarshal(body, &respErr)
+	require.NoError(t, err)
+
+	require.Equal(t, strconv.Itoa(code), respErr.Code)
+	require.Contains(t, respErr.Message, message)
 }
 
 func responsesRequestBytes(t *testing.T, streaming bool, additionalFields ...keyVal) []byte {

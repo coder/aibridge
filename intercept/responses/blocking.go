@@ -2,7 +2,6 @@ package responses
 
 import (
 	"errors"
-	"fmt"
 	"net/http"
 
 	"cdr.dev/slog/v3"
@@ -47,25 +46,18 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 		return err
 	}
 
-	var respPayload deltaBuffer
 	srv := i.newResponsesService()
+	var respFwd responseForwarder
 
-	opts := i.requestOptions(&respPayload, w)
+	opts := i.requestOptions(&respFwd)
 	_, upstreamErr := srv.New(ctx, i.req.ResponseNewParams, opts...)
 
-	upstreamErr, failFast := i.handleUpstreamError(ctx, upstreamErr, w)
-	if failFast {
-		return upstreamErr
+	if upstreamErr != nil && !respFwd.responseReceived.Load() {
+		// no response received from upstream, return custom error
+		i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
 	}
 
-	if err := respPayload.drainCloser(); err != nil {
-		i.logger.Warn(ctx, "failed to drain original response body", slog.Error(err))
-	}
+	err := respFwd.forwardResp(w)
 
-	if _, err := w.Write(respPayload.readDelta()); err != nil {
-		i.logger.Warn(ctx, "failed to write response", slog.Error(err))
-		return errors.Join(fmt.Errorf("failed to write response: %w", err), upstreamErr)
-	}
-
-	return upstreamErr
+	return errors.Join(upstreamErr, err)
 }

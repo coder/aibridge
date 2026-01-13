@@ -2,6 +2,7 @@ package responses
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"time"
@@ -59,37 +60,49 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	events := eventstream.NewEventStream(ctx, i.logger.Named("sse-sender"), nil)
 	go events.Start(w, r)
 	defer func() {
-		// Catch-all in case it doesn't get shutdown after stream completes.
 		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, streamShutdownTimeout)
 		defer shutdownCancel()
 		_ = events.Shutdown(shutdownCtx)
 	}()
 
-	var respPayload deltaBuffer
+	var respFwd responseForwarder
 
 	srv := i.newResponsesService()
-	opts := i.requestOptions(&respPayload, w)
+	opts := i.requestOptions(&respFwd)
 	stream := srv.NewStreaming(ctx, i.req.ResponseNewParams, opts...)
 	defer stream.Close()
 
+	upstreamErr := stream.Err()
+	if upstreamErr != nil {
+		// events stream should never be initialized
+		if events.IsStreaming() {
+			i.logger.Warn(ctx, "event stream was initialized when no response was received from upstream")
+			return upstreamErr
+		}
+
+		// no response received from upstream, return custom error
+		if !respFwd.responseReceived.Load() {
+			i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
+			return upstreamErr
+		}
+
+		// forward received response as-is
+		err := respFwd.forwardResp(w)
+		return errors.Join(upstreamErr, err)
+	}
+
 	for stream.Next() {
-		if err := events.Send(ctx, respPayload.readDelta()); err != nil {
-			i.logger.Warn(ctx, "failed to relay chunk", slog.Error(err))
-			err = fmt.Errorf("relay chunk: %w", err)
-			stream.Close()
-			break
+		if err := events.Send(ctx, respFwd.buff.readDelta()); err != nil {
+			err = fmt.Errorf("failed to relay chunk: %w", err)
+			return err
 		}
 	}
 
-	upstreamErr, failFast := i.handleUpstreamError(ctx, stream.Err(), w)
-	if failFast {
-		return upstreamErr
+	b, err := respFwd.readAll()
+	if err != nil {
+		return errors.Join(upstreamErr, fmt.Errorf("failed to read response body: %w", upstreamErr))
 	}
 
-	if err := respPayload.drainCloser(); err != nil {
-		i.logger.Warn(ctx, "failed to drain original response body", slog.Error(err))
-	}
-	events.Send(ctx, respPayload.readDelta())
-
-	return stream.Err()
+	err = events.Send(ctx, b)
+	return errors.Join(err, stream.Err())
 }

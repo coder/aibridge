@@ -1,6 +1,8 @@
 package responses
 
 import (
+	"fmt"
+
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/tidwall/gjson"
 )
@@ -15,7 +17,7 @@ type ResponsesNewParamsWrapper struct {
 func (c *ResponsesNewParamsWrapper) UnmarshalJSON(raw []byte) error {
 	err := c.ResponseNewParams.UnmarshalJSON(raw)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to unmarshal response params: %w", err)
 	}
 
 	c.Stream = false
