@@ -105,5 +105,8 @@ func (p *Anthropic) InjectAuthHeader(headers *http.Header) {
 }
 
 func (p *Anthropic) CircuitBreakerConfig() *circuitbreaker.Config {
+	if p.cfg.CircuitBreaker != nil && p.cfg.CircuitBreaker.IsFailure == nil {
+		p.cfg.CircuitBreaker.IsFailure = circuitbreaker.AnthropicIsFailure
+	}
 	return p.cfg.CircuitBreaker
 }

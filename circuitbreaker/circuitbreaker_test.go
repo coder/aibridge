@@ -54,7 +54,8 @@ func TestMiddleware_PerEndpointIsolation(t *testing.T) {
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
-	assert.Equal(t, int32(1), chatCalls.Load()) // Only 1 call, second was blocked
+	assert.Equal(t, "60", resp.Header.Get("Retry-After")) // Timeout is 1 minute
+	assert.Equal(t, int32(1), chatCalls.Load())           // Only 1 call, second was blocked
 
 	// /responses should still work
 	resp, err = http.Get(server.URL + "/test/v1/responses")

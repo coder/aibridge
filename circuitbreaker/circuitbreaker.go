@@ -26,7 +26,8 @@ type Config struct {
 	// FailureThreshold is the number of consecutive failures that triggers the circuit to open.
 	FailureThreshold uint32
 	// IsFailure determines if a status code should count as a failure.
-	// If nil, defaults to 429, 503, and 529 (Anthropic overloaded).
+	// If nil, defaults to 429 and 503 (see DefaultIsFailure).
+	// Anthropic provider uses AnthropicIsFailure which also includes 529.
 	IsFailure func(statusCode int) bool
 }
 
