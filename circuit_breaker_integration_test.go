@@ -2,6 +2,7 @@ package aibridge_test
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -36,6 +37,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 		name           string
 		providerName   string
 		endpoint       string
+		model          string
 		errorBody      string
 		successBody    string
 		requestBody    string
@@ -48,6 +50,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			name:         "Anthropic",
 			providerName: config.ProviderAnthropic,
 			endpoint:     "/v1/messages",
+			model:        "claude-sonnet-4-20250514",
 			errorBody:    `{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`,
 			successBody:  `{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`,
 			requestBody:  `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
@@ -67,6 +70,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			name:         "OpenAI",
 			providerName: config.ProviderOpenAI,
 			endpoint:     "/v1/chat/completions",
+			model:        "gpt-4o",
 			errorBody:    `{"error":{"type":"rate_limit_error","message":"rate limited","code":"rate_limit_exceeded"}}`,
 			successBody:  `{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`,
 			requestBody:  `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
@@ -166,13 +170,13 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, int32(cbConfig.FailureThreshold), upstreamCalls.Load(), "No new upstream call when circuit is open")
 
 			// Verify metrics show circuit is open
-			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.providerName, tc.endpoint))
+			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
 			assert.Equal(t, 1.0, trips, "CircuitBreakerTrips should be 1")
 
-			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.providerName, tc.endpoint))
+			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
 			assert.Equal(t, 1.0, state, "CircuitBreakerState should be 1 (open)")
 
-			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.providerName, tc.endpoint))
+			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
 			assert.Equal(t, 1.0, rejects, "CircuitBreakerRejects should be 1")
 
 			// Phase 3: Wait for timeout to transition to half-open
@@ -188,7 +192,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should reach upstream in half-open state")
 
 			// Verify circuit is now closed
-			state = promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.providerName, tc.endpoint))
+			state = promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
 			assert.Equal(t, 0.0, state, "CircuitBreakerState should be 0 (closed) after recovery")
 
 			// Phase 5: Verify circuit is fully functional again
@@ -202,7 +206,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+4, upstreamCalls.Load(), "All requests should reach upstream after circuit closes")
 
 			// Rejects count should not have increased
-			rejects = promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.providerName, tc.endpoint))
+			rejects = promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
 			assert.Equal(t, 1.0, rejects, "CircuitBreakerRejects should still be 1 (no new rejects)")
 		})
 	}
@@ -217,6 +221,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 		name           string
 		providerName   string
 		endpoint       string
+		model          string
 		errorBody      string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
@@ -228,6 +233,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			name:         "Anthropic",
 			providerName: config.ProviderAnthropic,
 			endpoint:     "/v1/messages",
+			model:        "claude-sonnet-4-20250514",
 			errorBody:    `{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`,
 			requestBody:  `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
@@ -246,6 +252,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			name:         "OpenAI",
 			providerName: config.ProviderOpenAI,
 			endpoint:     "/v1/chat/completions",
+			model:        "gpt-4o",
 			errorBody:    `{"error":{"type":"rate_limit_error","message":"rate limited","code":"rate_limit_exceeded"}}`,
 			requestBody:  `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
@@ -330,7 +337,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			resp := makeRequest()
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 
-			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.providerName, tc.endpoint))
+			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
 			assert.Equal(t, 1.0, trips, "CircuitBreakerTrips should be 1")
 
 			// Phase 2: Wait for half-open state
@@ -348,10 +355,10 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should NOT reach upstream when circuit re-opens")
 
 			// Verify metrics: trips should be 2 now (tripped twice)
-			trips = promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.providerName, tc.endpoint))
+			trips = promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
 			assert.Equal(t, 2.0, trips, "CircuitBreakerTrips should be 2 after half-open failure")
 
-			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.providerName, tc.endpoint))
+			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
 			assert.Equal(t, 1.0, state, "CircuitBreakerState should be 1 (open) after half-open failure")
 		})
 	}
@@ -366,6 +373,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 		name           string
 		providerName   string
 		endpoint       string
+		model          string
 		errorBody      string
 		successBody    string
 		requestBody    string
@@ -378,6 +386,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			name:         "Anthropic",
 			providerName: config.ProviderAnthropic,
 			endpoint:     "/v1/messages",
+			model:        "claude-sonnet-4-20250514",
 			errorBody:    `{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`,
 			successBody:  `{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`,
 			requestBody:  `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
@@ -397,6 +406,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			name:         "OpenAI",
 			providerName: config.ProviderOpenAI,
 			endpoint:     "/v1/chat/completions",
+			model:        "gpt-4o",
 			errorBody:    `{"error":{"type":"rate_limit_error","message":"rate limited","code":"rate_limit_exceeded"}}`,
 			successBody:  `{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`,
 			requestBody:  `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
@@ -536,9 +546,140 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				"%d requests should be rejected (ErrTooManyRequests)", totalRequests-maxRequests)
 
 			// Verify rejects metric increased
-			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.providerName, tc.endpoint))
+			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
 			assert.Equal(t, float64(1+totalRequests-maxRequests), rejects,
 				"CircuitBreakerRejects should include half-open rejections")
 		})
 	}
+}
+
+// TestCircuitBreaker_PerModelIsolation tests that circuit breakers are independent per model.
+// Rate limits on one model should not affect other models on the same endpoint.
+func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
+	t.Parallel()
+
+	var sonnetCalls, haikuCalls atomic.Int32
+	var sonnetShouldFail atomic.Bool
+	sonnetShouldFail.Store(true)
+
+	// Mock upstream that returns different responses based on model in request
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("x-should-retry", "false")
+
+		if strings.Contains(string(body), "claude-sonnet-4-20250514") {
+			sonnetCalls.Add(1)
+			if sonnetShouldFail.Load() {
+				w.WriteHeader(http.StatusTooManyRequests)
+				_, _ = w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`))
+			} else {
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`))
+			}
+		} else if strings.Contains(string(body), "claude-3-5-haiku-20241022") {
+			haikuCalls.Add(1)
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte(`{"id":"msg_02","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-3-5-haiku-20241022","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`))
+		}
+	}))
+	defer mockUpstream.Close()
+
+	m := metrics.NewMetrics(prometheus.NewRegistry())
+
+	cbConfig := &config.CircuitBreaker{
+		FailureThreshold: 2,
+		Interval:         time.Minute,
+		Timeout:          50 * time.Millisecond,
+		MaxRequests:      1,
+	}
+	prov := provider.NewAnthropic(config.Anthropic{
+		BaseURL:        mockUpstream.URL,
+		Key:            "test-key",
+		CircuitBreaker: cbConfig,
+	}, nil)
+
+	ctx := t.Context()
+	tracer := otel.Tracer("forTesting")
+	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+	bridge, err := aibridge.NewRequestBridge(ctx,
+		[]provider.Provider{prov},
+		&mockRecorderClient{},
+		mcp.NewServerProxyManager(nil, tracer),
+		logger,
+		m,
+		tracer,
+	)
+	require.NoError(t, err)
+
+	mockSrv := httptest.NewUnstartedServer(bridge)
+	t.Cleanup(mockSrv.Close)
+	mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+		return aibridge.AsActor(ctx, "test-user-id", nil)
+	}
+	mockSrv.Start()
+
+	makeRequest := func(model string) *http.Response {
+		body := fmt.Sprintf(`{"model":"%s","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`, model)
+		req, err := http.NewRequest("POST", mockSrv.URL+"/anthropic/v1/messages", strings.NewReader(body))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("x-api-key", "test")
+		req.Header.Set("anthropic-version", "2023-06-01")
+		resp, err := http.DefaultClient.Do(req)
+		require.NoError(t, err)
+		_, err = io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		resp.Body.Close()
+		return resp
+	}
+
+	// Phase 1: Trip the circuit for sonnet model
+	for i := uint32(0); i < cbConfig.FailureThreshold; i++ {
+		resp := makeRequest("claude-sonnet-4-20250514")
+		assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+	}
+	assert.Equal(t, int32(cbConfig.FailureThreshold), sonnetCalls.Load())
+
+	// Verify sonnet circuit is open
+	resp := makeRequest("claude-sonnet-4-20250514")
+	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, "Sonnet circuit should be open")
+	assert.Equal(t, int32(cbConfig.FailureThreshold), sonnetCalls.Load(), "No new sonnet calls when circuit is open")
+
+	// Verify sonnet metrics show circuit is open
+	sonnetTrips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))
+	assert.Equal(t, 1.0, sonnetTrips, "Sonnet CircuitBreakerTrips should be 1")
+
+	sonnetState := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))
+	assert.Equal(t, 1.0, sonnetState, "Sonnet CircuitBreakerState should be 1 (open)")
+
+	// Phase 2: Haiku model should still work (independent circuit)
+	resp = makeRequest("claude-3-5-haiku-20241022")
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "Haiku should succeed while sonnet circuit is open")
+	assert.Equal(t, int32(1), haikuCalls.Load(), "Haiku call should reach upstream")
+
+	// Make multiple haiku requests - all should succeed
+	for i := 0; i < 3; i++ {
+		resp = makeRequest("claude-3-5-haiku-20241022")
+		assert.Equal(t, http.StatusOK, resp.StatusCode, "Haiku should continue to succeed")
+	}
+	assert.Equal(t, int32(4), haikuCalls.Load(), "All haiku calls should reach upstream")
+
+	// Verify haiku circuit is still closed (no trips)
+	haikuTrips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-3-5-haiku-20241022"))
+	assert.Equal(t, 0.0, haikuTrips, "Haiku CircuitBreakerTrips should be 0")
+
+	haikuState := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-3-5-haiku-20241022"))
+	assert.Equal(t, 0.0, haikuState, "Haiku CircuitBreakerState should be 0 (closed)")
+
+	// Phase 3: Sonnet recovers after timeout
+	time.Sleep(cbConfig.Timeout + 10*time.Millisecond)
+	sonnetShouldFail.Store(false)
+
+	resp = makeRequest("claude-sonnet-4-20250514")
+	assert.Equal(t, http.StatusOK, resp.StatusCode, "Sonnet should recover after timeout")
+
+	// Verify sonnet circuit is now closed
+	sonnetState = promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))
+	assert.Equal(t, 0.0, sonnetState, "Sonnet CircuitBreakerState should be 0 (closed) after recovery")
 }

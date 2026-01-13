@@ -70,17 +70,18 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 		// Create per-provider circuit breaker if configured
 		cfg := prov.CircuitBreakerConfig()
 		providerName := prov.Name()
-		onChange := func(endpoint string, from, to gobreaker.State) {
+		onChange := func(endpoint, model string, from, to gobreaker.State) {
 			logger.Info(context.Background(), "circuit breaker state change",
 				slog.F("provider", providerName),
 				slog.F("endpoint", endpoint),
+				slog.F("model", model),
 				slog.F("from", from.String()),
 				slog.F("to", to.String()),
 			)
 			if m != nil {
-				m.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(circuitbreaker.StateToGaugeValue(to))
+				m.CircuitBreakerState.WithLabelValues(providerName, endpoint, model).Set(circuitbreaker.StateToGaugeValue(to))
 				if to == gobreaker.StateOpen {
-					m.CircuitBreakerTrips.WithLabelValues(providerName, endpoint).Inc()
+					m.CircuitBreakerTrips.WithLabelValues(providerName, endpoint, model).Inc()
 				}
 			}
 		}
@@ -88,16 +89,8 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range prov.BridgedRoutes() {
-			// Initialize circuit breaker state metric to closed (0) for known routes
-			if m != nil && cbs != nil {
-				endpoint := strings.TrimPrefix(path, "/"+providerName)
-				m.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(0)
-			}
-
-			handler := newInterceptionProcessor(prov, rec, mcpProxy, logger, m, tracer)
-			// Wrap with circuit breaker middleware (nil cbs passes through)
-			wrapped := circuitbreaker.Middleware(cbs, m, logger)(handler)
-			mux.Handle(path, wrapped)
+			handler := newInterceptionProcessor(prov, cbs, rec, mcpProxy, logger, m, tracer)
+			mux.Handle(path, handler)
 		}
 
 		// Any requests which passthrough to this will be reverse-proxied to the upstream.
@@ -132,7 +125,8 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 
 // newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
 // using [Provider] p, recording all usage events using [Recorder] rec.
-func newInterceptionProcessor(p provider.Provider, rec recorder.Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
+// If cbs is non-nil, circuit breaker protection is applied per endpoint/model tuple.
+func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderCircuitBreakers, rec recorder.Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := tracer.Start(r.Context(), "Intercept")
 		defer span.End()
@@ -202,18 +196,37 @@ func newInterceptionProcessor(p provider.Provider, rec recorder.Recorder, mcpPro
 			}()
 		}
 
-		if err := interceptor.ProcessRequest(w, r); err != nil {
-			if m != nil {
-				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID).Add(1)
+		// Process request with circuit breaker protection if configured
+		processRequest := func(rw http.ResponseWriter) {
+			if err := interceptor.ProcessRequest(rw, r); err != nil {
+				if m != nil {
+					m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID).Add(1)
+				}
+				span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
+				log.Warn(ctx, "interception failed", slog.Error(err))
+			} else {
+				if m != nil {
+					m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID).Add(1)
+				}
+				log.Debug(ctx, "interception ended")
 			}
-			span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
-			log.Warn(ctx, "interception failed", slog.Error(err))
-		} else {
-			if m != nil {
-				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID).Add(1)
-			}
-			log.Debug(ctx, "interception ended")
 		}
+
+		if cbs != nil {
+			result := cbs.Execute(route, interceptor.Model(), w, processRequest)
+			if result.CircuitOpen {
+				if m != nil {
+					m.CircuitBreakerRejects.WithLabelValues(p.Name(), route, interceptor.Model()).Inc()
+				}
+				w.Header().Set("Content-Type", "application/json")
+				w.Header().Set("Retry-After", fmt.Sprintf("%d", int64(cbs.Timeout().Seconds())))
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write(cbs.OpenErrorResponse())
+			}
+		} else {
+			processRequest(w)
+		}
+
 		asyncRecorder.RecordInterceptionEnded(ctx, &recorder.InterceptionRecordEnded{ID: interceptor.ID().String()})
 
 		// Ensure all recording have completed before completing request.
