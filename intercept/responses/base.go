@@ -58,7 +58,7 @@ func (i *responsesInterceptionBase) ID() uuid.UUID {
 }
 
 func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	i.logger = logger.With(slog.F("model", i.req.Model))
+	i.logger = logger.With(slog.F("model", i.model))
 	i.recorder = recorder
 	i.mcpProxy = mcpProxy
 }

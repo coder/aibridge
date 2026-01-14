@@ -62,11 +62,13 @@ func (p *OpenAI) BridgedRoutes() []string {
 // See https://platform.openai.com/docs/api-reference/completions.
 func (p *OpenAI) PassthroughRoutes() []string {
 	return []string{
-		"/v1/models",
-		"/v1/models/",    // See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux.
-		"/v1/responses/", // Forwards other responses API endpoints, eg: https://platform.openai.com/docs/api-reference/responses/get
+		// See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux.
+		// but without non trailing slash route requests to `/v1/conversations` are going to catch all
 		"/v1/conversations",
 		"/v1/conversations/",
+		"/v1/models",
+		"/v1/models/",
+		"/v1/responses/", // Forwards other responses API endpoints, eg: https://platform.openai.com/docs/api-reference/responses/get
 	}
 }
 

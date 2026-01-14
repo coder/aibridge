@@ -72,8 +72,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	stream := srv.NewStreaming(ctx, i.req.ResponseNewParams, opts...)
 	defer stream.Close()
 
-	upstreamErr := stream.Err()
-	if upstreamErr != nil {
+	if upstreamErr := stream.Err(); upstreamErr != nil {
 		// events stream should never be initialized
 		if events.IsStreaming() {
 			i.logger.Warn(ctx, "event stream was initialized when no response was received from upstream")
@@ -100,7 +99,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	b, err := respCopy.readAll()
 	if err != nil {
-		return errors.Join(upstreamErr, fmt.Errorf("failed to read response body: %w", upstreamErr))
+		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	err = events.Send(ctx, b)
