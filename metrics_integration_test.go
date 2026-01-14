@@ -14,6 +14,8 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
@@ -32,11 +34,11 @@ func TestMetrics_Interception(t *testing.T) {
 		expectedStatus string
 	}{
 		{
-			fixture:        antSimple,
+			fixture:        fixtures.AntSimple,
 			expectedStatus: metrics.InterceptionCountStatusCompleted,
 		},
 		{
-			fixture:        antNonStreamErr,
+			fixture:        fixtures.AntNonStreamError,
 			expectedStatus: metrics.InterceptionCountStatusFailed,
 		},
 	}
@@ -71,7 +73,7 @@ func TestMetrics_Interception(t *testing.T) {
 func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(antSimple)
+	arc := txtar.Parse(fixtures.AntSimple)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -134,7 +136,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiFallthrough)
+	arc := txtar.Parse(fixtures.OaiChatFallthrough)
 	files := filesMap(arc)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -164,7 +166,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 func TestMetrics_PromptCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiSimple)
+	arc := txtar.Parse(fixtures.OaiChatSimple)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -192,7 +194,7 @@ func TestMetrics_PromptCount(t *testing.T) {
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(oaiSingleBuiltinTool)
+	arc := txtar.Parse(fixtures.OaiChatSingleBuiltinTool)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -220,7 +222,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(antSingleInjectedTool)
+	arc := txtar.Parse(fixtures.AntSingleInjectedTool)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -235,7 +237,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	})
 	t.Cleanup(mockAPI.Close)
 
-	recorder := &mockRecorderClient{}
+	recorder := &testutil.MockRecorder{}
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), nil)
@@ -267,21 +269,21 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 		return mockAPI.callCount.Load() == 2
 	}, time.Second*10, time.Millisecond*50)
 
-	require.Len(t, recorder.toolUsages, 1)
-	require.True(t, recorder.toolUsages[0].Injected)
-	require.NotNil(t, recorder.toolUsages[0].ServerURL)
-	actualServerURL := *recorder.toolUsages[0].ServerURL
+	require.Len(t, recorder.ToolUsages(), 1)
+	require.True(t, recorder.ToolUsages()[0].Injected)
+	require.NotNil(t, recorder.ToolUsages()[0].ServerURL)
+	actualServerURL := *recorder.ToolUsages()[0].ServerURL
 
 	count := promtest.ToFloat64(metrics.InjectedToolUseCount.WithLabelValues(
 		config.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName))
 	require.Equal(t, 1.0, count)
 }
 
-func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, metrics *metrics.Metrics, tracer trace.Tracer) (*httptest.Server, *mockRecorderClient) {
+func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, metrics *metrics.Metrics, tracer trace.Tracer) (*httptest.Server, *testutil.MockRecorder) {
 	t.Helper()
 
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-	mockRecorder := &mockRecorderClient{}
+	mockRecorder := &testutil.MockRecorder{}
 	clientFn := func() (aibridge.Recorder, error) {
 		return mockRecorder, nil
 	}

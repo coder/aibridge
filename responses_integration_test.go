@@ -3,7 +3,6 @@ package aibridge_test
 import (
 	"bytes"
 	"context"
-	_ "embed"
 	"encoding/json"
 	"io"
 	"net"
@@ -13,48 +12,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/provider"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/txtar"
-)
-
-var (
-	//go:embed fixtures/openai/responses/blocking/simple.txtar
-	fixtResponsesBlockingSimple []byte
-
-	//go:embed fixtures/openai/responses/blocking/builtin_tool.txtar
-	fixtResponsesBlockingBuiltinTool []byte
-
-	//go:embed fixtures/openai/responses/blocking/conversation.txtar
-	fixtResponsesBlockingConversation []byte
-
-	//go:embed fixtures/openai/responses/blocking/prev_response_id.txtar
-	fixtResponsesBlockingPrevResponseID []byte
-
-	//go:embed fixtures/openai/responses/blocking/wrong_response_format.txtar
-	fixtResponsesBlockingWrongResponseFormat []byte
-
-	//go:embed fixtures/openai/responses/streaming/simple.txtar
-	fixtResponsesStreamingSimple []byte
-
-	//go:embed fixtures/openai/responses/streaming/builtin_tool.txtar
-	fixtResponsesStreamingBuiltinTool []byte
-
-	//go:embed fixtures/openai/responses/streaming/conversation.txtar
-	fixtResponsesStreamingConversation []byte
-
-	//go:embed fixtures/openai/responses/streaming/prev_response_id.txtar
-	fixtResponsesStreamingPrevResponseID []byte
-
-	//go:embed fixtures/openai/responses/streaming/stream_error.txtar
-	fixtResponsesStreamingStreamError []byte
-
-	//go:embed fixtures/openai/responses/streaming/stream_failure.txtar
-	fixtResponsesStreamingStreamFailure []byte
-
-	//go:embed fixtures/openai/responses/streaming/wrong_response_format.txtar
-	fixtResponsesStreamingWrongResponseFormat []byte
 )
 
 type keyVal struct {
@@ -72,60 +34,59 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 	}{
 		{
 			name:    "blocking_simple",
-			fixture: fixtResponsesBlockingSimple,
+			fixture: fixtures.OaiResponsesBlockingSimple,
 		},
 		{
 			name:    "blocking_builtin_tool",
-			fixture: fixtResponsesBlockingBuiltinTool,
+			fixture: fixtures.OaiResponsesBlockingBuiltinTool,
 		},
 		{
 			name:    "blocking_conversation",
-			fixture: fixtResponsesBlockingConversation,
+			fixture: fixtures.OaiResponsesBlockingConversation,
 		},
 		{
 			name:    "blocking_prev_response_id",
-			fixture: fixtResponsesBlockingPrevResponseID,
+			fixture: fixtures.OaiResponsesBlockingPrevResponseID,
 		},
-
 		{
 			name:      "streaming_simple",
-			fixture:   fixtResponsesStreamingSimple,
+			fixture:   fixtures.OaiResponsesStreamingSimple,
 			streaming: true,
 		},
 		{
 			name:      "streaming_builtin_tool",
-			fixture:   fixtResponsesStreamingBuiltinTool,
+			fixture:   fixtures.OaiResponsesStreamingBuiltinTool,
 			streaming: true,
 		},
 		{
 			name:      "streaming_conversation",
-			fixture:   fixtResponsesStreamingConversation,
+			fixture:   fixtures.OaiResponsesStreamingConversation,
 			streaming: true,
 		},
 		{
 			name:      "streaming_prev_response_id",
-			fixture:   fixtResponsesStreamingPrevResponseID,
+			fixture:   fixtures.OaiResponsesStreamingPrevResponseID,
 			streaming: true,
 		},
 		{
 			name:      "stream_error",
-			fixture:   fixtResponsesStreamingStreamError,
+			fixture:   fixtures.OaiResponsesStreamingStreamError,
 			streaming: true,
 		},
 		{
 			name:      "stream_failure",
-			fixture:   fixtResponsesStreamingStreamFailure,
+			fixture:   fixtures.OaiResponsesStreamingStreamFailure,
 			streaming: true,
 		},
 
-		// Even when response has wrong json format original response status code, body is kept as is
+		// Original status code and body is kept even with wrong json format
 		{
 			name:    "blocking_wrong_format",
-			fixture: fixtResponsesBlockingWrongResponseFormat,
+			fixture: fixtures.OaiResponsesBlockingWrongResponseFormat,
 		},
 		{
 			name:      "streaming_wrong_format",
-			fixture:   fixtResponsesStreamingWrongResponseFormat,
+			fixture:   fixtures.OaiResponsesStreamingWrongResponseFormat,
 			streaming: true,
 		},
 	}
