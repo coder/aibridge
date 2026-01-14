@@ -331,6 +331,7 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 
 // TODO set MaxRetries to speed up this test
 // option.WithMaxRetries(0), in base responses interceptor
+// https://github.com/coder/aibridge/issues/115
 func TestClientAndConnectionError(t *testing.T) {
 	t.Parallel()
 
@@ -397,6 +398,7 @@ func TestClientAndConnectionError(t *testing.T) {
 
 // TODO set MaxRetries to speed up this test
 // option.WithMaxRetries(0), in base responses interceptor
+// https://github.com/coder/aibridge/issues/115
 func TestUpstreamError(t *testing.T) {
 	t.Parallel()
 
