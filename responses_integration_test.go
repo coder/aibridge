@@ -34,59 +34,59 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 	}{
 		{
 			name:    "blocking_simple",
-			fixture: fixtures.ResponsesBlockingSimple,
+			fixture: fixtures.OaiResponsesBlockingSimple,
 		},
 		{
 			name:    "blocking_builtin_tool",
-			fixture: fixtures.ResponsesBlockingBuiltinTool,
+			fixture: fixtures.OaiResponsesBlockingBuiltinTool,
 		},
 		{
 			name:    "blocking_conversation",
-			fixture: fixtures.ResponsesBlockingConversation,
+			fixture: fixtures.OaiResponsesBlockingConversation,
 		},
 		{
 			name:    "blocking_prev_response_id",
-			fixture: fixtures.ResponsesBlockingPrevResponseID,
+			fixture: fixtures.OaiResponsesBlockingPrevResponseID,
 		},
 		{
 			name:      "streaming_simple",
-			fixture:   fixtures.ResponsesStreamingSimple,
+			fixture:   fixtures.OaiResponsesStreamingSimple,
 			streaming: true,
 		},
 		{
 			name:      "streaming_builtin_tool",
-			fixture:   fixtures.ResponsesStreamingBuiltinTool,
+			fixture:   fixtures.OaiResponsesStreamingBuiltinTool,
 			streaming: true,
 		},
 		{
 			name:      "streaming_conversation",
-			fixture:   fixtures.ResponsesStreamingConversation,
+			fixture:   fixtures.OaiResponsesStreamingConversation,
 			streaming: true,
 		},
 		{
 			name:      "streaming_prev_response_id",
-			fixture:   fixtures.ResponsesStreamingPrevResponseID,
+			fixture:   fixtures.OaiResponsesStreamingPrevResponseID,
 			streaming: true,
 		},
 		{
 			name:      "stream_error",
-			fixture:   fixtures.ResponsesStreamingStreamError,
+			fixture:   fixtures.OaiResponsesStreamingStreamError,
 			streaming: true,
 		},
 		{
 			name:      "stream_failure",
-			fixture:   fixtures.ResponsesStreamingStreamFailure,
+			fixture:   fixtures.OaiResponsesStreamingStreamFailure,
 			streaming: true,
 		},
 
 		// Original status code and body is kept even with wrong json format
 		{
 			name:    "blocking_wrong_format",
-			fixture: fixtures.ResponsesBlockingWrongResponseFormat,
+			fixture: fixtures.OaiResponsesBlockingWrongResponseFormat,
 		},
 		{
 			name:      "streaming_wrong_format",
-			fixture:   fixtures.ResponsesStreamingWrongResponseFormat,
+			fixture:   fixtures.OaiResponsesStreamingWrongResponseFormat,
 			streaming: true,
 		},
 	}

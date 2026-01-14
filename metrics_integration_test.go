@@ -136,7 +136,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.OaiFallthrough)
+	arc := txtar.Parse(fixtures.OaiChatFallthrough)
 	files := filesMap(arc)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -166,7 +166,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 func TestMetrics_PromptCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.OaiSimple)
+	arc := txtar.Parse(fixtures.OaiChatSimple)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -194,7 +194,7 @@ func TestMetrics_PromptCount(t *testing.T) {
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.OaiSingleBuiltinTool)
+	arc := txtar.Parse(fixtures.OaiChatSingleBuiltinTool)
 	files := filesMap(arc)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)

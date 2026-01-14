@@ -26,60 +26,60 @@ var (
 
 var (
 	//go:embed openai/chatcompletions/simple.txtar
-	OaiSimple []byte
+	OaiChatSimple []byte
 
 	//go:embed openai/chatcompletions/single_builtin_tool.txtar
-	OaiSingleBuiltinTool []byte
+	OaiChatSingleBuiltinTool []byte
 
 	//go:embed openai/chatcompletions/single_injected_tool.txtar
-	OaiSingleInjectedTool []byte
+	OaiChatSingleInjectedTool []byte
 
 	//go:embed openai/chatcompletions/fallthrough.txtar
-	OaiFallthrough []byte
+	OaiChatFallthrough []byte
 
 	//go:embed openai/chatcompletions/stream_error.txtar
-	OaiMidStreamError []byte
+	OaiChatMidStreamError []byte
 
 	//go:embed openai/chatcompletions/non_stream_error.txtar
-	OaiNonStreamError []byte
+	OaiChatNonStreamError []byte
 )
 
 var (
 	//go:embed openai/responses/blocking/simple.txtar
-	ResponsesBlockingSimple []byte
+	OaiResponsesBlockingSimple []byte
 
 	//go:embed openai/responses/blocking/builtin_tool.txtar
-	ResponsesBlockingBuiltinTool []byte
+	OaiResponsesBlockingBuiltinTool []byte
 
 	//go:embed openai/responses/blocking/conversation.txtar
-	ResponsesBlockingConversation []byte
+	OaiResponsesBlockingConversation []byte
 
 	//go:embed openai/responses/blocking/prev_response_id.txtar
-	ResponsesBlockingPrevResponseID []byte
+	OaiResponsesBlockingPrevResponseID []byte
 
 	//go:embed openai/responses/blocking/wrong_response_format.txtar
-	ResponsesBlockingWrongResponseFormat []byte
+	OaiResponsesBlockingWrongResponseFormat []byte
 )
 
 var (
 	//go:embed openai/responses/streaming/simple.txtar
-	ResponsesStreamingSimple []byte
+	OaiResponsesStreamingSimple []byte
 
 	//go:embed openai/responses/streaming/builtin_tool.txtar
-	ResponsesStreamingBuiltinTool []byte
+	OaiResponsesStreamingBuiltinTool []byte
 
 	//go:embed openai/responses/streaming/conversation.txtar
-	ResponsesStreamingConversation []byte
+	OaiResponsesStreamingConversation []byte
 
 	//go:embed openai/responses/streaming/prev_response_id.txtar
-	ResponsesStreamingPrevResponseID []byte
+	OaiResponsesStreamingPrevResponseID []byte
 
 	//go:embed openai/responses/streaming/stream_error.txtar
-	ResponsesStreamingStreamError []byte
+	OaiResponsesStreamingStreamError []byte
 
 	//go:embed openai/responses/streaming/stream_failure.txtar
-	ResponsesStreamingStreamFailure []byte
+	OaiResponsesStreamingStreamFailure []byte
 
 	//go:embed openai/responses/streaming/wrong_response_format.txtar
-	ResponsesStreamingWrongResponseFormat []byte
+	OaiResponsesStreamingWrongResponseFormat []byte
 )

@@ -360,7 +360,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), tc.streaming), func(t *testing.T) {
 				t.Parallel()
 
-				arc := txtar.Parse(fixtures.OaiSingleBuiltinTool)
+				arc := txtar.Parse(fixtures.OaiChatSingleBuiltinTool)
 				t.Logf("%s: %s", t.Name(), arc.Comment)
 
 				files := filesMap(arc)
@@ -491,7 +491,7 @@ func TestSimple(t *testing.T) {
 		},
 		{
 			name:    config.ProviderOpenAI,
-			fixture: fixtures.OaiSimple,
+			fixture: fixtures.OaiChatSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
@@ -636,7 +636,7 @@ func TestFallthrough(t *testing.T) {
 		},
 		{
 			name:    config.ProviderOpenAI,
-			fixture: fixtures.OaiFallthrough,
+			fixture: fixtures.OaiChatFallthrough,
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
@@ -842,7 +842,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, fixtures.OaiSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
+			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := recorderClient.RecordedToolUsages()
@@ -1046,7 +1046,7 @@ func TestErrorHandling(t *testing.T) {
 			},
 			{
 				name:              config.ProviderOpenAI,
-				fixture:           fixtures.OaiNonStreamError,
+				fixture:           fixtures.OaiChatNonStreamError,
 				createRequestFunc: createOpenAIChatCompletionsReq,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -1154,7 +1154,7 @@ func TestErrorHandling(t *testing.T) {
 			},
 			{
 				name:              config.ProviderOpenAI,
-				fixture:           fixtures.OaiMidStreamError,
+				fixture:           fixtures.OaiChatMidStreamError,
 				createRequestFunc: createOpenAIChatCompletionsReq,
 				configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 					logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -1252,7 +1252,7 @@ func TestStableRequestEncoding(t *testing.T) {
 		},
 		{
 			name:              config.ProviderOpenAI,
-			fixture:           fixtures.OaiSimple,
+			fixture:           fixtures.OaiChatSimple,
 			createRequestFunc: createOpenAIChatCompletionsReq,
 			configureFunc: func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
 				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
@@ -1547,7 +1547,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 		},
 		{
 			name:    config.ProviderOpenAI,
-			fixture: fixtures.OaiSimple,
+			fixture: fixtures.OaiChatSimple,
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}

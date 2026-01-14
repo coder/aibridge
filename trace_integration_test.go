@@ -393,7 +393,7 @@ func TestTraceOpenAI(t *testing.T) {
 	}{
 		{
 			name:      "trace_openai_streaming",
-			fixture:   fixtures.OaiSimple,
+			fixture:   fixtures.OaiChatSimple,
 			streaming: true,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
@@ -408,7 +408,7 @@ func TestTraceOpenAI(t *testing.T) {
 		},
 		{
 			name:      "trace_openai_non_streaming",
-			fixture:   fixtures.OaiSimple,
+			fixture:   fixtures.OaiChatSimple,
 			streaming: false,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
@@ -520,9 +520,9 @@ func TestTraceOpenAIErr(t *testing.T) {
 
 			var arc *txtar.Archive
 			if tc.streaming {
-				arc = txtar.Parse(fixtures.OaiMidStreamError)
+				arc = txtar.Parse(fixtures.OaiChatMidStreamError)
 			} else {
-				arc = txtar.Parse(fixtures.OaiNonStreamError)
+				arc = txtar.Parse(fixtures.OaiChatNonStreamError)
 			}
 
 			files := filesMap(arc)
@@ -610,7 +610,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, proxies, resp := setupInjectedToolTest(t, fixtures.OaiSingleInjectedTool, streaming, configureFn, reqFunc)
+			recorderClient, _, proxies, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, configureFn, reqFunc)
 
 			defer resp.Body.Close()
 
@@ -642,7 +642,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 func TestTracePassthrough(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.OaiFallthrough)
+	arc := txtar.Parse(fixtures.OaiChatFallthrough)
 	files := filesMap(arc)
 
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
