@@ -122,7 +122,7 @@ func (i *responsesInterceptionBase) sendCustomErr(ctx context.Context, w http.Re
 	}
 }
 
-func (i *responsesInterceptionBase) requestOptions(respFwd *responseForwarder) []option.RequestOption {
+func (i *responsesInterceptionBase) requestOptions(respCopy *responseCopier) []option.RequestOption {
 	opts := []option.RequestOption{
 		// Sends original payload to solve json re-encoding issues
 		// eg. Codex CLI produces requests without ID set in reasoning items: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-item-reasoning-id
@@ -130,9 +130,11 @@ func (i *responsesInterceptionBase) requestOptions(respFwd *responseForwarder) [
 		// in bad request while not sending ID field at all somehow works.
 		option.WithRequestBody("application/json", i.reqPayload),
 
-		// copyMiddleware copies original response body to the buffer in response forwarder.
-		// Bytes are forwarded from the buffer to the client so JSON re-encoding issues won't be possible.
-		option.WithMiddleware(respFwd.copyMiddleware),
+		// copyMiddleware copies body of original response body to the buffer in responseCopier,
+		// also reference to headers and status code is kept responseCopier.
+		// responseCopier is used by interceptors to forward response as it was received,
+		// eliminating any possibility of JSON re-encoding issues.
+		option.WithMiddleware(respCopy.copyMiddleware),
 	}
 	if !i.req.Stream {
 		opts = append(opts, option.WithRequestTimeout(requestTimeout))
@@ -140,8 +142,8 @@ func (i *responsesInterceptionBase) requestOptions(respFwd *responseForwarder) [
 	return opts
 }
 
-// responseForwarder helper struct to send original response to the client
-type responseForwarder struct {
+// responseCopier helper struct to send original response to the client
+type responseCopier struct {
 	buff            deltaBuffer
 	responseStatus  int
 	responseHeaders http.Header
@@ -159,7 +161,7 @@ type responseForwarder struct {
 	responseReceived atomic.Bool
 }
 
-func (r *responseForwarder) copyMiddleware(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+func (r *responseCopier) copyMiddleware(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
 	resp, err := next(req)
 	if err != nil || resp == nil {
 		return resp, err
@@ -175,7 +177,7 @@ func (r *responseForwarder) copyMiddleware(req *http.Request, next option.Middle
 
 // readAll reads all data from original request body
 // so TeeReader copies it to buffer and returns buffer contents.
-func (r *responseForwarder) readAll() ([]byte, error) {
+func (r *responseCopier) readAll() ([]byte, error) {
 	if r.responseBody == nil {
 		return []byte{}, nil
 	}
@@ -184,10 +186,11 @@ func (r *responseForwarder) readAll() ([]byte, error) {
 	return r.buff.readDelta(), err
 }
 
-// forwardResp forwards whole response as received to ResponseWriter
-func (r *responseForwarder) forwardResp(w http.ResponseWriter) error {
+// forwardResp writes whole response as received to ResponseWriter
+func (r *responseCopier) forwardResp(w http.ResponseWriter) error {
 	w.Header().Set("Content-Type", r.responseHeaders.Get("Content-Type"))
 	w.WriteHeader(r.responseStatus)
+
 	b, err := r.readAll()
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)

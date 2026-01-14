@@ -65,10 +65,10 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		_ = events.Shutdown(shutdownCtx)
 	}()
 
-	var respFwd responseForwarder
+	var respCopy responseCopier
 
 	srv := i.newResponsesService()
-	opts := i.requestOptions(&respFwd)
+	opts := i.requestOptions(&respCopy)
 	stream := srv.NewStreaming(ctx, i.req.ResponseNewParams, opts...)
 	defer stream.Close()
 
@@ -81,24 +81,24 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		}
 
 		// no response received from upstream, return custom error
-		if !respFwd.responseReceived.Load() {
+		if !respCopy.responseReceived.Load() {
 			i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
 			return upstreamErr
 		}
 
 		// forward received response as-is
-		err := respFwd.forwardResp(w)
+		err := respCopy.forwardResp(w)
 		return errors.Join(upstreamErr, err)
 	}
 
 	for stream.Next() {
-		if err := events.Send(ctx, respFwd.buff.readDelta()); err != nil {
+		if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
 			err = fmt.Errorf("failed to relay chunk: %w", err)
 			return err
 		}
 	}
 
-	b, err := respFwd.readAll()
+	b, err := respCopy.readAll()
 	if err != nil {
 		return errors.Join(upstreamErr, fmt.Errorf("failed to read response body: %w", upstreamErr))
 	}

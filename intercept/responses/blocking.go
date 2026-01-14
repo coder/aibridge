@@ -47,17 +47,17 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	}
 
 	srv := i.newResponsesService()
-	var respFwd responseForwarder
+	var respCopy responseCopier
 
-	opts := i.requestOptions(&respFwd)
+	opts := i.requestOptions(&respCopy)
 	_, upstreamErr := srv.New(ctx, i.req.ResponseNewParams, opts...)
 
-	if upstreamErr != nil && !respFwd.responseReceived.Load() {
+	if upstreamErr != nil && !respCopy.responseReceived.Load() {
 		// no response received from upstream, return custom error
 		i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
 	}
 
-	err := respFwd.forwardResp(w)
+	err := respCopy.forwardResp(w)
 
 	return errors.Join(upstreamErr, err)
 }
