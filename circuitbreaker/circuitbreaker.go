@@ -7,83 +7,62 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/metrics"
 	"github.com/sony/gobreaker/v2"
 )
 
-// Config holds configuration for circuit breakers.
-// Fields match gobreaker.Settings for clarity.
-type Config struct {
-	// MaxRequests is the maximum number of requests allowed in half-open state.
-	MaxRequests uint32
-	// Interval is the cyclic period of the closed state for clearing internal counts.
-	Interval time.Duration
-	// Timeout is how long the circuit stays open before transitioning to half-open.
-	Timeout time.Duration
-	// FailureThreshold is the number of consecutive failures that triggers the circuit to open.
-	FailureThreshold uint32
-	// IsFailure determines if a status code should count as a failure.
-	// If nil, defaults to 429 and 503 (see DefaultIsFailure).
-	// Anthropic provider uses AnthropicIsFailure which also includes 529.
-	IsFailure func(statusCode int) bool
-}
-
-// DefaultConfig returns sensible defaults for circuit breaker configuration.
-func DefaultConfig() Config {
-	return Config{
-		FailureThreshold: 5,
-		Interval:         10 * time.Second,
-		Timeout:          30 * time.Second,
-		MaxRequests:      3,
-		IsFailure:        DefaultIsFailure,
-	}
-}
-
 // DefaultIsFailure returns true for standard HTTP status codes that typically
-// indicate upstream overload: 429 (Too Many Requests) and 503 (Service Unavailable).
+// indicate upstream overload.
 func DefaultIsFailure(statusCode int) bool {
 	switch statusCode {
 	case http.StatusTooManyRequests, // 429
-		http.StatusServiceUnavailable: // 503
+		http.StatusServiceUnavailable, // 503
+		http.StatusGatewayTimeout:     // 504
 		return true
 	default:
 		return false
 	}
 }
 
-// AnthropicIsFailure extends DefaultIsFailure with Anthropic's custom 529 "Overloaded" status.
-func AnthropicIsFailure(statusCode int) bool {
-	if statusCode == 529 {
-		return true
-	}
-	return DefaultIsFailure(statusCode)
-}
-
 // ProviderCircuitBreakers manages per-endpoint circuit breakers for a single provider.
 type ProviderCircuitBreakers struct {
 	provider string
-	config   Config
+	config   config.CircuitBreaker
 	breakers sync.Map // endpoint -> *gobreaker.CircuitBreaker[struct{}]
 	onChange func(endpoint string, from, to gobreaker.State)
 }
 
 // NewProviderCircuitBreakers creates circuit breakers for a single provider.
-// Returns nil if config is nil (no circuit breaker protection).
-func NewProviderCircuitBreakers(provider string, config *Config, onChange func(endpoint string, from, to gobreaker.State)) *ProviderCircuitBreakers {
-	if config == nil {
+// Returns nil if cfg is nil (no circuit breaker protection).
+func NewProviderCircuitBreakers(provider string, cfg *config.CircuitBreaker, onChange func(endpoint string, from, to gobreaker.State)) *ProviderCircuitBreakers {
+	if cfg == nil {
 		return nil
-	}
-	if config.IsFailure == nil {
-		config.IsFailure = DefaultIsFailure
 	}
 	return &ProviderCircuitBreakers{
 		provider: provider,
-		config:   *config,
+		config:   *cfg,
 		onChange: onChange,
 	}
+}
+
+// isFailure checks if the status code should count as a failure.
+// Falls back to DefaultIsFailure if no custom function is configured.
+func (p *ProviderCircuitBreakers) isFailure(statusCode int) bool {
+	if p.config.IsFailure != nil {
+		return p.config.IsFailure(statusCode)
+	}
+	return DefaultIsFailure(statusCode)
+}
+
+// openErrorResponse returns the error response body when the circuit is open.
+func (p *ProviderCircuitBreakers) openErrorResponse() []byte {
+	if p.config.OpenErrorResponse != nil {
+		return p.config.OpenErrorResponse()
+	}
+	return []byte(`{"error":"circuit breaker is open"}`)
 }
 
 // Get returns the circuit breaker for an endpoint, creating it if needed.
@@ -166,7 +145,7 @@ func Middleware(cbs *ProviderCircuitBreakers, m *metrics.Metrics, logger slog.Lo
 
 			_, err := cb.Execute(func() (struct{}, error) {
 				next.ServeHTTP(sw, r)
-				if cbs.config.IsFailure(sw.statusCode) {
+				if cbs.isFailure(sw.statusCode) {
 					return struct{}{}, fmt.Errorf("upstream error: %d", sw.statusCode)
 				}
 				return struct{}{}, nil
@@ -179,7 +158,7 @@ func Middleware(cbs *ProviderCircuitBreakers, m *metrics.Metrics, logger slog.Lo
 				w.Header().Set("Content-Type", "application/json")
 				w.Header().Set("Retry-After", strconv.FormatInt(int64(cbs.config.Timeout.Seconds()), 10))
 				w.WriteHeader(http.StatusServiceUnavailable)
-				w.Write([]byte(`{"type":"error","error":{"type":"circuit_breaker_open","message":"circuit breaker is open"}}`))
+				w.Write(cbs.openErrorResponse())
 			} else if err != nil {
 				logger.Warn(r.Context(), "unexpected circuit breaker error", slog.Error(err))
 			}

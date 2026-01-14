@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/chatcompletions"
@@ -19,11 +18,15 @@ import (
 
 const routeChatCompletions = "/openai/v1/chat/completions" // https://platform.openai.com/docs/api-reference/chat
 
+var openAIOpenErrorResponse = func() []byte {
+	return []byte(`{"error":{"message":"circuit breaker is open","type":"server_error","code":"service_unavailable"}}`)
+}
+
 // OpenAI allows for interactions with the OpenAI API.
 type OpenAI struct {
 	baseURL        string
 	key            string
-	circuitBreaker *circuitbreaker.Config
+	circuitBreaker *config.CircuitBreaker
 }
 
 var _ Provider = &OpenAI{}
@@ -35,6 +38,10 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 
 	if cfg.Key == "" {
 		cfg.Key = os.Getenv("OPENAI_API_KEY")
+	}
+
+	if cfg.CircuitBreaker != nil {
+		cfg.CircuitBreaker.OpenErrorResponse = openAIOpenErrorResponse
 	}
 
 	return &OpenAI{
@@ -112,6 +119,6 @@ func (p *OpenAI) InjectAuthHeader(headers *http.Header) {
 	headers.Set(p.AuthHeader(), "Bearer "+p.key)
 }
 
-func (p *OpenAI) CircuitBreakerConfig() *circuitbreaker.Config {
+func (p *OpenAI) CircuitBreakerConfig() *config.CircuitBreaker {
 	return p.circuitBreaker
 }

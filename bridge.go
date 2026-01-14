@@ -88,6 +88,12 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range prov.BridgedRoutes() {
+			// Initialize circuit breaker state metric to closed (0) for known routes
+			if m != nil && cbs != nil {
+				endpoint := strings.TrimPrefix(path, "/"+providerName)
+				m.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(0)
+			}
+
 			handler := newInterceptionProcessor(prov, rec, mcpProxy, logger, m, tracer)
 			// Wrap with circuit breaker middleware (nil cbs passes through)
 			wrapped := circuitbreaker.Middleware(cbs, m, logger)(handler)

@@ -15,7 +15,6 @@ import (
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
-	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
@@ -40,7 +39,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 		successBody    string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
-		createProvider func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider
+		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 	}
 
 	tests := []testCase{
@@ -55,7 +54,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
-			createProvider: func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider {
+			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
 					Key:            "test-key",
@@ -73,7 +72,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
-			createProvider: func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider {
+			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
 					Key:            "test-key",
@@ -110,7 +109,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			metrics := metrics.NewMetrics(prometheus.NewRegistry())
 
 			// Create provider with circuit breaker config
-			cbConfig := &circuitbreaker.Config{
+			cbConfig := &config.CircuitBreaker{
 				FailureThreshold: 2,
 				Interval:         time.Minute,
 				Timeout:          50 * time.Millisecond,
@@ -220,7 +219,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 		errorBody      string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
-		createProvider func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider
+		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 	}
 
 	tests := []testCase{
@@ -234,7 +233,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
-			createProvider: func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider {
+			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
 					Key:            "test-key",
@@ -251,7 +250,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
-			createProvider: func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider {
+			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
 					Key:            "test-key",
@@ -279,7 +278,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 
 			metrics := metrics.NewMetrics(prometheus.NewRegistry())
 
-			cbConfig := &circuitbreaker.Config{
+			cbConfig := &config.CircuitBreaker{
 				FailureThreshold: 2,
 				Interval:         time.Minute,
 				Timeout:          50 * time.Millisecond,
@@ -370,7 +369,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 		successBody    string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
-		createProvider func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider
+		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 	}
 
 	tests := []testCase{
@@ -385,7 +384,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
-			createProvider: func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider {
+			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
 					Key:            "test-key",
@@ -403,7 +402,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
-			createProvider: func(baseURL string, cbConfig *circuitbreaker.Config) provider.Provider {
+			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
 					Key:            "test-key",
@@ -441,7 +440,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			metrics := metrics.NewMetrics(prometheus.NewRegistry())
 
 			const maxRequests = 2
-			cbConfig := &circuitbreaker.Config{
+			cbConfig := &config.CircuitBreaker{
 				FailureThreshold: 2,
 				Interval:         time.Minute,
 				Timeout:          50 * time.Millisecond,

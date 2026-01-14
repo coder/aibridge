@@ -9,7 +9,7 @@ import (
 
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/slogtest"
-
+	"github.com/coder/aibridge/config"
 	"github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,7 +32,7 @@ func TestMiddleware_PerEndpointIsolation(t *testing.T) {
 		}
 	})
 
-	cbs := NewProviderCircuitBreakers("test", &Config{
+	cbs := NewProviderCircuitBreakers("test", &config.CircuitBreaker{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
@@ -99,7 +99,7 @@ func TestMiddleware_CustomIsFailure(t *testing.T) {
 	})
 
 	// Custom IsFailure that treats 502 as failure
-	cbs := NewProviderCircuitBreakers("test", &Config{
+	cbs := NewProviderCircuitBreakers("test", &config.CircuitBreaker{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
@@ -138,32 +138,11 @@ func TestDefaultIsFailure(t *testing.T) {
 		{http.StatusInternalServerError, false},
 		{http.StatusBadGateway, false},
 		{http.StatusServiceUnavailable, true}, // 503
+		{http.StatusGatewayTimeout, true},     // 504
 	}
 
 	for _, tt := range tests {
 		assert.Equal(t, tt.isFailure, DefaultIsFailure(tt.statusCode), "status code %d", tt.statusCode)
-	}
-}
-
-func TestAnthropicIsFailure(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		statusCode int
-		isFailure  bool
-	}{
-		{http.StatusOK, false},
-		{http.StatusBadRequest, false},
-		{http.StatusUnauthorized, false},
-		{http.StatusTooManyRequests, true}, // 429
-		{http.StatusInternalServerError, false},
-		{http.StatusBadGateway, false},
-		{http.StatusServiceUnavailable, true}, // 503
-		{529, true},                           // Anthropic Overloaded
-	}
-
-	for _, tt := range tests {
-		assert.Equal(t, tt.isFailure, AnthropicIsFailure(tt.statusCode), "status code %d", tt.statusCode)
 	}
 }
 
