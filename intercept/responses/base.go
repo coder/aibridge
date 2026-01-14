@@ -91,6 +91,8 @@ func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.
 		return err
 	}
 
+	// keeping the same logic for 'parallel_tool_calls' as in chat-completions
+	// https://github.com/coder/aibridge/blob/7535a71e91a1d214a31a9b59bb810befb26141bc/intercept/chatcompletions/streaming.go#L99
 	if len(i.req.Tools) > 0 {
 		var err error
 		i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)

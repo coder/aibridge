@@ -79,7 +79,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 			return upstreamErr
 		}
 
-		// no response received from upstream, return custom error
+		// no response received from upstream (eg. client/connection error), return custom error
 		if !respCopy.responseReceived.Load() {
 			i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
 			return upstreamErr
