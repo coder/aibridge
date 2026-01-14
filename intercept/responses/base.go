@@ -163,7 +163,7 @@ func (i *responsesInterceptionBase) lastUserPrompt() (string, error) {
 		return i.req.Input.OfString.Value, nil
 	}
 
-	// fallback to parsing original bytes since golang SDK doensn't properly decode 'Input' field.
+	// Fallback to parsing original bytes since golang SDK doesn't properly decode 'Input' field.
 	// If 'type' field of input item is not set it will be omitted from 'Input.OfInputItemList'
 	// It is an optional field according to API: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message
 	// example: fixtures/openai/responses/blocking/builtin_tool.txtar
@@ -200,23 +200,24 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 		return
 	}
 
-	if prompt != "" && responseID != "" {
-		promptUsage := &recorder.PromptUsageRecord{
-			InterceptionID: i.ID().String(),
-			MsgID:          responseID,
-			Prompt:         prompt,
-		}
-		if err := i.recorder.RecordPromptUsage(ctx, promptUsage); err != nil {
-			i.logger.Warn(ctx, "failed to record prompt usage", slog.Error(err))
-		}
-		return
-	}
-
 	if prompt == "" {
 		i.logger.Warn(ctx, "got empty last prompt, skipping prompt recording")
 		return
 	}
-	i.logger.Warn(ctx, "got empty response ID, skipping prompt recording")
+
+	if responseID == "" {
+		i.logger.Warn(ctx, "got empty response ID, skipping prompt recording")
+		return
+	}
+
+	promptUsage := &recorder.PromptUsageRecord{
+		InterceptionID: i.ID().String(),
+		MsgID:          responseID,
+		Prompt:         prompt,
+	}
+	if err := i.recorder.RecordPromptUsage(ctx, promptUsage); err != nil {
+		i.logger.Warn(ctx, "failed to record prompt usage", slog.Error(err))
+	}
 }
 
 // responseCopier helper struct to send original response to the client

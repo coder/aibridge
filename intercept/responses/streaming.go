@@ -96,6 +96,9 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		var ev responses.ResponseStreamEventUnion
 		ev = stream.Current()
 
+		// not every event has response.id set (eg: fixtures/openai/responses/streaming/simple.txtar).
+		// first event should be of 'response.created' type and have response.id set.
+		// set responseID to response.id of first event that has this field set.
 		if responseID == "" && ev.Response.ID != "" {
 			responseID = ev.Response.ID
 		}
