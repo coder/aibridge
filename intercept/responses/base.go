@@ -172,13 +172,13 @@ func (r *responseCopier) copyMiddleware(req *http.Request, next option.Middlewar
 	r.responseReceived.Store(true)
 	r.responseStatus = resp.StatusCode
 	r.responseHeaders = resp.Header
-	r.responseBody = resp.Body
 	resp.Body = io.NopCloser(io.TeeReader(resp.Body, &r.buff))
+	r.responseBody = resp.Body
 	return resp, nil
 }
 
-// readAll reads all data from original request body
-// so TeeReader copies it to buffer and returns buffer contents.
+// readAll reads all data from resp.Body returned by so TeeReader
+// so it appends all read data to the buffer and returns buffer contents.
 func (r *responseCopier) readAll() ([]byte, error) {
 	if r.responseBody == nil {
 		return []byte{}, nil
