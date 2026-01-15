@@ -49,6 +49,8 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	srv := i.newResponsesService()
 	var respCopy responseCopier
 
+	i.injectTools()
+
 	opts := i.requestOptions(&respCopy)
 	response, upstreamErr := srv.New(ctx, i.req.ResponseNewParams, opts...)
 
