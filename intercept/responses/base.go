@@ -220,6 +220,47 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 	}
 }
 
+func (i *responsesInterceptionBase) recordToolUsage(ctx context.Context, response *responses.Response) {
+	if response == nil {
+		return
+	}
+
+	for _, item := range response.Output {
+		var args recorder.ToolArgs
+
+		// recodring other function types to be considered: https://github.com/coder/aibridge/issues/121
+		switch item.Type {
+		case "function_call":
+			args = i.parseJSONArgs(item.Arguments)
+		case "custom_tool_call":
+			args = item.Input
+		default:
+			continue
+		}
+
+		if err := i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
+			InterceptionID: i.ID().String(),
+			MsgID:          response.ID,
+			Tool:           item.Name,
+			Args:           args,
+			Injected:       false,
+		}); err != nil {
+			i.logger.Warn(ctx, "failed to record tool usage", slog.Error(err), slog.F("tool", item.Name))
+		}
+	}
+}
+
+func (i *responsesInterceptionBase) parseJSONArgs(raw string) recorder.ToolArgs {
+	if trimmed := strings.TrimSpace(raw); trimmed != "" {
+		var args recorder.ToolArgs
+		if err := json.Unmarshal([]byte(trimmed), &args); err == nil {
+			return args
+		}
+	}
+
+	return nil
+}
+
 // responseCopier helper struct to send original response to the client
 type responseCopier struct {
 	buff            deltaBuffer
