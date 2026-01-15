@@ -44,7 +44,6 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	if cfg.APIDumpDir == "" {
 		cfg.APIDumpDir = os.Getenv("BRIDGE_DUMP_DIR")
 	}
-
 	if cfg.CircuitBreaker != nil {
 		cfg.CircuitBreaker.OpenErrorResponse = openAIOpenErrorResponse
 	}
