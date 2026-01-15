@@ -32,7 +32,7 @@ var anthropicOpenErrorResponse = func() []byte {
 }
 
 var anthropicIsFailure = func(statusCode int) bool {
-    // https://platform.claude.com/docs/en/api/errors
+	// https://platform.claude.com/docs/en/api/errors
 	if statusCode == 529 {
 		return true
 	}
