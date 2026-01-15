@@ -16,6 +16,7 @@ import (
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
@@ -122,7 +123,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 			bridge, err := aibridge.NewRequestBridge(ctx,
 				[]provider.Provider{prov},
-				&mockRecorderClient{},
+				&testutil.MockRecorder{},
 				mcp.NewServerProxyManager(nil, tracer),
 				logger,
 				metrics,
@@ -291,7 +292,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 			bridge, err := aibridge.NewRequestBridge(ctx,
 				[]provider.Provider{prov},
-				&mockRecorderClient{},
+				&testutil.MockRecorder{},
 				mcp.NewServerProxyManager(nil, tracer),
 				logger,
 				metrics,
@@ -453,7 +454,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 			bridge, err := aibridge.NewRequestBridge(ctx,
 				[]provider.Provider{prov},
-				&mockRecorderClient{},
+				&testutil.MockRecorder{},
 				mcp.NewServerProxyManager(nil, tracer),
 				logger,
 				metrics,
