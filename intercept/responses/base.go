@@ -30,7 +30,7 @@ import (
 )
 
 const (
-	requestTimeout = time.Second * 60 // TODO: configurable timeout
+	requestTimeout = time.Second * 600
 )
 
 type responsesInterceptionBase struct {
