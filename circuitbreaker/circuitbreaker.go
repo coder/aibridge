@@ -70,7 +70,7 @@ func (p *ProviderCircuitBreakers) Get(endpoint, model string) *gobreaker.Circuit
 	}
 
 	settings := gobreaker.Settings{
-		Name:        p.provider + ":" + endpoint + ":" + model,
+		Name:        p.provider + ":" + key,
 		MaxRequests: p.config.MaxRequests,
 		Interval:    p.config.Interval,
 		Timeout:     p.config.Timeout,
@@ -91,8 +91,6 @@ func (p *ProviderCircuitBreakers) Get(endpoint, model string) *gobreaker.Circuit
 
 // ExecuteResult contains the result of a circuit breaker execution.
 type ExecuteResult struct {
-	// StatusCode is the HTTP status code returned by the handler.
-	StatusCode int
 	// CircuitOpen is true if the request was rejected due to an open circuit.
 	CircuitOpen bool
 }
@@ -150,10 +148,14 @@ func (p *ProviderCircuitBreakers) Execute(endpoint, model string, w http.Respons
 	})
 
 	if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", int64(p.config.Timeout.Seconds())))
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write(p.openErrorResponse())
 		return ExecuteResult{CircuitOpen: true}
 	}
 
-	return ExecuteResult{StatusCode: sw.statusCode}
+	return ExecuteResult{}
 }
 
 // Timeout returns the configured timeout duration for this circuit breaker.

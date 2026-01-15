@@ -28,6 +28,20 @@ import (
 	"go.opentelemetry.io/otel"
 )
 
+// Common response bodies for circuit breaker tests.
+const (
+	anthropicRateLimitError = `{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`
+	openAIRateLimitError    = `{"error":{"type":"rate_limit_error","message":"rate limited","code":"rate_limit_exceeded"}}`
+)
+
+func anthropicSuccessResponse(model string) string {
+	return fmt.Sprintf(`{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"%s","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`, model)
+}
+
+func openAISuccessResponse(model string) string {
+	return fmt.Sprintf(`{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"%s","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`, model)
+}
+
 // TestCircuitBreaker_FullRecoveryCycle tests the complete circuit breaker lifecycle:
 // closed → open (after consecutive failures) → half-open (after timeout) → closed (after successful request)
 func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
@@ -42,6 +56,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 		successBody    string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
+		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 	}
 
@@ -51,13 +66,14 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			providerName: config.ProviderAnthropic,
 			endpoint:     "/v1/messages",
 			model:        "claude-sonnet-4-20250514",
-			errorBody:    `{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`,
-			successBody:  `{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`,
+			errorBody:    anthropicRateLimitError,
+			successBody:  anthropicSuccessResponse("claude-sonnet-4-20250514"),
 			requestBody:  `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
+			createRequest: createAnthropicMessagesReq,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
@@ -71,12 +87,13 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			providerName: config.ProviderOpenAI,
 			endpoint:     "/v1/chat/completions",
 			model:        "gpt-4o",
-			errorBody:    `{"error":{"type":"rate_limit_error","message":"rate limited","code":"rate_limit_exceeded"}}`,
-			successBody:  `{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`,
+			errorBody:    openAIRateLimitError,
+			successBody:  openAISuccessResponse("gpt-4o"),
 			requestBody:  `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
+			createRequest: createOpenAIChatCompletionsReq,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -143,9 +160,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			mockSrv.Start()
 
 			makeRequest := func() *http.Response {
-				req, err := http.NewRequest("POST", mockSrv.URL+"/"+tc.providerName+tc.endpoint, strings.NewReader(tc.requestBody))
-				require.NoError(t, err)
-				req.Header.Set("Content-Type", "application/json")
+				req := tc.createRequest(t, mockSrv.URL, []byte(tc.requestBody))
 				tc.setupHeaders(req)
 				resp, err := http.DefaultClient.Do(req)
 				require.NoError(t, err)
@@ -225,6 +240,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 		errorBody      string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
+		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 	}
 
@@ -234,12 +250,13 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			providerName: config.ProviderAnthropic,
 			endpoint:     "/v1/messages",
 			model:        "claude-sonnet-4-20250514",
-			errorBody:    `{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`,
+			errorBody:    anthropicRateLimitError,
 			requestBody:  `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
+			createRequest: createAnthropicMessagesReq,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
@@ -253,11 +270,12 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			providerName: config.ProviderOpenAI,
 			endpoint:     "/v1/chat/completions",
 			model:        "gpt-4o",
-			errorBody:    `{"error":{"type":"rate_limit_error","message":"rate limited","code":"rate_limit_exceeded"}}`,
+			errorBody:    openAIRateLimitError,
 			requestBody:  `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
+			createRequest: createOpenAIChatCompletionsReq,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -315,9 +333,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			mockSrv.Start()
 
 			makeRequest := func() *http.Response {
-				req, err := http.NewRequest("POST", mockSrv.URL+"/"+tc.providerName+tc.endpoint, strings.NewReader(tc.requestBody))
-				require.NoError(t, err)
-				req.Header.Set("Content-Type", "application/json")
+				req := tc.createRequest(t, mockSrv.URL, []byte(tc.requestBody))
 				tc.setupHeaders(req)
 				resp, err := http.DefaultClient.Do(req)
 				require.NoError(t, err)
@@ -378,6 +394,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 		successBody    string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
+		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 	}
 
@@ -387,13 +404,14 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			providerName: config.ProviderAnthropic,
 			endpoint:     "/v1/messages",
 			model:        "claude-sonnet-4-20250514",
-			errorBody:    `{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`,
-			successBody:  `{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`,
+			errorBody:    anthropicRateLimitError,
+			successBody:  anthropicSuccessResponse("claude-sonnet-4-20250514"),
 			requestBody:  `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
+			createRequest: createAnthropicMessagesReq,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
@@ -407,12 +425,13 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			providerName: config.ProviderOpenAI,
 			endpoint:     "/v1/chat/completions",
 			model:        "gpt-4o",
-			errorBody:    `{"error":{"type":"rate_limit_error","message":"rate limited","code":"rate_limit_exceeded"}}`,
-			successBody:  `{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4o","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`,
+			errorBody:    openAIRateLimitError,
+			successBody:  openAISuccessResponse("gpt-4o"),
 			requestBody:  `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
+			createRequest: createOpenAIChatCompletionsReq,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -480,9 +499,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			mockSrv.Start()
 
 			makeRequest := func() *http.Response {
-				req, err := http.NewRequest("POST", mockSrv.URL+"/"+tc.providerName+tc.endpoint, strings.NewReader(tc.requestBody))
-				require.NoError(t, err)
-				req.Header.Set("Content-Type", "application/json")
+				req := tc.createRequest(t, mockSrv.URL, []byte(tc.requestBody))
 				tc.setupHeaders(req)
 				resp, err := http.DefaultClient.Do(req)
 				require.NoError(t, err)
@@ -572,15 +589,15 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 			sonnetCalls.Add(1)
 			if sonnetShouldFail.Load() {
 				w.WriteHeader(http.StatusTooManyRequests)
-				_, _ = w.Write([]byte(`{"type":"error","error":{"type":"rate_limit_error","message":"rate limited"}}`))
+				_, _ = w.Write([]byte(anthropicRateLimitError))
 			} else {
 				w.WriteHeader(http.StatusOK)
-				_, _ = w.Write([]byte(`{"id":"msg_01","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-sonnet-4-20250514","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`))
+				_, _ = w.Write([]byte(anthropicSuccessResponse("claude-sonnet-4-20250514")))
 			}
 		} else if strings.Contains(string(body), "claude-3-5-haiku-20241022") {
 			haikuCalls.Add(1)
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"id":"msg_02","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-3-5-haiku-20241022","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`))
+			_, _ = w.Write([]byte(anthropicSuccessResponse("claude-3-5-haiku-20241022")))
 		}
 	}))
 	defer mockUpstream.Close()
@@ -621,9 +638,7 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 
 	makeRequest := func(model string) *http.Response {
 		body := fmt.Sprintf(`{"model":"%s","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`, model)
-		req, err := http.NewRequest("POST", mockSrv.URL+"/anthropic/v1/messages", strings.NewReader(body))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/json")
+		req := createAnthropicMessagesReq(t, mockSrv.URL, []byte(body))
 		req.Header.Set("x-api-key", "test")
 		req.Header.Set("anthropic-version", "2023-06-01")
 		resp, err := http.DefaultClient.Do(req)

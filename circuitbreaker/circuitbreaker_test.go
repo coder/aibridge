@@ -36,7 +36,6 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 		rw.WriteHeader(http.StatusTooManyRequests)
 	})
 	assert.False(t, result.CircuitOpen)
-	assert.Equal(t, http.StatusTooManyRequests, result.StatusCode)
 	assert.Equal(t, int32(1), sonnetCalls.Load())
 
 	// Second sonnet request should be blocked by circuit breaker
@@ -55,7 +54,6 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 	})
 	assert.False(t, result.CircuitOpen)
-	assert.Equal(t, http.StatusOK, result.StatusCode)
 	assert.Equal(t, int32(1), haikuCalls.Load())
 }
 
@@ -99,7 +97,6 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 	})
 	assert.False(t, result.CircuitOpen)
-	assert.Equal(t, http.StatusOK, result.StatusCode)
 	assert.Equal(t, int32(1), completionsCalls.Load())
 }
 
@@ -126,7 +123,6 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 		rw.WriteHeader(http.StatusBadGateway)
 	})
 	assert.False(t, result.CircuitOpen)
-	assert.Equal(t, http.StatusBadGateway, result.StatusCode)
 	assert.Equal(t, int32(1), calls.Load())
 
 	// Second request should be blocked

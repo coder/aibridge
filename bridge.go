@@ -214,14 +214,8 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 
 		if cbs != nil {
 			result := cbs.Execute(route, interceptor.Model(), w, processRequest)
-			if result.CircuitOpen {
-				if m != nil {
-					m.CircuitBreakerRejects.WithLabelValues(p.Name(), route, interceptor.Model()).Inc()
-				}
-				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("Retry-After", fmt.Sprintf("%d", int64(cbs.Timeout().Seconds())))
-				w.WriteHeader(http.StatusServiceUnavailable)
-				_, _ = w.Write(cbs.OpenErrorResponse())
+			if result.CircuitOpen && m != nil {
+				m.CircuitBreakerRejects.WithLabelValues(p.Name(), route, interceptor.Model()).Inc()
 			}
 		} else {
 			processRequest(w)
