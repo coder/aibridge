@@ -24,7 +24,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.13.0
 	github.com/aws/aws-sdk-go-v2/config v1.27.27
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.27
-	github.com/openai/openai-go/v2 v2.7.0
+	github.com/openai/openai-go/v3 v3.15.0
 )
 
 // Tracing-related libs.

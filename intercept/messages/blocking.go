@@ -70,7 +70,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		}
 	}
 
-	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 60)} // TODO: configurable timeout
+	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 600)}
 
 	svc, err := i.newMessagesService(ctx, opts...)
 	if err != nil {

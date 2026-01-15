@@ -3,7 +3,7 @@ package chatcompletions
 import (
 	"testing"
 
-	"github.com/openai/openai-go/v2"
+	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/require"
 )
 
