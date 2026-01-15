@@ -1,7 +1,6 @@
 package circuitbreaker
 
 import (
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -24,7 +23,7 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
-	}, func(endpoint, model string, from, to gobreaker.State) {})
+	}, func(endpoint, model string, from, to gobreaker.State) {}, nil)
 
 	endpoint := "/v1/messages"
 	sonnetModel := "claude-sonnet-4-20250514"
@@ -47,8 +46,9 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 		return nil
 	})
-	assert.True(t, errors.Is(err, ErrCircuitOpen))
+	assert.NoError(t, err)
 	assert.Equal(t, int32(1), sonnetCalls.Load()) // No new call
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
 	// Haiku model on same endpoint should still work (independent circuit)
 	w = httptest.NewRecorder()
@@ -72,7 +72,7 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
-	}, func(endpoint, model string, from, to gobreaker.State) {})
+	}, func(endpoint, model string, from, to gobreaker.State) {}, nil)
 
 	model := "test-model"
 
@@ -93,8 +93,9 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 		return nil
 	})
-	assert.True(t, errors.Is(err, ErrCircuitOpen))
+	assert.NoError(t, err)
 	assert.Equal(t, int32(1), messagesCalls.Load()) // No new call
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
 	// /v1/chat/completions on same model should still work (different endpoint)
 	w = httptest.NewRecorder()
@@ -121,7 +122,7 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 		IsFailure: func(statusCode int) bool {
 			return statusCode == http.StatusBadGateway
 		},
-	}, func(endpoint, model string, from, to gobreaker.State) {})
+	}, func(endpoint, model string, from, to gobreaker.State) {}, nil)
 
 	// First request returns 502, trips circuit
 	w := httptest.NewRecorder()
@@ -140,8 +141,9 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 		return nil
 	})
-	assert.True(t, errors.Is(err, ErrCircuitOpen))
+	assert.NoError(t, err)
 	assert.Equal(t, int32(1), calls.Load()) // No new call
+	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
 
 func TestExecute_OnStateChange(t *testing.T) {
@@ -166,7 +168,7 @@ func TestExecute_OnStateChange(t *testing.T) {
 			from     gobreaker.State
 			to       gobreaker.State
 		}{endpoint, model, from, to})
-	})
+	}, nil)
 
 	endpoint := "/v1/messages"
 	model := "claude-sonnet-4-20250514"

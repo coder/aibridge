@@ -2,7 +2,6 @@ package aibridge
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -86,7 +85,7 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 				}
 			}
 		}
-		cbs := circuitbreaker.NewProviderCircuitBreakers(providerName, cfg, onChange)
+		cbs := circuitbreaker.NewProviderCircuitBreakers(providerName, cfg, onChange, m)
 
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range prov.BridgedRoutes() {
@@ -198,20 +197,15 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		}
 
 		// Process request with circuit breaker protection if configured
-		switch err := cbs.Execute(route, interceptor.Model(), w, func(rw http.ResponseWriter) error {
+		if err := cbs.Execute(route, interceptor.Model(), w, func(rw http.ResponseWriter) error {
 			return interceptor.ProcessRequest(rw, r)
-		}); {
-		case errors.Is(err, circuitbreaker.ErrCircuitOpen):
-			if m != nil {
-				m.CircuitBreakerRejects.WithLabelValues(p.Name(), route, interceptor.Model()).Inc()
-			}
-		case err != nil:
+		}); err != nil {
 			if m != nil {
 				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID).Add(1)
 			}
 			span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
 			log.Warn(ctx, "interception failed", slog.Error(err))
-		default:
+		} else {
 			if m != nil {
 				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID).Add(1)
 			}
