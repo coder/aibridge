@@ -537,3 +537,4 @@ data: {"type":"response.output_item.done","item":{"id":"msg_0108ce40c6fb22bd0069
 
 event: error
 data: {"type":"error","error":{"type":"invalid_request_error","code":null,"message":"Conversation with id 'conv_695fa1132770819795d013275c77e8380108ce40c6fb22bd' not found.","param":null},"sequence_number":177}
+

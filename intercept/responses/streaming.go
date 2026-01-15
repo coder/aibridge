@@ -68,6 +68,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	var respCopy responseCopier
 	var responseID string
+	var completedResponse *responses.Response
 
 	srv := i.newResponsesService()
 	opts := i.requestOptions(&respCopy)
@@ -93,8 +94,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	}
 
 	for stream.Next() {
-		var ev responses.ResponseStreamEventUnion
-		ev = stream.Current()
+		ev := stream.Current()
 
 		// not every event has response.id set (eg: fixtures/openai/responses/streaming/simple.txtar).
 		// first event should be of 'response.created' type and have response.id set.
@@ -102,12 +102,18 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		if responseID == "" && ev.Response.ID != "" {
 			responseID = ev.Response.ID
 		}
+		// capture the final response from the response.completed event
+		if ev.Type == "response.completed" {
+			completedEvent := ev.AsResponseCompleted()
+			completedResponse = &completedEvent.Response
+		}
 		if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
 			err = fmt.Errorf("failed to relay chunk: %w", err)
 			return err
 		}
 	}
 	i.recordUserPrompt(ctx, responseID)
+	i.recordToolUsage(ctx, completedResponse)
 
 	b, err := respCopy.readAll()
 	if err != nil {

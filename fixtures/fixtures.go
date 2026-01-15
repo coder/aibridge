@@ -77,6 +77,9 @@ var (
 	//go:embed openai/responses/streaming/builtin_tool.txtar
 	OaiResponsesStreamingBuiltinTool []byte
 
+	//go:embed openai/responses/streaming/custom_tool.txtar
+	OaiResponsesStreamingCustomTool []byte
+
 	//go:embed openai/responses/streaming/conversation.txtar
 	OaiResponsesStreamingConversation []byte
 
