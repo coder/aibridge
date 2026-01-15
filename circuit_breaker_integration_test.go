@@ -621,7 +621,7 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 	bridge, err := aibridge.NewRequestBridge(ctx,
 		[]provider.Provider{prov},
-		&mockRecorderClient{},
+		&testutil.MockRecorder{},
 		mcp.NewServerProxyManager(nil, tracer),
 		logger,
 		m,
