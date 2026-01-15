@@ -74,7 +74,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	for {
 		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
 		var opts []option.RequestOption
-		opts = append(opts, option.WithRequestTimeout(time.Second*60)) // TODO: configurable timeout
+		opts = append(opts, option.WithRequestTimeout(time.Second*600))
 
 		completion, err = i.newChatCompletion(ctx, svc, opts)
 		if err != nil {
