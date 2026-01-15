@@ -2,6 +2,7 @@ package aibridge
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -197,28 +198,24 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		}
 
 		// Process request with circuit breaker protection if configured
-		processRequest := func(rw http.ResponseWriter) {
-			if err := interceptor.ProcessRequest(rw, r); err != nil {
-				if m != nil {
-					m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID).Add(1)
-				}
-				span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
-				log.Warn(ctx, "interception failed", slog.Error(err))
-			} else {
-				if m != nil {
-					m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID).Add(1)
-				}
-				log.Debug(ctx, "interception ended")
-			}
-		}
-
-		if cbs != nil {
-			result := cbs.Execute(route, interceptor.Model(), w, processRequest)
-			if result.CircuitOpen && m != nil {
+		switch err := cbs.Execute(route, interceptor.Model(), w, func(rw http.ResponseWriter) error {
+			return interceptor.ProcessRequest(rw, r)
+		}); {
+		case errors.Is(err, circuitbreaker.ErrCircuitOpen):
+			if m != nil {
 				m.CircuitBreakerRejects.WithLabelValues(p.Name(), route, interceptor.Model()).Inc()
 			}
-		} else {
-			processRequest(w)
+		case err != nil:
+			if m != nil {
+				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID).Add(1)
+			}
+			span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
+			log.Warn(ctx, "interception failed", slog.Error(err))
+		default:
+			if m != nil {
+				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID).Add(1)
+			}
+			log.Debug(ctx, "interception ended")
 		}
 
 		asyncRecorder.RecordInterceptionEnded(ctx, &recorder.InterceptionRecordEnded{ID: interceptor.ID().String()})

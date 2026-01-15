@@ -11,6 +11,10 @@ import (
 	"github.com/sony/gobreaker/v2"
 )
 
+// ErrCircuitOpen is returned by Execute when the circuit breaker is open
+// and the request was rejected without calling the handler.
+var ErrCircuitOpen = errors.New("circuit breaker is open")
+
 // DefaultIsFailure returns true for standard HTTP status codes that typically
 // indicate upstream overload.
 func DefaultIsFailure(statusCode int) bool {
@@ -89,12 +93,6 @@ func (p *ProviderCircuitBreakers) Get(endpoint, model string) *gobreaker.Circuit
 	return actual.(*gobreaker.CircuitBreaker[struct{}])
 }
 
-// ExecuteResult contains the result of a circuit breaker execution.
-type ExecuteResult struct {
-	// CircuitOpen is true if the request was rejected due to an open circuit.
-	CircuitOpen bool
-}
-
 // statusCapturingWriter wraps http.ResponseWriter to capture the status code.
 // It also implements http.Flusher to support streaming responses.
 type statusCapturingWriter struct {
@@ -131,16 +129,23 @@ func (w *statusCapturingWriter) Unwrap() http.ResponseWriter {
 }
 
 // Execute runs the given handler function within circuit breaker protection.
-// It returns ExecuteResult with CircuitOpen=true if the circuit is open.
+// It returns ErrCircuitOpen if the request was rejected due to an open circuit.
+// Otherwise, it returns the handler's error (or nil on success).
 // The handler receives a wrapped ResponseWriter that captures the status code.
-func (p *ProviderCircuitBreakers) Execute(endpoint, model string, w http.ResponseWriter, handler func(http.ResponseWriter)) ExecuteResult {
+// If the receiver is nil (no circuit breaker configured), the handler is called directly.
+func (p *ProviderCircuitBreakers) Execute(endpoint, model string, w http.ResponseWriter, handler func(http.ResponseWriter) error) error {
+	if p == nil {
+		return handler(w)
+	}
+
 	cb := p.Get(endpoint, model)
 
 	// Wrap response writer to capture status code
 	sw := &statusCapturingWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
+	var handlerErr error
 	_, err := cb.Execute(func() (struct{}, error) {
-		handler(sw)
+		handlerErr = handler(sw)
 		if p.isFailure(sw.statusCode) {
 			return struct{}{}, fmt.Errorf("upstream error: %d", sw.statusCode)
 		}
@@ -152,10 +157,10 @@ func (p *ProviderCircuitBreakers) Execute(endpoint, model string, w http.Respons
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", int64(p.config.Timeout.Seconds())))
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, _ = w.Write(p.openErrorResponse())
-		return ExecuteResult{CircuitOpen: true}
+		return ErrCircuitOpen
 	}
 
-	return ExecuteResult{}
+	return handlerErr
 }
 
 // Timeout returns the configured timeout duration for this circuit breaker.

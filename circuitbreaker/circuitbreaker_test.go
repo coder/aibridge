@@ -1,6 +1,7 @@
 package circuitbreaker
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -31,29 +32,32 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 
 	// Trip circuit on sonnet model (returns 429)
 	w := httptest.NewRecorder()
-	result := cbs.Execute(endpoint, sonnetModel, w, func(rw http.ResponseWriter) {
+	err := cbs.Execute(endpoint, sonnetModel, w, func(rw http.ResponseWriter) error {
 		sonnetCalls.Add(1)
 		rw.WriteHeader(http.StatusTooManyRequests)
+		return nil
 	})
-	assert.False(t, result.CircuitOpen)
+	assert.NoError(t, err)
 	assert.Equal(t, int32(1), sonnetCalls.Load())
 
 	// Second sonnet request should be blocked by circuit breaker
 	w = httptest.NewRecorder()
-	result = cbs.Execute(endpoint, sonnetModel, w, func(rw http.ResponseWriter) {
+	err = cbs.Execute(endpoint, sonnetModel, w, func(rw http.ResponseWriter) error {
 		sonnetCalls.Add(1)
 		rw.WriteHeader(http.StatusOK)
+		return nil
 	})
-	assert.True(t, result.CircuitOpen)
+	assert.True(t, errors.Is(err, ErrCircuitOpen))
 	assert.Equal(t, int32(1), sonnetCalls.Load()) // No new call
 
 	// Haiku model on same endpoint should still work (independent circuit)
 	w = httptest.NewRecorder()
-	result = cbs.Execute(endpoint, haikuModel, w, func(rw http.ResponseWriter) {
+	err = cbs.Execute(endpoint, haikuModel, w, func(rw http.ResponseWriter) error {
 		haikuCalls.Add(1)
 		rw.WriteHeader(http.StatusOK)
+		return nil
 	})
-	assert.False(t, result.CircuitOpen)
+	assert.NoError(t, err)
 	assert.Equal(t, int32(1), haikuCalls.Load())
 }
 
@@ -74,29 +78,32 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 
 	// Trip circuit on /v1/messages endpoint (returns 429)
 	w := httptest.NewRecorder()
-	result := cbs.Execute("/v1/messages", model, w, func(rw http.ResponseWriter) {
+	err := cbs.Execute("/v1/messages", model, w, func(rw http.ResponseWriter) error {
 		messagesCalls.Add(1)
 		rw.WriteHeader(http.StatusTooManyRequests)
+		return nil
 	})
-	assert.False(t, result.CircuitOpen)
+	assert.NoError(t, err)
 	assert.Equal(t, int32(1), messagesCalls.Load())
 
 	// Second /v1/messages request should be blocked
 	w = httptest.NewRecorder()
-	result = cbs.Execute("/v1/messages", model, w, func(rw http.ResponseWriter) {
+	err = cbs.Execute("/v1/messages", model, w, func(rw http.ResponseWriter) error {
 		messagesCalls.Add(1)
 		rw.WriteHeader(http.StatusOK)
+		return nil
 	})
-	assert.True(t, result.CircuitOpen)
+	assert.True(t, errors.Is(err, ErrCircuitOpen))
 	assert.Equal(t, int32(1), messagesCalls.Load()) // No new call
 
 	// /v1/chat/completions on same model should still work (different endpoint)
 	w = httptest.NewRecorder()
-	result = cbs.Execute("/v1/chat/completions", model, w, func(rw http.ResponseWriter) {
+	err = cbs.Execute("/v1/chat/completions", model, w, func(rw http.ResponseWriter) error {
 		completionsCalls.Add(1)
 		rw.WriteHeader(http.StatusOK)
+		return nil
 	})
-	assert.False(t, result.CircuitOpen)
+	assert.NoError(t, err)
 	assert.Equal(t, int32(1), completionsCalls.Load())
 }
 
@@ -118,20 +125,22 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 
 	// First request returns 502, trips circuit
 	w := httptest.NewRecorder()
-	result := cbs.Execute("/v1/messages", "test-model", w, func(rw http.ResponseWriter) {
+	err := cbs.Execute("/v1/messages", "test-model", w, func(rw http.ResponseWriter) error {
 		calls.Add(1)
 		rw.WriteHeader(http.StatusBadGateway)
+		return nil
 	})
-	assert.False(t, result.CircuitOpen)
+	assert.NoError(t, err)
 	assert.Equal(t, int32(1), calls.Load())
 
 	// Second request should be blocked
 	w = httptest.NewRecorder()
-	result = cbs.Execute("/v1/messages", "test-model", w, func(rw http.ResponseWriter) {
+	err = cbs.Execute("/v1/messages", "test-model", w, func(rw http.ResponseWriter) error {
 		calls.Add(1)
 		rw.WriteHeader(http.StatusOK)
+		return nil
 	})
-	assert.True(t, result.CircuitOpen)
+	assert.True(t, errors.Is(err, ErrCircuitOpen))
 	assert.Equal(t, int32(1), calls.Load()) // No new call
 }
 
@@ -164,8 +173,9 @@ func TestExecute_OnStateChange(t *testing.T) {
 
 	// Trip circuit
 	w := httptest.NewRecorder()
-	cbs.Execute(endpoint, model, w, func(rw http.ResponseWriter) {
+	cbs.Execute(endpoint, model, w, func(rw http.ResponseWriter) error {
 		rw.WriteHeader(http.StatusTooManyRequests)
+		return nil
 	})
 
 	// Verify state change callback was called with correct parameters
