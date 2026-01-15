@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -23,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
 )
@@ -142,6 +144,80 @@ func (i *responsesInterceptionBase) requestOptions(respCopy *responseCopier) []o
 		opts = append(opts, option.WithRequestTimeout(requestTimeout))
 	}
 	return opts
+}
+
+// lastUserPrompt returns last input message with "user" role
+func (i *responsesInterceptionBase) lastUserPrompt() (string, error) {
+	if i == nil {
+		return "", errors.New("cannot get last user prompt: nil struct")
+	}
+	if i.req == nil {
+		return "", errors.New("cannot get last user prompt: nil req struct")
+	}
+
+	// 'input' field can be a string or array of objects:
+	// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input
+
+	// Check string variant
+	if i.req.Input.OfString.Valid() {
+		return i.req.Input.OfString.Value, nil
+	}
+
+	// Fallback to parsing original bytes since golang SDK doesn't properly decode 'Input' field.
+	// If 'type' field of input item is not set it will be omitted from 'Input.OfInputItemList'
+	// It is an optional field according to API: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message
+	// example: fixtures/openai/responses/blocking/builtin_tool.txtar
+	inputItems := gjson.GetBytes(i.reqPayload, "input").Array()
+	for i := len(inputItems) - 1; i >= 0; i-- {
+		item := inputItems[i]
+		if item.Get("role").Str == "user" {
+			var sb strings.Builder
+
+			// content can be a string or array of objects:
+			// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message-content
+			content := item.Get("content")
+			if content.Str != "" {
+				return content.Str, nil
+			}
+			for _, c := range content.Array() {
+				if c.Get("type").Str == "input_text" {
+					sb.WriteString(c.Get("text").Str)
+				}
+			}
+			if sb.Len() > 0 {
+				return sb.String(), nil
+			}
+		}
+	}
+
+	return "", errors.New("failed to find last user prompt")
+}
+
+func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string) {
+	prompt, err := i.lastUserPrompt()
+	if err != nil {
+		i.logger.Warn(ctx, "failed to get last user prompt", slog.Error(err))
+		return
+	}
+
+	if prompt == "" {
+		i.logger.Warn(ctx, "got empty last prompt, skipping prompt recording")
+		return
+	}
+
+	if responseID == "" {
+		i.logger.Warn(ctx, "got empty response ID, skipping prompt recording")
+		return
+	}
+
+	promptUsage := &recorder.PromptUsageRecord{
+		InterceptionID: i.ID().String(),
+		MsgID:          responseID,
+		Prompt:         prompt,
+	}
+	if err := i.recorder.RecordPromptUsage(ctx, promptUsage); err != nil {
+		i.logger.Warn(ctx, "failed to record prompt usage", slog.Error(err))
+	}
 }
 
 // responseCopier helper struct to send original response to the client

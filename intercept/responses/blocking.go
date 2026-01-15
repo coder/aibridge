@@ -50,7 +50,12 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	var respCopy responseCopier
 
 	opts := i.requestOptions(&respCopy)
-	_, upstreamErr := srv.New(ctx, i.req.ResponseNewParams, opts...)
+	response, upstreamErr := srv.New(ctx, i.req.ResponseNewParams, opts...)
+
+	// response could be nil eg. fixtures/openai/responses/blocking/wrong_response_format.txtar
+	if response != nil {
+		i.recordUserPrompt(ctx, response.ID)
+	}
 
 	if upstreamErr != nil && !respCopy.responseReceived.Load() {
 		// no response received from upstream, return custom error

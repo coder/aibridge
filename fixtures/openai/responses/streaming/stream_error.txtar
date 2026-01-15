@@ -1,6 +1,6 @@
 -- request --
 {
-  "input": "hello",
+  "input": "hello_stream_error",
   "model": "gpt-6.7",
   "stream": true
 }
