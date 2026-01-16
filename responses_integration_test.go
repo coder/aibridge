@@ -154,6 +154,16 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming:            true,
 			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "tell me a joke",
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0f9c4b2f224d858000695fa062bf048197a680f357bbb09000",
+				Input:  11,
+				Output: 18,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 0,
+					"total_tokens":     29,
+				},
+			},
 		},
 		{
 			name:                 "streaming_codex",
@@ -161,6 +171,16 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming:            true,
 			expectModel:          "gpt-5-codex",
 			expectPromptRecorded: "hello",
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0e172b76542a9100016964f7e63d888191a2a28cb2ba0ab6d3",
+				Input:  4006,
+				Output: 13,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 0,
+					"total_tokens":     4019,
+				},
+			},
 		},
 		{
 			name:                 "streaming_builtin_tool",
@@ -174,6 +194,33 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Args:     map[string]any{"a": float64(3), "b": float64(5)},
 				Injected: false,
 			},
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0c3fb28cfcf463a500695fa2f0239481a095ec6ce3dfe4d458",
+				Input:  58,
+				Output: 18,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 0,
+					"total_tokens":     76,
+				},
+			},
+		},
+		{
+			name:                 "streaming_cached_tokens",
+			fixture:              fixtures.OaiResponsesStreamingCachedInputTokens,
+			streaming:            true,
+			expectModel:          "gpt-5.2-codex",
+			expectPromptRecorded: "Test cached input tokens.",
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_05080461b406f3f501696a1409d34c8195a40ff4b092145c35",
+				Input:  1165, // 16909 input - 15744 cached
+				Output: 54,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     15744,
+					"output_reasoning": 0,
+					"total_tokens":     16963,
+				},
+			},
 		},
 		{
 			name:                 "streaming_custom_tool",
@@ -186,6 +233,16 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Tool:     "code_exec",
 				Args:     "print(\"hello world\")",
 				Injected: false,
+			},
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0c26996bc41c2a0500696942e83634819fb71b2b8ff8a4a76c",
+				Input:  64,
+				Output: 340,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 320,
+					"total_tokens":     404,
+				},
 			},
 		},
 		{
@@ -201,6 +258,16 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming:            true,
 			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "explain why this is funny.",
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0f9c4b2f224d858000695fa0649b8c8197b38914b15a7add0e",
+				Input:  43,
+				Output: 182,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 0,
+					"total_tokens":     225,
+				},
+			},
 		},
 		{
 			name:                 "stream_error",
