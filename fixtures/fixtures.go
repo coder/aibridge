@@ -54,6 +54,9 @@ var (
 	//go:embed openai/responses/blocking/builtin_tool.txtar
 	OaiResponsesBlockingBuiltinTool []byte
 
+	//go:embed openai/responses/blocking/cached_input_tokens.txtar
+	OaiResponsesBlockingCachedInputTokens []byte
+
 	//go:embed openai/responses/blocking/custom_tool.txtar
 	OaiResponsesBlockingCustomTool []byte
 

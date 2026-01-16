@@ -265,6 +265,33 @@ func (i *responsesInterceptionBase) parseFunctionCallJSONArgs(ctx context.Contex
 	return trimmed
 }
 
+func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, response *responses.Response) {
+	if response == nil {
+		i.logger.Warn(ctx, "got empty response, skipping token usage recording")
+		return
+	}
+
+	usage := response.Usage
+
+	// Keeping logic consistent with chat completions
+	// Input *includes* the cached tokens, so we subtract them here to reflect actual input token usage.
+	inputNonCacheTokens := usage.InputTokens - usage.InputTokensDetails.CachedTokens
+
+	if err := i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
+		InterceptionID: i.ID().String(),
+		MsgID:          response.ID,
+		Input:          inputNonCacheTokens,
+		Output:         usage.OutputTokens,
+		ExtraTokenTypes: map[string]int64{
+			"input_cached":     usage.InputTokensDetails.CachedTokens,
+			"output_reasoning": usage.OutputTokensDetails.ReasoningTokens,
+			"total_tokens":     usage.TotalTokens,
+		},
+	}); err != nil {
+		i.logger.Warn(ctx, "failed to record token usage", slog.Error(err))
+	}
+}
+
 // responseCopier helper struct to send original response to the client
 type responseCopier struct {
 	buff            deltaBuffer

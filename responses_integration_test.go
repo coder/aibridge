@@ -38,12 +38,23 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 		expectModel          string
 		expectPromptRecorded string
 		expectToolRecorded   *recorder.ToolUsageRecord
+		expectTokenUsage     *recorder.TokenUsageRecord
 	}{
 		{
 			name:                 "blocking_simple",
 			fixture:              fixtures.OaiResponsesBlockingSimple,
 			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "tell me a joke",
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0388c79043df3e3400695f9f83cd6481959062cec6830d8d51",
+				Input:  11,
+				Output: 18,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 0,
+					"total_tokens":     29,
+				},
+			},
 		},
 		{
 			name:                 "blocking_builtin_tool",
@@ -55,6 +66,32 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Tool:     "add",
 				Args:     map[string]any{"a": float64(3), "b": float64(5)},
 				Injected: false,
+			},
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0da6045a8b68fa5200695fa23dcc2c81a19c849f627abf8a31",
+				Input:  58,
+				Output: 18,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 0,
+					"total_tokens":     76,
+				},
+			},
+		},
+		{
+			name:                 "blocking_cached_input_tokens",
+			fixture:              fixtures.OaiResponsesBlockingCachedInputTokens,
+			expectModel:          "gpt-4.1",
+			expectPromptRecorded: "This was a large input...",
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0cd5d6b8310055d600696a1776b42c81a199fbb02248a8bfa0",
+				Input:  129, // 12033 input - 11904 cached
+				Output: 44,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     11904,
+					"output_reasoning": 0,
+					"total_tokens":     12077,
+				},
 			},
 		},
 		{
@@ -68,18 +105,48 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Args:     "print(\"hello world\")",
 				Injected: false,
 			},
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_09c614364030cdf000696942589da081a0af07f5859acb7308",
+				Input:  64,
+				Output: 148,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 128,
+					"total_tokens":     212,
+				},
+			},
 		},
 		{
 			name:                 "blocking_conversation",
 			fixture:              fixtures.OaiResponsesBlockingConversation,
 			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "explain why this is funny.",
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0c9f1f0524a858fa00695fa15fc5a081958f4304aafd3bdec2",
+				Input:  48,
+				Output: 116,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 0,
+					"total_tokens":     164,
+				},
+			},
 		},
 		{
 			name:                 "blocking_prev_response_id",
 			fixture:              fixtures.OaiResponsesBlockingPrevResponseID,
 			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "explain why this is funny.",
+			expectTokenUsage: &recorder.TokenUsageRecord{
+				MsgID:  "resp_0388c79043df3e3400695f9f86cfa08195af1f015c60117a83",
+				Input:  43,
+				Output: 129,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
+					"output_reasoning": 0,
+					"total_tokens":     172,
+				},
+			},
 		},
 		{
 			name:                 "streaming_simple",
@@ -225,6 +292,16 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Equal(t, tc.expectToolRecorded, recordedTools[0])
 			} else {
 				require.Empty(t, recordedTools)
+			}
+
+			recordedTokens := mockRecorder.RecordedTokenUsages()
+			if tc.expectTokenUsage != nil {
+				require.Len(t, recordedTokens, 1)
+				recordedTokens[0].InterceptionID = tc.expectTokenUsage.InterceptionID // ignore interception id
+				recordedTokens[0].CreatedAt = tc.expectTokenUsage.CreatedAt           // ignore time
+				require.Equal(t, tc.expectTokenUsage, recordedTokens[0])
+			} else {
+				require.Empty(t, recordedTokens)
 			}
 		})
 	}
