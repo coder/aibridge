@@ -17,3 +17,4 @@ data: {"type":"response.output_text.delta","item_id":"msg_123","output_index":0,
 
 event: response.failed
 data: {"type":"response.failed","response":{"id":"resp_123","object":"response","status":"failed","error":{"code":"server_error","message":"The model failed to generate a response."},"output":[]},"sequence_number":4}
+

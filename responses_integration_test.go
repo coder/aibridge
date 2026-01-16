@@ -101,6 +101,25 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming:            true,
 			expectModel:          "gpt-4.1",
 			expectPromptRecorded: "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
+			expectToolRecorded: &recorder.ToolUsageRecord{
+				MsgID:    "resp_0c3fb28cfcf463a500695fa2f0239481a095ec6ce3dfe4d458",
+				Tool:     "add",
+				Args:     map[string]any{"a": float64(3), "b": float64(5)},
+				Injected: false,
+			},
+		},
+		{
+			name:                 "streaming_custom_tool",
+			fixture:              fixtures.OaiResponsesStreamingCustomTool,
+			streaming:            true,
+			expectModel:          "gpt-5",
+			expectPromptRecorded: "Use the code_exec tool to print hello world to the console.",
+			expectToolRecorded: &recorder.ToolUsageRecord{
+				MsgID:    "resp_0c26996bc41c2a0500696942e83634819fb71b2b8ff8a4a76c",
+				Tool:     "code_exec",
+				Args:     "print(\"hello world\")",
+				Injected: false,
+			},
 		},
 		{
 			name:                 "streaming_conversation",

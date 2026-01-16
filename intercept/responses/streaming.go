@@ -13,6 +13,7 @@ import (
 	"github.com/coder/aibridge/recorder"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/responses"
+	oaiconst "github.com/openai/openai-go/v3/shared/constant"
 	"go.opentelemetry.io/otel/attribute"
 )
 
@@ -68,6 +69,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	var respCopy responseCopier
 	var responseID string
+	var completedResponse *responses.Response
 
 	srv := i.newResponsesService()
 	opts := i.requestOptions(&respCopy)
@@ -93,14 +95,20 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	}
 
 	for stream.Next() {
-		var ev responses.ResponseStreamEventUnion
-		ev = stream.Current()
+		ev := stream.Current()
 
-		// not every event has response.id set (eg: fixtures/openai/responses/streaming/simple.txtar).
-		// first event should be of 'response.created' type and have response.id set.
-		// set responseID to response.id of first event that has this field set.
+		// Not every event has response.id set (eg: fixtures/openai/responses/streaming/simple.txtar).
+		// First event should be of 'response.created' type and have response.id set.
+		// Set responseID to the first response.id that is set.
 		if responseID == "" && ev.Response.ID != "" {
 			responseID = ev.Response.ID
+		}
+
+		// Capture the response from the response.completed event.
+		// Only response.completed event type have 'usage' field set.
+		if ev.Type == string(oaiconst.ValueOf[oaiconst.ResponseCompleted]()) {
+			completedEvent := ev.AsResponseCompleted()
+			completedResponse = &completedEvent.Response
 		}
 		if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
 			err = fmt.Errorf("failed to relay chunk: %w", err)
@@ -108,6 +116,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		}
 	}
 	i.recordUserPrompt(ctx, responseID)
+	i.recordToolUsage(ctx, completedResponse)
 
 	b, err := respCopy.readAll()
 	if err != nil {
