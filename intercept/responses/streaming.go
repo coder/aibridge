@@ -16,6 +16,7 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 	oaiconst "github.com/openai/openai-go/v3/shared/constant"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -26,7 +27,7 @@ type StreamingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string) *StreamingResponsesInterceptor {
+func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string, tracer trace.Tracer) *StreamingResponsesInterceptor {
 	return &StreamingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
 			id:         id,
@@ -34,6 +35,7 @@ func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPa
 			reqPayload: reqPayload,
 			cfg:        cfg,
 			model:      model,
+			tracer:     tracer,
 		},
 	}
 }
