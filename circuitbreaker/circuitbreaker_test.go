@@ -1,6 +1,7 @@
 package circuitbreaker
 
 import (
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -46,7 +47,7 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 		return nil
 	})
-	assert.NoError(t, err)
+	assert.True(t, errors.Is(err, ErrCircuitOpen))
 	assert.Equal(t, int32(1), sonnetCalls.Load()) // No new call
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
@@ -93,7 +94,7 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 		return nil
 	})
-	assert.NoError(t, err)
+	assert.True(t, errors.Is(err, ErrCircuitOpen))
 	assert.Equal(t, int32(1), messagesCalls.Load()) // No new call
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
@@ -141,7 +142,7 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 		return nil
 	})
-	assert.NoError(t, err)
+	assert.True(t, errors.Is(err, ErrCircuitOpen))
 	assert.Equal(t, int32(1), calls.Load()) // No new call
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
