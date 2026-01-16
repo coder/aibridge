@@ -27,10 +27,11 @@ import (
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
-	oaiconst "github.com/openai/openai-go/v3/shared/constant"
+	"github.com/openai/openai-go/v3/shared/constant"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -43,6 +44,7 @@ type responsesInterceptionBase struct {
 	reqPayload []byte
 	cfg        config.OpenAI
 	model      string
+	tracer     trace.Tracer
 	recorder   recorder.Recorder
 	mcpProxy   mcp.ServerProxier
 	logger     slog.Logger
@@ -98,18 +100,6 @@ func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.
 		return err
 	}
 
-	// keeping the same logic for 'parallel_tool_calls' as in chat-completions
-	// https://github.com/coder/aibridge/blob/7535a71e91a1d214a31a9b59bb810befb26141bc/intercept/chatcompletions/streaming.go#L99
-	if len(i.req.Tools) > 0 {
-		var err error
-		i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)
-		if err != nil {
-			err = fmt.Errorf("failed set parallel_tool_calls parameter: %w", err)
-			i.sendCustomErr(ctx, w, http.StatusInternalServerError, err)
-			return err
-		}
-	}
-
 	return nil
 }
 
@@ -121,6 +111,16 @@ func (i *responsesInterceptionBase) injectTools() {
 	tools := i.mcpProxy.ListTools()
 	if len(tools) == 0 {
 		return
+	}
+
+	// TODO: implement parallel tool calls.
+	// Disable parallel tool calls to simplify inner agentic loop; best-effort.
+	if len(tools) > 0 {
+		var err error
+		i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)
+		if err != nil {
+			i.logger.Warn(context.Background(), "failed to disable parallel_tool_calls", slog.Error(err))
+		}
 	}
 
 	// Inject tools.
@@ -211,6 +211,15 @@ func (i *responsesInterceptionBase) lastUserPrompt() (string, error) {
 		return i.req.Input.OfString.Value, nil
 	}
 
+	// If the input list is a slice, check if the final message has a "user" role.
+	if count := len(i.req.Input.OfInputItemList); count > 0 {
+		last := i.req.Input.OfInputItemList[count-1]
+		if last.OfInputMessage == nil || last.OfInputMessage.Role != string(constant.ValueOf[constant.User]()) {
+			// The last message was not user-supplied.
+			return "", nil
+		}
+	}
+
 	// Fallback to parsing original bytes since golang SDK doesn't properly decode 'Input' field.
 	// If 'type' field of input item is not set it will be omitted from 'Input.OfInputItemList'
 	// It is an optional field according to API: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message
@@ -218,7 +227,7 @@ func (i *responsesInterceptionBase) lastUserPrompt() (string, error) {
 	inputItems := gjson.GetBytes(i.reqPayload, "input").Array()
 	for i := len(inputItems) - 1; i >= 0; i-- {
 		item := inputItems[i]
-		if item.Get("role").Str == "user" {
+		if item.Get("role").Str == string(constant.ValueOf[constant.User]()) {
 			var sb strings.Builder
 
 			// content can be a string or array of objects:
@@ -248,8 +257,8 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 		return
 	}
 
+	// No prompt found: last request was not human-initiated.
 	if prompt == "" {
-		i.logger.Warn(ctx, "got empty last prompt, skipping prompt recording")
 		return
 	}
 
@@ -279,9 +288,9 @@ func (i *responsesInterceptionBase) recordToolUsage(ctx context.Context, respons
 
 		// recording other function types to be considered: https://github.com/coder/aibridge/issues/121
 		switch item.Type {
-		case string(oaiconst.ValueOf[oaiconst.FunctionCall]()):
+		case string(constant.ValueOf[constant.FunctionCall]()):
 			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments)
-		case string(oaiconst.ValueOf[oaiconst.CustomToolCall]()):
+		case string(constant.ValueOf[constant.CustomToolCall]()):
 			args = item.Input
 		default:
 			continue
