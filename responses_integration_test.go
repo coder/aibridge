@@ -201,7 +201,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			recordedTools := mockRecorder.RecordedToolUsages()
 			if tc.expectToolRecorded != nil {
 				require.Len(t, recordedTools, 1)
-				recordedTools[0].InterceptionID = tc.expectToolRecorded.InterceptionID // ignore interception id
+				recordedTools[0].InterceptionID = tc.expectToolRecorded.InterceptionID // ignore interception id (interception id is not constant and response doesn't contain it)
 				recordedTools[0].CreatedAt = tc.expectToolRecorded.CreatedAt           // ignore time
 				require.Equal(t, tc.expectToolRecorded, recordedTools[0])
 			} else {

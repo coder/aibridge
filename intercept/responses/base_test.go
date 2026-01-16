@@ -237,7 +237,7 @@ func TestRecordToolUsage(t *testing.T) {
 					InterceptionID: id.String(),
 					MsgID:          "resp_456",
 					Tool:           "get_weather",
-					Args:           nil,
+					Args:           "",
 					Injected:       false,
 				},
 			},
@@ -251,6 +251,11 @@ func TestRecordToolUsage(t *testing.T) {
 						Type:      "function_call",
 						Name:      "get_weather",
 						Arguments: `{"location": "NYC"}`,
+					},
+					{
+						Type:      "function_call",
+						Name:      "bad_json_args",
+						Arguments: `{"bad": args`,
 					},
 					{
 						Type: "message",
@@ -275,6 +280,13 @@ func TestRecordToolUsage(t *testing.T) {
 					MsgID:          "resp_789",
 					Tool:           "get_weather",
 					Args:           map[string]any{"location": "NYC"},
+					Injected:       false,
+				},
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_789",
+					Tool:           "bad_json_args",
+					Args:           `{"bad": args`,
 					Injected:       false,
 				},
 				{
@@ -329,20 +341,20 @@ func TestParseJSONArgs(t *testing.T) {
 		{
 			name:     "empty_string",
 			raw:      "",
-			expected: nil,
+			expected: "",
 		},
 		{
 			name:     "whitespace_only",
 			raw:      "   \t\n  ",
-			expected: nil,
+			expected: "",
 		},
 		{
 			name:     "invalid_json",
 			raw:      "{not valid json}",
-			expected: nil,
+			expected: "{not valid json}",
 		},
 		{
-			name: "nested_object",
+			name: "nested_object_with_trailing_spaces",
 			raw:  ` {"user": {"name": "alice", "settings": {"theme": "dark", "notifications": true}}, "count": 42}   `,
 			expected: map[string]any{
 				"user": map[string]any{
@@ -362,7 +374,7 @@ func TestParseJSONArgs(t *testing.T) {
 			t.Parallel()
 
 			base := &responsesInterceptionBase{}
-			result := base.parseJSONArgs(tc.raw)
+			result := base.parseFunctionCallJSONArgs(t.Context(), tc.raw)
 			require.Equal(t, tc.expected, result)
 		})
 	}

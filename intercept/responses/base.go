@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
+	oaiconst "github.com/openai/openai-go/v3/shared/constant"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
@@ -222,17 +223,18 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 
 func (i *responsesInterceptionBase) recordToolUsage(ctx context.Context, response *responses.Response) {
 	if response == nil {
+		i.logger.Warn(ctx, "got empty response, skipping tool usage recording")
 		return
 	}
 
 	for _, item := range response.Output {
 		var args recorder.ToolArgs
 
-		// recodring other function types to be considered: https://github.com/coder/aibridge/issues/121
+		// recording other function types to be considered: https://github.com/coder/aibridge/issues/121
 		switch item.Type {
-		case "function_call":
-			args = i.parseJSONArgs(item.Arguments)
-		case "custom_tool_call":
+		case string(oaiconst.ValueOf[oaiconst.FunctionCall]()):
+			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments)
+		case string(oaiconst.ValueOf[oaiconst.CustomToolCall]()):
 			args = item.Input
 		default:
 			continue
@@ -250,15 +252,17 @@ func (i *responsesInterceptionBase) recordToolUsage(ctx context.Context, respons
 	}
 }
 
-func (i *responsesInterceptionBase) parseJSONArgs(raw string) recorder.ToolArgs {
-	if trimmed := strings.TrimSpace(raw); trimmed != "" {
+func (i *responsesInterceptionBase) parseFunctionCallJSONArgs(ctx context.Context, raw string) recorder.ToolArgs {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed != "" {
 		var args recorder.ToolArgs
-		if err := json.Unmarshal([]byte(trimmed), &args); err == nil {
+		if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
+			i.logger.Warn(ctx, "failed to unmarshal tool args", slog.Error(err))
+		} else {
 			return args
 		}
 	}
-
-	return nil
+	return trimmed
 }
 
 // responseCopier helper struct to send original response to the client
