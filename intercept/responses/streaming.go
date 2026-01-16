@@ -118,8 +118,9 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	i.recordUserPrompt(ctx, responseID)
 	if completedResponse != nil {
 		i.recordToolUsage(ctx, completedResponse)
+		i.recordTokenUsage(ctx, completedResponse)
 	} else {
-		i.logger.Warn(ctx, "got empty response, skipping tool usage recording")
+		i.logger.Warn(ctx, "got empty response, skipping tool and token usage recording")
 	}
 
 	b, err := respCopy.readAll()
