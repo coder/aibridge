@@ -55,6 +55,7 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	// response could be nil eg. fixtures/openai/responses/blocking/wrong_response_format.txtar
 	if response != nil {
 		i.recordUserPrompt(ctx, response.ID)
+		i.recordToolUsage(ctx, response)
 	}
 
 	if upstreamErr != nil && !respCopy.responseReceived.Load() {

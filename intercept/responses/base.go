@@ -24,6 +24,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
+	oaiconst "github.com/openai/openai-go/v3/shared/constant"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
@@ -218,6 +219,50 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 	if err := i.recorder.RecordPromptUsage(ctx, promptUsage); err != nil {
 		i.logger.Warn(ctx, "failed to record prompt usage", slog.Error(err))
 	}
+}
+
+func (i *responsesInterceptionBase) recordToolUsage(ctx context.Context, response *responses.Response) {
+	if response == nil {
+		i.logger.Warn(ctx, "got empty response, skipping tool usage recording")
+		return
+	}
+
+	for _, item := range response.Output {
+		var args recorder.ToolArgs
+
+		// recording other function types to be considered: https://github.com/coder/aibridge/issues/121
+		switch item.Type {
+		case string(oaiconst.ValueOf[oaiconst.FunctionCall]()):
+			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments)
+		case string(oaiconst.ValueOf[oaiconst.CustomToolCall]()):
+			args = item.Input
+		default:
+			continue
+		}
+
+		if err := i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
+			InterceptionID: i.ID().String(),
+			MsgID:          response.ID,
+			Tool:           item.Name,
+			Args:           args,
+			Injected:       false,
+		}); err != nil {
+			i.logger.Warn(ctx, "failed to record tool usage", slog.Error(err), slog.F("tool", item.Name))
+		}
+	}
+}
+
+func (i *responsesInterceptionBase) parseFunctionCallJSONArgs(ctx context.Context, raw string) recorder.ToolArgs {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed != "" {
+		var args recorder.ToolArgs
+		if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
+			i.logger.Warn(ctx, "failed to unmarshal tool args", slog.Error(err))
+		} else {
+			return args
+		}
+	}
+	return trimmed
 }
 
 // responseCopier helper struct to send original response to the client

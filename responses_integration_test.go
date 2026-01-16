@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
@@ -33,80 +35,113 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 		name                 string
 		fixture              []byte
 		streaming            bool
+		expectModel          string
 		expectPromptRecorded string
+		expectToolRecorded   *recorder.ToolUsageRecord
 	}{
 		{
 			name:                 "blocking_simple",
 			fixture:              fixtures.OaiResponsesBlockingSimple,
+			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "tell me a joke",
 		},
 		{
 			name:                 "blocking_builtin_tool",
 			fixture:              fixtures.OaiResponsesBlockingBuiltinTool,
+			expectModel:          "gpt-4.1",
 			expectPromptRecorded: "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
+			expectToolRecorded: &recorder.ToolUsageRecord{
+				MsgID:    "resp_0da6045a8b68fa5200695fa23dcc2c81a19c849f627abf8a31",
+				Tool:     "add",
+				Args:     map[string]any{"a": float64(3), "b": float64(5)},
+				Injected: false,
+			},
+		},
+		{
+			name:                 "blocking_custom_tool",
+			fixture:              fixtures.OaiResponsesBlockingCustomTool,
+			expectModel:          "gpt-5",
+			expectPromptRecorded: "Use the code_exec tool to print hello world to the console.",
+			expectToolRecorded: &recorder.ToolUsageRecord{
+				MsgID:    "resp_09c614364030cdf000696942589da081a0af07f5859acb7308",
+				Tool:     "code_exec",
+				Args:     "print(\"hello world\")",
+				Injected: false,
+			},
 		},
 		{
 			name:                 "blocking_conversation",
 			fixture:              fixtures.OaiResponsesBlockingConversation,
+			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "explain why this is funny.",
 		},
 		{
 			name:                 "blocking_prev_response_id",
 			fixture:              fixtures.OaiResponsesBlockingPrevResponseID,
+			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "explain why this is funny.",
 		},
 		{
 			name:                 "streaming_simple",
 			fixture:              fixtures.OaiResponsesStreamingSimple,
 			streaming:            true,
+			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "tell me a joke",
 		},
 		{
 			name:                 "streaming_codex",
 			fixture:              fixtures.OaiResponsesStreamingCodex,
 			streaming:            true,
+			expectModel:          "gpt-5-codex",
 			expectPromptRecorded: "hello",
 		},
 		{
 			name:                 "streaming_builtin_tool",
 			fixture:              fixtures.OaiResponsesStreamingBuiltinTool,
 			streaming:            true,
+			expectModel:          "gpt-4.1",
 			expectPromptRecorded: "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
 		},
 		{
 			name:                 "streaming_conversation",
 			fixture:              fixtures.OaiResponsesStreamingConversation,
 			streaming:            true,
+			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "explain why this is funny.",
 		},
 		{
 			name:                 "streaming_prev_response_id",
 			fixture:              fixtures.OaiResponsesStreamingPrevResponseID,
 			streaming:            true,
+			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "explain why this is funny.",
 		},
 		{
 			name:                 "stream_error",
 			fixture:              fixtures.OaiResponsesStreamingStreamError,
 			streaming:            true,
+			expectModel:          "gpt-6.7",
 			expectPromptRecorded: "hello_stream_error",
 		},
 		{
 			name:                 "stream_failure",
 			fixture:              fixtures.OaiResponsesStreamingStreamFailure,
 			streaming:            true,
+			expectModel:          "gpt-6.7",
 			expectPromptRecorded: "hello_stream_failure",
 		},
 
 		// Original status code and body is kept even with wrong json format
 		{
-			name:    "blocking_wrong_format",
-			fixture: fixtures.OaiResponsesBlockingWrongResponseFormat,
+			name:        "blocking_wrong_format",
+			fixture:     fixtures.OaiResponsesBlockingWrongResponseFormat,
+			expectModel: "gpt-6.7",
 		},
 		{
 			name:                 "streaming_wrong_format",
 			fixture:              fixtures.OaiResponsesStreamingWrongResponseFormat,
 			streaming:            true,
+			expectModel:          "gpt-6.7",
 			expectPromptRecorded: "hello_wrong_format",
 		},
 	}
@@ -125,6 +160,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
+			ctx = aibcontext.AsActor(ctx, userID, nil)
 
 			mockAPI := newMockServer(ctx, t, files, nil)
 			t.Cleanup(mockAPI.Close)
@@ -146,12 +182,30 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			require.NoError(t, err)
 			require.Equal(t, string(files[fixtResp]), string(got))
 
+			interceptions := mockRecorder.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			intc := interceptions[0]
+			require.Equal(t, intc.InitiatorID, userID)
+			require.Equal(t, intc.Provider, config.ProviderOpenAI)
+			require.Equal(t, intc.Model, tc.expectModel)
+
+			recordedPrompts := mockRecorder.RecordedPromptUsages()
 			if tc.expectPromptRecorded != "" {
-				recordedPrompts := mockRecorder.RecordedPromptUsages()
+				require.Len(t, recordedPrompts, 1)
 				promptEq := func(pur *recorder.PromptUsageRecord) bool { return pur.Prompt == tc.expectPromptRecorded }
 				require.Truef(t, slices.ContainsFunc(recordedPrompts, promptEq), "promnt not found, got: %v, want: %v", recordedPrompts, tc.expectPromptRecorded)
 			} else {
-				require.Empty(t, mockRecorder.RecordedPromptUsages())
+				require.Empty(t, recordedPrompts)
+			}
+
+			recordedTools := mockRecorder.RecordedToolUsages()
+			if tc.expectToolRecorded != nil {
+				require.Len(t, recordedTools, 1)
+				recordedTools[0].InterceptionID = tc.expectToolRecorded.InterceptionID // ignore interception id (interception id is not constant and response doesn't contain it)
+				recordedTools[0].CreatedAt = tc.expectToolRecorded.CreatedAt           // ignore time
+				require.Equal(t, tc.expectToolRecorded, recordedTools[0])
+			} else {
+				require.Empty(t, recordedTools)
 			}
 		})
 	}
