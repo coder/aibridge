@@ -4,15 +4,17 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
+	"time"
 
-	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/metrics"
 	"github.com/sony/gobreaker/v2"
 )
+
+// ErrCircuitOpen is returned by Execute when the circuit breaker is open
+// and the request was rejected without calling the handler.
+var ErrCircuitOpen = errors.New("circuit breaker is open")
 
 // DefaultIsFailure returns true for standard HTTP status codes that typically
 // indicate upstream overload.
@@ -27,17 +29,20 @@ func DefaultIsFailure(statusCode int) bool {
 	}
 }
 
-// ProviderCircuitBreakers manages per-endpoint circuit breakers for a single provider.
+// ProviderCircuitBreakers manages per-endpoint/model circuit breakers for a single provider.
 type ProviderCircuitBreakers struct {
 	provider string
 	config   config.CircuitBreaker
-	breakers sync.Map // endpoint -> *gobreaker.CircuitBreaker[struct{}]
-	onChange func(endpoint string, from, to gobreaker.State)
+	breakers sync.Map // "endpoint:model" -> *gobreaker.CircuitBreaker[struct{}]
+	onChange func(endpoint, model string, from, to gobreaker.State)
+	metrics  *metrics.Metrics
 }
 
 // NewProviderCircuitBreakers creates circuit breakers for a single provider.
 // Returns nil if cfg is nil (no circuit breaker protection).
-func NewProviderCircuitBreakers(provider string, cfg *config.CircuitBreaker, onChange func(endpoint string, from, to gobreaker.State)) *ProviderCircuitBreakers {
+// onChange is called when circuit state changes.
+// metrics is used to record circuit breaker reject counts (can be nil).
+func NewProviderCircuitBreakers(provider string, cfg *config.CircuitBreaker, onChange func(endpoint, model string, from, to gobreaker.State), m *metrics.Metrics) *ProviderCircuitBreakers {
 	if cfg == nil {
 		return nil
 	}
@@ -45,6 +50,7 @@ func NewProviderCircuitBreakers(provider string, cfg *config.CircuitBreaker, onC
 		provider: provider,
 		config:   *cfg,
 		onChange: onChange,
+		metrics:  m,
 	}
 }
 
@@ -65,14 +71,15 @@ func (p *ProviderCircuitBreakers) openErrorResponse() []byte {
 	return []byte(`{"error":"circuit breaker is open"}`)
 }
 
-// Get returns the circuit breaker for an endpoint, creating it if needed.
-func (p *ProviderCircuitBreakers) Get(endpoint string) *gobreaker.CircuitBreaker[struct{}] {
-	if v, ok := p.breakers.Load(endpoint); ok {
+// Get returns the circuit breaker for an endpoint/model tuple, creating it if needed.
+func (p *ProviderCircuitBreakers) Get(endpoint, model string) *gobreaker.CircuitBreaker[struct{}] {
+	key := endpoint + ":" + model
+	if v, ok := p.breakers.Load(key); ok {
 		return v.(*gobreaker.CircuitBreaker[struct{}])
 	}
 
 	settings := gobreaker.Settings{
-		Name:        p.provider + ":" + endpoint,
+		Name:        p.provider + ":" + key,
 		MaxRequests: p.config.MaxRequests,
 		Interval:    p.config.Interval,
 		Timeout:     p.config.Timeout,
@@ -81,13 +88,13 @@ func (p *ProviderCircuitBreakers) Get(endpoint string) *gobreaker.CircuitBreaker
 		},
 		OnStateChange: func(_ string, from, to gobreaker.State) {
 			if p.onChange != nil {
-				p.onChange(endpoint, from, to)
+				p.onChange(endpoint, model, from, to)
 			}
 		},
 	}
 
 	cb := gobreaker.NewCircuitBreaker[struct{}](settings)
-	actual, _ := p.breakers.LoadOrStore(endpoint, cb)
+	actual, _ := p.breakers.LoadOrStore(key, cb)
 	return actual.(*gobreaker.CircuitBreaker[struct{}])
 }
 
@@ -126,44 +133,59 @@ func (w *statusCapturingWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
 }
 
-// Middleware returns middleware that wraps handlers with circuit breaker protection.
-// It captures the response status code to determine success/failure without provider-specific logic.
-// If cbs is nil, requests pass through without circuit breaker protection.
-func Middleware(cbs *ProviderCircuitBreakers, m *metrics.Metrics, logger slog.Logger) func(http.Handler) http.Handler {
-	return func(next http.Handler) http.Handler {
-		// No circuit breaker configured - pass through
-		if cbs == nil {
-			return next
-		}
-
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			endpoint := strings.TrimPrefix(r.URL.Path, "/"+cbs.provider)
-			cb := cbs.Get(endpoint)
-
-			// Wrap response writer to capture status code
-			sw := &statusCapturingWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
-			_, err := cb.Execute(func() (struct{}, error) {
-				next.ServeHTTP(sw, r)
-				if cbs.isFailure(sw.statusCode) {
-					return struct{}{}, fmt.Errorf("upstream error: %d", sw.statusCode)
-				}
-				return struct{}{}, nil
-			})
-
-			if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
-				if m != nil {
-					m.CircuitBreakerRejects.WithLabelValues(cbs.provider, endpoint).Inc()
-				}
-				w.Header().Set("Content-Type", "application/json")
-				w.Header().Set("Retry-After", strconv.FormatInt(int64(cbs.config.Timeout.Seconds()), 10))
-				w.WriteHeader(http.StatusServiceUnavailable)
-				w.Write(cbs.openErrorResponse())
-			} else if err != nil {
-				logger.Warn(r.Context(), "unexpected circuit breaker error", slog.Error(err))
-			}
-		})
+// Execute runs the given handler function within circuit breaker protection.
+// If the circuit is open, the request is rejected with a 503 response, metrics are recorded,
+// and ErrCircuitOpen is returned.
+// Otherwise, it returns the handler's error (or nil on success).
+// The handler receives a wrapped ResponseWriter that captures the status code.
+// If the receiver is nil (no circuit breaker configured), the handler is called directly.
+func (p *ProviderCircuitBreakers) Execute(endpoint, model string, w http.ResponseWriter, handler func(http.ResponseWriter) error) error {
+	if p == nil {
+		return handler(w)
 	}
+
+	cb := p.Get(endpoint, model)
+
+	// Wrap response writer to capture status code
+	sw := &statusCapturingWriter{ResponseWriter: w, statusCode: http.StatusOK}
+
+	var handlerErr error
+	_, err := cb.Execute(func() (struct{}, error) {
+		handlerErr = handler(sw)
+		if p.isFailure(sw.statusCode) {
+			return struct{}{}, fmt.Errorf("upstream error: %d", sw.statusCode)
+		}
+		return struct{}{}, nil
+	})
+
+	if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
+		if p.metrics != nil {
+			p.metrics.CircuitBreakerRejects.WithLabelValues(p.provider, endpoint, model).Inc()
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", int64(p.config.Timeout.Seconds())))
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_, _ = w.Write(p.openErrorResponse())
+		return ErrCircuitOpen
+	}
+
+	return handlerErr
+}
+
+// Timeout returns the configured timeout duration for this circuit breaker.
+func (p *ProviderCircuitBreakers) Timeout() time.Duration {
+	return p.config.Timeout
+}
+
+// Provider returns the provider name for this circuit breaker.
+func (p *ProviderCircuitBreakers) Provider() string {
+	return p.provider
+}
+
+// OpenErrorResponse returns the error response body when the circuit is open.
+// This is exposed for handlers to use when responding to rejected requests.
+func (p *ProviderCircuitBreakers) OpenErrorResponse() []byte {
+	return p.openErrorResponse()
 }
 
 // StateToGaugeValue converts gobreaker.State to a gauge value.

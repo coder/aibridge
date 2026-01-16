@@ -110,23 +110,23 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 
 		// Circuit breaker metrics.
 
-		// Pessimistic cardinality: 2 providers, 5 endpoints = up to 10.
+		// Pessimistic cardinality: 2 providers, 2 endpoints, 5 models = up to 20.
 		CircuitBreakerState: promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 			Subsystem: "circuit_breaker",
 			Name:      "state",
 			Help:      "Current state of the circuit breaker (0=closed, 0.5=half-open, 1=open).",
-		}, []string{"provider", "endpoint"}),
-		// Pessimistic cardinality: 2 providers, 5 endpoints = up to 10.
+		}, []string{"provider", "endpoint", "model"}),
+		// Pessimistic cardinality: 2 providers, 2 endpoints, 5 models = up to 20.
 		CircuitBreakerTrips: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "circuit_breaker",
 			Name:      "trips_total",
 			Help:      "Total number of times the circuit breaker transitioned to open state.",
-		}, []string{"provider", "endpoint"}),
-		// Pessimistic cardinality: 2 providers, 5 endpoints = up to 10.
+		}, []string{"provider", "endpoint", "model"}),
+		// Pessimistic cardinality: 2 providers, 2 endpoints, 5 models = up to 20.
 		CircuitBreakerRejects: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "circuit_breaker",
 			Name:      "rejects_total",
 			Help:      "Total number of requests rejected due to open circuit breaker.",
-		}, []string{"provider", "endpoint"}),
+		}, []string{"provider", "endpoint", "model"}),
 	}
 }
