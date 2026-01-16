@@ -10,16 +10,17 @@ import (
 	"time"
 
 	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/circuitbreaker"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
+	"github.com/hashicorp/go-multierror"
+	"github.com/sony/gobreaker/v2"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-
-	"github.com/hashicorp/go-multierror"
 )
 
 // RequestBridge is an [http.Handler] which is capable of masquerading as AI providers' APIs;
@@ -59,22 +60,53 @@ const recordingTimeout = time.Second * 5
 // A [intercept.Recorder] is also required to record prompt, tool, and token use.
 //
 // mcpProxy will be closed when the [RequestBridge] is closed.
+//
+// Circuit breaker configuration is obtained from each provider's CircuitBreakerConfig() method.
+// Providers returning nil will not have circuit breaker protection.
 func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec recorder.Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) (*RequestBridge, error) {
 	mux := http.NewServeMux()
 
-	for _, provider := range providers {
+	for _, prov := range providers {
+		// Create per-provider circuit breaker if configured
+		cfg := prov.CircuitBreakerConfig()
+		providerName := prov.Name()
+		onChange := func(endpoint string, from, to gobreaker.State) {
+			logger.Info(context.Background(), "circuit breaker state change",
+				slog.F("provider", providerName),
+				slog.F("endpoint", endpoint),
+				slog.F("from", from.String()),
+				slog.F("to", to.String()),
+			)
+			if m != nil {
+				m.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(circuitbreaker.StateToGaugeValue(to))
+				if to == gobreaker.StateOpen {
+					m.CircuitBreakerTrips.WithLabelValues(providerName, endpoint).Inc()
+				}
+			}
+		}
+		cbs := circuitbreaker.NewProviderCircuitBreakers(providerName, cfg, onChange)
+
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
-		for _, path := range provider.BridgedRoutes() {
-			mux.HandleFunc(path, newInterceptionProcessor(provider, rec, mcpProxy, logger, m, tracer))
+		for _, path := range prov.BridgedRoutes() {
+			// Initialize circuit breaker state metric to closed (0) for known routes
+			if m != nil && cbs != nil {
+				endpoint := strings.TrimPrefix(path, "/"+providerName)
+				m.CircuitBreakerState.WithLabelValues(providerName, endpoint).Set(0)
+			}
+
+			handler := newInterceptionProcessor(prov, rec, mcpProxy, logger, m, tracer)
+			// Wrap with circuit breaker middleware (nil cbs passes through)
+			wrapped := circuitbreaker.Middleware(cbs, m, logger)(handler)
+			mux.Handle(path, wrapped)
 		}
 
 		// Any requests which passthrough to this will be reverse-proxied to the upstream.
 		//
 		// We have to whitelist the known-safe routes because an API key with elevated privileges (i.e. admin) might be
 		// configured, so we should just reverse-proxy known-safe routes.
-		ftr := newPassthroughRouter(provider, logger.Named(fmt.Sprintf("passthrough.%s", provider.Name())), m, tracer)
-		for _, path := range provider.PassthroughRoutes() {
-			prefix := fmt.Sprintf("/%s", provider.Name())
+		ftr := newPassthroughRouter(prov, logger.Named(fmt.Sprintf("passthrough.%s", prov.Name())), m, tracer)
+		for _, path := range prov.PassthroughRoutes() {
+			prefix := fmt.Sprintf("/%s", prov.Name())
 			route := fmt.Sprintf("%s%s", prefix, path)
 			mux.HandleFunc(route, http.StripPrefix(prefix, ftr).ServeHTTP)
 		}
@@ -100,7 +132,7 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 
 // newInterceptionProcessor returns an [http.HandlerFunc] which is capable of creating a new interceptor and processing a given request
 // using [Provider] p, recording all usage events using [Recorder] rec.
-func newInterceptionProcessor(p Provider, rec recorder.Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
+func newInterceptionProcessor(p provider.Provider, rec recorder.Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		ctx, span := tracer.Start(r.Context(), "Intercept")
 		defer span.End()

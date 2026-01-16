@@ -22,10 +22,15 @@ const (
 	routeResponses       = "/openai/v1/responses"        // https://platform.openai.com/docs/api-reference/responses
 )
 
+var openAIOpenErrorResponse = func() []byte {
+	return []byte(`{"error":{"message":"circuit breaker is open","type":"server_error","code":"service_unavailable"}}`)
+}
+
 // OpenAI allows for interactions with the OpenAI API.
 type OpenAI struct {
-	baseURL string
-	key     string
+	baseURL        string
+	key            string
+	circuitBreaker *config.CircuitBreaker
 }
 
 var _ Provider = &OpenAI{}
@@ -39,9 +44,14 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 		cfg.Key = os.Getenv("OPENAI_API_KEY")
 	}
 
+	if cfg.CircuitBreaker != nil {
+		cfg.CircuitBreaker.OpenErrorResponse = openAIOpenErrorResponse
+	}
+
 	return &OpenAI{
-		baseURL: cfg.BaseURL,
-		key:     cfg.Key,
+		baseURL:        cfg.BaseURL,
+		key:            cfg.Key,
+		circuitBreaker: cfg.CircuitBreaker,
 	}
 }
 
@@ -131,4 +141,8 @@ func (p *OpenAI) InjectAuthHeader(headers *http.Header) {
 	}
 
 	headers.Set(p.AuthHeader(), "Bearer "+p.key)
+}
+
+func (p *OpenAI) CircuitBreakerConfig() *config.CircuitBreaker {
+	return p.circuitBreaker
 }

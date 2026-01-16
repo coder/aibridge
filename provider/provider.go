@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -37,4 +38,7 @@ type Provider interface {
 	AuthHeader() string
 	// InjectAuthHeader allows [Provider]s to set its authentication header.
 	InjectAuthHeader(*http.Header)
+
+	// CircuitBreakerConfig returns the circuit breaker configuration for the provider.
+	CircuitBreakerConfig() *config.CircuitBreaker
 }

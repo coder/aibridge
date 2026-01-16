@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/messages"
@@ -26,12 +27,28 @@ type Anthropic struct {
 
 const routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
 
+var anthropicOpenErrorResponse = func() []byte {
+	return []byte(`{"type":"error","error":{"type":"overloaded_error","message":"circuit breaker is open"}}`)
+}
+
+var anthropicIsFailure = func(statusCode int) bool {
+	// https://platform.claude.com/docs/en/api/errors
+	if statusCode == 529 {
+		return true
+	}
+	return circuitbreaker.DefaultIsFailure(statusCode)
+}
+
 func NewAnthropic(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) *Anthropic {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.anthropic.com/"
 	}
 	if cfg.Key == "" {
 		cfg.Key = os.Getenv("ANTHROPIC_API_KEY")
+	}
+	if cfg.CircuitBreaker != nil {
+		cfg.CircuitBreaker.IsFailure = anthropicIsFailure
+		cfg.CircuitBreaker.OpenErrorResponse = anthropicOpenErrorResponse
 	}
 
 	return &Anthropic{
@@ -101,4 +118,8 @@ func (p *Anthropic) InjectAuthHeader(headers *http.Header) {
 	}
 
 	headers.Set(p.AuthHeader(), p.cfg.Key)
+}
+
+func (p *Anthropic) CircuitBreakerConfig() *config.CircuitBreaker {
+	return p.cfg.CircuitBreaker
 }
