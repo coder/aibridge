@@ -28,7 +28,7 @@ func TestLastUserPrompt(t *testing.T) {
 		},
 		{
 			name:       "array_single_input_string",
-			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingBuiltinTool),
+			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingSingleBuiltinTool),
 			expected:   "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
 		},
 		{
