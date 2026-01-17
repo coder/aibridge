@@ -114,18 +114,18 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 			completedEvent := ev.AsResponseCompleted()
 			completedResponse = &completedEvent.Response
 		}
+
+		if completedResponse != nil {
+			i.recordNonInjectedToolUsage(ctx, completedResponse)
+			i.recordTokenUsage(ctx, completedResponse)
+		}
+
 		if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
 			err = fmt.Errorf("failed to relay chunk: %w", err)
 			return err
 		}
 	}
 	i.recordUserPrompt(ctx, responseID)
-	if completedResponse != nil {
-		i.recordToolUsage(ctx, completedResponse)
-		i.recordTokenUsage(ctx, completedResponse)
-	} else {
-		i.logger.Warn(ctx, "got empty response, skipping tool and token usage recording")
-	}
 
 	b, err := respCopy.readAll()
 	if err != nil {

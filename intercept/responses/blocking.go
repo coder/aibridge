@@ -85,7 +85,17 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 		i.recordToolUsage(ctx, response)
 		i.recordTokenUsage(ctx, response)
 
-		shouldLoop, err := i.handleInnerAgenticLoop(ctx, response)
+		// Check if there any injected tools to invoke.
+		pending := i.getPendingInjectedToolCalls(ctx, response)
+		if len(pending) == 0 {
+			// No injected tools, record non-injected tool usage.
+			i.recordNonInjectedToolUsage(ctx, response)
+
+			// No injected function calls need to be invoked, flow is complete.
+			break
+		}
+
+		shouldLoop, err := i.handleInnerAgenticLoop(ctx, pending, response)
 		if err != nil {
 			i.sendCustomErr(ctx, w, http.StatusInternalServerError, err)
 			shouldLoop = false
@@ -110,14 +120,7 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 // are invoked and their results are sent back to the model.
 // This is in contrast to regular tool calls which will be handled by the client
 // in its own agentic loop.
-func (i *BlockingResponsesInterceptor) handleInnerAgenticLoop(ctx context.Context, response *responses.Response) (bool, error) {
-	// Check if there any injected tools to invoke.
-	pending := i.getPendingInjectedToolCalls(ctx, response)
-	if len(pending) == 0 {
-		// No injected function calls need to be invoked, flow is complete.
-		return false, nil
-	}
-
+func (i *BlockingResponsesInterceptor) handleInnerAgenticLoop(ctx context.Context, pending []responses.ResponseFunctionToolCall, response *responses.Response) (bool, error) {
 	// Invoke any injected function calls.
 	// The Responses API refers to what we call "tools" as "functions", so we keep the terminology
 	// consistent in this package.
