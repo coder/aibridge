@@ -44,7 +44,6 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	if cfg.APIDumpDir == "" {
 		cfg.APIDumpDir = os.Getenv("BRIDGE_DUMP_DIR")
 	}
-
 	if cfg.CircuitBreaker != nil {
 		cfg.CircuitBreaker.OpenErrorResponse = openAIOpenErrorResponse
 	}
@@ -114,9 +113,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 		if req.Stream {
-			interceptor = responses.NewStreamingInterceptor(id, &req, payload, p.cfg, string(req.Model))
+			interceptor = responses.NewStreamingInterceptor(id, &req, payload, p.cfg, string(req.Model), tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, &req, payload, p.cfg, string(req.Model))
+			interceptor = responses.NewBlockingInterceptor(id, &req, payload, p.cfg, string(req.Model), tracer)
 		}
 
 	default:

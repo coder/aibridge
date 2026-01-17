@@ -16,6 +16,7 @@ import (
 	"github.com/openai/openai-go/v3/responses"
 	oaiconst "github.com/openai/openai-go/v3/shared/constant"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -26,7 +27,7 @@ type StreamingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string) *StreamingResponsesInterceptor {
+func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string, tracer trace.Tracer) *StreamingResponsesInterceptor {
 	return &StreamingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
 			id:         id,
@@ -34,6 +35,7 @@ func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPa
 			reqPayload: reqPayload,
 			cfg:        cfg,
 			model:      model,
+			tracer:     tracer,
 		},
 	}
 }
@@ -58,6 +60,8 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	if err := i.validateRequest(ctx, w); err != nil {
 		return err
 	}
+
+	i.disableParallelToolCalls()
 
 	events := eventstream.NewEventStream(ctx, i.logger.Named("sse-sender"), nil)
 	go events.Start(w, r)
@@ -116,7 +120,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		}
 	}
 	i.recordUserPrompt(ctx, responseID)
-	i.recordToolUsage(ctx, completedResponse)
+	i.recordNonInjectedToolUsage(ctx, completedResponse)
 
 	b, err := respCopy.readAll()
 	if err != nil {
