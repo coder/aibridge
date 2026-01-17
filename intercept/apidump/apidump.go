@@ -91,7 +91,11 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 	fmt.Fprintf(&buf, "%s %s %s\r\n", req.Method, req.URL.RequestURI(), req.Proto)
 	fmt.Fprintf(&buf, "Host: %s\r\n", req.Host)
 	for key, values := range req.Header {
+		_, sensitive := sensitiveRequestHeaders[key]
 		for _, value := range values {
+			if sensitive {
+				value = redactHeaderValue(value)
+			}
 			fmt.Fprintf(&buf, "%s: %s\r\n", key, value)
 		}
 	}
@@ -104,29 +108,33 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 func (d *dumper) dumpResponse(resp *http.Response) error {
 	dumpPath := d.path(SuffixResponse)
 
-	// Read and restore body
-	var bodyBytes []byte
-	if resp.Body != nil {
-		var err error
-		bodyBytes, err = io.ReadAll(resp.Body)
-		if err != nil {
-			return fmt.Errorf("read response body: %w", err)
-		}
-		resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
-	}
-
-	// Build raw HTTP response format
-	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "%s %s\r\n", resp.Proto, resp.Status)
+	// Build raw HTTP response headers
+	var headerBuf bytes.Buffer
+	fmt.Fprintf(&headerBuf, "%s %s\r\n", resp.Proto, resp.Status)
 	for key, values := range resp.Header {
+		_, sensitive := sensitiveResponseHeaders[key]
 		for _, value := range values {
-			fmt.Fprintf(&buf, "%s: %s\r\n", key, value)
+			if sensitive {
+				value = redactHeaderValue(value)
+			}
+			fmt.Fprintf(&headerBuf, "%s: %s\r\n", key, value)
 		}
 	}
-	fmt.Fprintf(&buf, "\r\n")
-	buf.Write(prettyPrintJSON(bodyBytes))
+	fmt.Fprintf(&headerBuf, "\r\n")
 
-	return os.WriteFile(dumpPath, buf.Bytes(), 0o644)
+	// Wrap the response body to capture it as it streams
+	if resp.Body != nil {
+		resp.Body = &streamingBodyDumper{
+			body:       resp.Body,
+			dumpPath:   dumpPath,
+			headerData: headerBuf.Bytes(),
+		}
+	} else {
+		// No body, just write headers
+		return os.WriteFile(dumpPath, headerBuf.Bytes(), 0o644)
+	}
+
+	return nil
 }
 
 // path returns the path to a request/response dump file for a given interception.

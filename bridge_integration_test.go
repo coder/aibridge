@@ -1884,17 +1884,15 @@ func TestAPIDump(t *testing.T) {
 		name              string
 		fixture           []byte
 		providerName      string
-		configureFunc     func(string, string, aibridge.Recorder) (*aibridge.RequestBridge, error)
+		providersFunc     func(addr, dumpDir string) []aibridge.Provider
 		createRequestFunc createRequestFunc
 	}{
 		{
 			name:         config.ProviderAnthropic,
 			fixture:      fixtures.AntSimple,
 			providerName: config.ProviderAnthropic,
-			configureFunc: func(addr, dumpDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
+				return []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)}
 			},
 			createRequestFunc: createAnthropicMessagesReq,
 		},
@@ -1902,10 +1900,8 @@ func TestAPIDump(t *testing.T) {
 			name:         config.ProviderOpenAI,
 			fixture:      fixtures.OaiChatSimple,
 			providerName: config.ProviderOpenAI,
-			configureFunc: func(addr, dumpDir string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
+				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
 			},
 			createRequestFunc: createOpenAIChatCompletionsReq,
 		},
@@ -1914,6 +1910,8 @@ func TestAPIDump(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+
+			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
@@ -1933,7 +1931,7 @@ func TestAPIDump(t *testing.T) {
 			dumpDir := t.TempDir()
 
 			recorderClient := &testutil.MockRecorder{}
-			b, err := tc.configureFunc(srv.URL, dumpDir, recorderClient)
+			b, err := aibridge.NewRequestBridge(t.Context(), tc.providersFunc(srv.URL, dumpDir), recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
 			require.NoError(t, err)
 
 			mockSrv := httptest.NewUnstartedServer(b)
