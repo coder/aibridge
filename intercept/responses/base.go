@@ -195,7 +195,8 @@ func (i *responsesInterceptionBase) lastUserPrompt() (string, error) {
 		}
 	}
 
-	return "", errors.New("failed to find last user prompt")
+	// Request was likely not human-initiated.
+	return "", nil
 }
 
 func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string) {
