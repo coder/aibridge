@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -25,14 +26,13 @@ type StreamingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, baseURL string, key string, model string) *StreamingResponsesInterceptor {
+func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string) *StreamingResponsesInterceptor {
 	return &StreamingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
 			id:         id,
 			req:        req,
 			reqPayload: reqPayload,
-			baseURL:    baseURL,
-			apiKey:     key,
+			cfg:        cfg,
 			model:      model,
 		},
 	}
