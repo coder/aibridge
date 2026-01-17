@@ -5,6 +5,7 @@ go 1.24.6
 // Misc libs.
 require (
 	cdr.dev/slog/v3 v3.0.0-rc1
+	github.com/coder/quartz v0.3.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/mark3labs/mcp-go v0.38.0

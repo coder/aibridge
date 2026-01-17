@@ -10,7 +10,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/coder/quartz"
 	"github.com/google/uuid"
+)
+
+const (
+	// SuffixRequest is the file suffix for request dump files.
+	SuffixRequest = ".req.txt"
+	// SuffixResponse is the file suffix for response dump files.
+	SuffixResponse = ".resp.txt"
 )
 
 // MiddlewareNext is the function to call the next middleware or the actual request.
@@ -19,17 +27,10 @@ type MiddlewareNext = func(*http.Request) (*http.Response, error)
 // Middleware is an HTTP middleware function compatible with SDK WithMiddleware options.
 type Middleware = func(*http.Request, MiddlewareNext) (*http.Response, error)
 
-// DumpPath returns the path to a request/response dump file for a given interception.
-// kind should be "req" or "resp".
-func DumpPath(baseDir, provider, model string, interceptionID uuid.UUID, kind string) string {
-	safeModel := strings.ReplaceAll(model, "/", "-")
-	return filepath.Join(baseDir, provider, safeModel, fmt.Sprintf("%s.%s.txt", interceptionID, kind))
-}
-
 // NewMiddleware returns a middleware function that dumps requests and responses to files.
 // Files are written to the path returned by DumpPath.
 // If baseDir is empty, returns nil (no middleware).
-func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID) Middleware {
+func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, clk quartz.Clock) Middleware {
 	if baseDir == "" {
 		return nil
 	}
@@ -39,6 +40,7 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID) Mi
 		provider:       provider,
 		model:          model,
 		interceptionID: interceptionID,
+		clk:            clk,
 	}
 
 	return func(req *http.Request, next MiddlewareNext) (*http.Response, error) {
@@ -64,10 +66,11 @@ type dumper struct {
 	provider       string
 	model          string
 	interceptionID uuid.UUID
+	clk            quartz.Clock
 }
 
 func (d *dumper) dumpRequest(req *http.Request) error {
-	dumpPath := DumpPath(d.baseDir, d.provider, d.model, d.interceptionID, "req")
+	dumpPath := d.path(SuffixRequest)
 	if err := os.MkdirAll(filepath.Dir(dumpPath), 0o755); err != nil {
 		return fmt.Errorf("create dump dir: %w", err)
 	}
@@ -99,7 +102,7 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 }
 
 func (d *dumper) dumpResponse(resp *http.Response) error {
-	dumpPath := DumpPath(d.baseDir, d.provider, d.model, d.interceptionID, "resp")
+	dumpPath := d.path(SuffixResponse)
 
 	// Read and restore body
 	var bodyBytes []byte
@@ -124,6 +127,13 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 	buf.Write(prettyPrintJSON(bodyBytes))
 
 	return os.WriteFile(dumpPath, buf.Bytes(), 0o644)
+}
+
+// path returns the path to a request/response dump file for a given interception.
+// suffix should be SuffixRequest or SuffixResponse.
+func (d *dumper) path(suffix string) string {
+	safeModel := strings.ReplaceAll(d.model, "/", "-")
+	return filepath.Join(d.baseDir, d.provider, safeModel, fmt.Sprintf("%d-%s%s", d.clk.Now().UTC().UnixMilli(), d.interceptionID, suffix))
 }
 
 // prettyPrintJSON returns indented JSON if body is valid JSON, otherwise returns body as-is.
