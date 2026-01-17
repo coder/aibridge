@@ -38,9 +38,11 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1/"
 	}
-
 	if cfg.Key == "" {
 		cfg.Key = os.Getenv("OPENAI_API_KEY")
+	}
+	if cfg.APIDumpDir == "" {
+		cfg.APIDumpDir = os.Getenv("BRIDGE_DUMP_DIR")
 	}
 
 	if cfg.CircuitBreaker != nil {
