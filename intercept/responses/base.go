@@ -24,12 +24,10 @@ import (
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/quartz"
 	"github.com/google/uuid"
-	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared/constant"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
@@ -101,59 +99,6 @@ func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.
 	}
 
 	return nil
-}
-
-func (i *responsesInterceptionBase) injectTools() {
-	if i.req == nil || i.mcpProxy == nil {
-		return
-	}
-
-	tools := i.mcpProxy.ListTools()
-	if len(tools) == 0 {
-		return
-	}
-
-	// TODO: implement parallel tool calls.
-	// Disable parallel tool calls to simplify inner agentic loop; best-effort.
-	if len(tools) > 0 {
-		var err error
-		i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)
-		if err != nil {
-			i.logger.Warn(context.Background(), "failed to disable parallel_tool_calls", slog.Error(err))
-		}
-	}
-
-	// Inject tools.
-	for _, tool := range i.mcpProxy.ListTools() {
-		params := map[string]any{
-			"type":       "object",
-			"properties": tool.Params,
-			// "additionalProperties": false, // Only relevant when strict=true.
-		}
-
-		// Otherwise the request fails with "None is not of type 'array'" if a nil slice is given.
-		if len(tool.Required) > 0 {
-			// Must list ALL properties when strict=true.
-			params["required"] = tool.Required
-		}
-
-		fn := responses.ToolUnionParam{
-			OfFunction: &responses.FunctionToolParam{
-				Name:        tool.ID,
-				Strict:      openai.Bool(false), // TODO: configurable.
-				Description: openai.String(tool.Description),
-				Parameters:  params,
-			},
-		}
-
-		i.req.Tools = append(i.req.Tools, fn)
-	}
-
-	var err error
-	i.reqPayload, err = sjson.SetBytes(i.reqPayload, "tools", i.req.Tools)
-	if err != nil {
-		i.logger.Warn(context.Background(), "failed to set tools", slog.Error(err))
-	}
 }
 
 // sendCustomErr sends custom responses.Error error to the client
