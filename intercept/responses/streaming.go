@@ -120,7 +120,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		}
 	}
 	i.recordUserPrompt(ctx, responseID)
-	i.recordToolUsage(ctx, completedResponse)
+	i.recordNonInjectedToolUsage(ctx, completedResponse)
 
 	b, err := respCopy.readAll()
 	if err != nil {

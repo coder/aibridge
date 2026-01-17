@@ -225,7 +225,7 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 	}
 }
 
-func (i *responsesInterceptionBase) recordToolUsage(ctx context.Context, response *responses.Response) {
+func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Context, response *responses.Response) {
 	if response == nil {
 		i.logger.Warn(ctx, "got empty response, skipping tool usage recording")
 		return

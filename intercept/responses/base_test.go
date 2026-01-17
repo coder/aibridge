@@ -318,7 +318,7 @@ func TestRecordToolUsage(t *testing.T) {
 				logger:   slog.Make(),
 			}
 
-			base.recordToolUsage(t.Context(), tc.response)
+			base.recordNonInjectedToolUsage(t.Context(), tc.response)
 
 			tools := rec.RecordedToolUsages()
 			require.Len(t, tools, len(tc.expected))

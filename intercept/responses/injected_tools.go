@@ -125,15 +125,6 @@ func (i *BlockingResponsesInterceptor) getPendingInjectedToolCalls(ctx context.C
 		// Check if this is a tool managed by our MCP proxy
 		if i.mcpProxy != nil && i.mcpProxy.GetTool(fc.Name) != nil {
 			calls = append(calls, fc)
-		} else {
-			// Record tool usage for non-managed tools
-			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
-				InterceptionID: i.ID().String(),
-				MsgID:          response.ID,
-				Tool:           fc.Name,
-				Args:           fc.Arguments,
-				Injected:       false,
-			})
 		}
 	}
 
