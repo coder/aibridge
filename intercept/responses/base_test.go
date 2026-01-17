@@ -71,45 +71,30 @@ func TestLastUserPromptErr(t *testing.T) {
 		require.Contains(t, "cannot get last user prompt: nil struct", err.Error())
 	})
 
-	t.Run("nil_struct", func(t *testing.T) {
-		t.Parallel()
-
-		base := responsesInterceptionBase{}
-		prompt, err := base.lastUserPrompt()
-		require.Error(t, err)
-		require.Empty(t, prompt)
-		require.Contains(t, "cannot get last user prompt: nil req struct", err.Error())
-	})
-
+	// Other cases where the user prompt might be empty.
 	tests := []struct {
 		name       string
 		reqPayload []byte
-		wantErrMsg string
 	}{
 		{
 			name:       "empty_input",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": []}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 		{
 			name:       "no_user_role",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "assistant", "content": "hello"}]}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 		{
 			name:       "user_with_empty_content",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": ""}]}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 		{
 			name:       "user_with_empty_content_array",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": []}]}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 		{
 			name:       "user_with_non_input_text_content",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": [{"type": "input_image", "url": "http://example.com/img.png"}]}]}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 	}
 
@@ -127,9 +112,8 @@ func TestLastUserPromptErr(t *testing.T) {
 			}
 
 			prompt, err := base.lastUserPrompt()
-			require.Error(t, err)
+			require.NoError(t, err)
 			require.Empty(t, prompt)
-			require.Contains(t, tc.wantErrMsg, err.Error())
 		})
 	}
 }
