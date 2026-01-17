@@ -70,7 +70,8 @@ func (i *responsesInterceptionBase) injectTools() {
 
 // handleInjectedToolCalls checks for function calls that we need to handle in our inner agentic loop.
 // These are functions injected by the MCP proxy.
-func (i *BlockingResponsesInterceptor) handleInjectedToolCalls(ctx context.Context, response *responses.Response) (*ResponsesNewParamsWrapper, error) {
+// Returns a list of tool call results.
+func (i *BlockingResponsesInterceptor) handleInjectedToolCalls(ctx context.Context, pending []responses.ResponseFunctionToolCall, response *responses.Response) ([]responses.ResponseInputItemUnionParam, error) {
 	if response == nil {
 		return nil, fmt.Errorf("empty response")
 	}
@@ -80,35 +81,24 @@ func (i *BlockingResponsesInterceptor) handleInjectedToolCalls(ctx context.Conte
 		return nil, nil
 	}
 
-	pending := i.getPendingInjectedToolCalls(ctx, response)
-	if len(pending) == 0 {
-		// No injected function calls need to be invoked, flow is complete.
-		return nil, nil
-	}
-
-	// TODO: clone?
-	nextRequest := i.req
-
-	i.prepareRequestForInjectedTools(nextRequest, response)
-
+	var results []responses.ResponseInputItemUnionParam
 	for _, fc := range pending {
-		res := i.invokeInjectedTool(ctx, response.ID, fc)
-		nextRequest.Input.OfInputItemList = append(nextRequest.Input.OfInputItemList, res)
+		results = append(results, i.invokeInjectedTool(ctx, response.ID, fc))
 	}
 
-	return nextRequest, nil
+	return results, nil
 }
 
-// prepareRequestForInjectedTools prepares the request by setting the output of the given
+// prepareRequestForAgenticLoop prepares the request by setting the output of the given
 // response as input to the next request, in order for the tool call result(s) to make function correctly.
-func (i *BlockingResponsesInterceptor) prepareRequestForInjectedTools(req *ResponsesNewParamsWrapper, response *responses.Response) {
+func (i *BlockingResponsesInterceptor) prepareRequestForAgenticLoop(response *responses.Response) {
 	// Unset the string input; we need a list now.
-	req.Input.OfString = param.Opt[string]{}
+	i.req.Input.OfString = param.Opt[string]{}
 
 	// OutputText is also available, but by definition the trigger for a function call is not a simple
 	// text response from the model.
 	for _, output := range response.Output {
-		i.appendOutputToInput(req, output)
+		i.appendOutputToInput(i.req, output)
 	}
 }
 
