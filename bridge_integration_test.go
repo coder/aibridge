@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1952,22 +1953,40 @@ func TestAPIDump(t *testing.T) {
 			// Verify dump files were created.
 			interceptions := recorderClient.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
-			interceptionID, err := uuid.Parse(interceptions[0].ID)
+			interceptionID := interceptions[0].ID
+
+			// Find dump files for this interception by walking the dump directory.
+			var reqDumpFile, respDumpFile string
+			err = filepath.Walk(dumpDir, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return err
+				}
+				if info.IsDir() {
+					return nil
+				}
+				// Files are named: {timestamp}-{interceptionID}.{req|resp}.txt
+				if strings.Contains(path, interceptionID) {
+					if strings.HasSuffix(path, apidump.SuffixRequest) {
+						reqDumpFile = path
+					} else if strings.HasSuffix(path, apidump.SuffixResponse) {
+						respDumpFile = path
+					}
+				}
+				return nil
+			})
 			require.NoError(t, err)
-			model := interceptions[0].Model
+			require.NotEmpty(t, reqDumpFile, "request dump file should exist")
+			require.NotEmpty(t, respDumpFile, "response dump file should exist")
 
-			reqDumpFile := apidump.DumpPath(dumpDir, tc.providerName, model, interceptionID, "req")
-			respDumpFile := apidump.DumpPath(dumpDir, tc.providerName, model, interceptionID, "resp")
-
-			// Verify request dump exists and contains expected HTTP request format.
+			// Verify request dump contains expected HTTP request format.
 			reqDumpData, err := os.ReadFile(reqDumpFile)
-			require.NoError(t, err, "request dump file should exist")
+			require.NoError(t, err)
 			require.Contains(t, string(reqDumpData), "POST ")
 			require.Contains(t, string(reqDumpData), "Host:")
 
-			// Verify response dump exists and contains expected HTTP response format.
+			// Verify response dump contains expected HTTP response format.
 			respDumpData, err := os.ReadFile(respDumpFile)
-			require.NoError(t, err, "response dump file should exist")
+			require.NoError(t, err)
 			require.Contains(t, string(respDumpData), "200 OK")
 
 			recorderClient.VerifyAllInterceptionsEnded(t)
