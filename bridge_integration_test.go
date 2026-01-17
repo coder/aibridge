@@ -1792,14 +1792,29 @@ const mockToolName = "coder_list_workspaces"
 
 // callAccumulator tracks all tool invocations by name and each instance's arguments.
 type callAccumulator struct {
-	calls   map[string][]any
-	callsMu sync.Mutex
+	calls      map[string][]any
+	callsMu    sync.Mutex
+	toolErrors map[string]string
 }
 
 func newCallAccumulator() *callAccumulator {
 	return &callAccumulator{
-		calls: make(map[string][]any),
+		calls:      make(map[string][]any),
+		toolErrors: make(map[string]string),
 	}
+}
+
+func (a *callAccumulator) setToolError(tool string, errMsg string) {
+	a.callsMu.Lock()
+	defer a.callsMu.Unlock()
+	a.toolErrors[tool] = errMsg
+}
+
+func (a *callAccumulator) getToolError(tool string) (string, bool) {
+	a.callsMu.Lock()
+	defer a.callsMu.Unlock()
+	errMsg, ok := a.toolErrors[tool]
+	return errMsg, ok
 }
 
 func (a *callAccumulator) addCall(tool string, args any) {
@@ -1831,12 +1846,15 @@ func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
 	// Accumulate tool calls & their arguments.
 	acc := newCallAccumulator()
 
-	for _, name := range []string{mockToolName, "coder_list_templates", "coder_template_version_parameters", "coder_get_authenticated_user", "coder_create_workspace_build"} {
+	for _, name := range []string{mockToolName, "coder_list_templates", "coder_template_version_parameters", "coder_get_authenticated_user", "coder_create_workspace_build", "coder_delete_template"} {
 		tool := mcplib.NewTool(name,
 			mcplib.WithDescription(fmt.Sprintf("Mock of the %s tool", name)),
 		)
 		s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			acc.addCall(request.Params.Name, request.Params.Arguments)
+			if errMsg, ok := acc.getToolError(request.Params.Name); ok {
+				return mcplib.NewToolResultError(errMsg), nil
+			}
 			return mcplib.NewToolResultText("mock"), nil
 		})
 	}

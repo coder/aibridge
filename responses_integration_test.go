@@ -757,78 +757,111 @@ func startRejectingListener(t *testing.T) (addr string) {
 func TestResponsesBlockingInjectedTool(t *testing.T) {
 	t.Parallel()
 
-	files := filesMap(txtar.Parse(fixtures.OaiResponsesSingleInjectedTool))
-	require.Contains(t, files, fixtureRequest)
-	require.Contains(t, files, fixtureNonStreamingResponse)
-	require.Contains(t, files, fixtureNonStreamingToolResponse)
-
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-	t.Cleanup(cancel)
-
-	// Setup mock server with response mutator for multi-turn interaction.
-	mockAPI := newMockServer(ctx, t, files, func(reqCount uint32, resp []byte) []byte {
-		if reqCount == 1 {
-			return resp // First request gets the normal response (with tool call).
-		}
-		// Second request gets the tool response.
-		return files[fixtureNonStreamingToolResponse]
-	})
-	t.Cleanup(mockAPI.Close)
-
-	// Setup MCP server proxies (with mock tools).
-	mcpProxiers, mcpCalls := setupMCPServerProxiesForTest(t, testTracer)
-	mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
-	require.NoError(t, mcpMgr.Init(ctx))
-
-	prov := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
-	mockRecorder := &testutil.MockRecorder{}
-	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{prov}, mockRecorder, mcpMgr, logger, nil, testTracer)
-	require.NoError(t, err)
-
-	srv := httptest.NewUnstartedServer(bridge)
-	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibcontext.AsActor(ctx, userID, nil)
+	tests := []struct {
+		name             string
+		fixture          []byte
+		mcpToolName      string
+		expectedToolArgs map[string]any
+		expectedPrompt   string
+		toolError        string // If non-empty, MCP tool returns this error.
+	}{
+		{
+			name:        "success",
+			fixture:     fixtures.OaiResponsesSingleInjectedTool,
+			mcpToolName: "coder_template_version_parameters",
+			expectedToolArgs: map[string]any{
+				"template_version_id": "aa4e30e4-a086-4df6-a364-1343f1458104",
+			},
+			expectedPrompt: "list the template params for version aa4e30e4-a086-4df6-a364-1343f1458104",
+		},
+		{
+			name:        "tool_error",
+			fixture:     fixtures.OaiResponsesSingleInjectedToolError,
+			mcpToolName: "coder_delete_template",
+			expectedToolArgs: map[string]any{
+				"template_id": "03cb4fdd-8109-4a22-8e22-bb4975171395",
+			},
+			expectedPrompt: "delete the template with ID 03cb4fdd-8109-4a22-8e22-bb4975171395, don't ask for confirmation",
+			toolError:      "500 Internal error deleting template: unauthorized: rbac: forbidden",
+		},
 	}
-	srv.Start()
-	t.Cleanup(srv.Close)
 
-	req := createOpenAIResponsesReq(t, srv.URL, files[fixtureRequest])
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
-	require.Equal(t, http.StatusOK, resp.StatusCode)
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
+			files := filesMap(txtar.Parse(tc.fixture))
+			require.Contains(t, files, fixtureRequest)
+			require.Contains(t, files, fixtureNonStreamingResponse)
+			require.Contains(t, files, fixtureNonStreamingToolResponse)
 
-	// Wait for both requests to be made (inner agentic loop).
-	require.Eventually(t, func() bool {
-		return mockAPI.callCount.Load() == 2
-	}, time.Second*10, time.Millisecond*50)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
 
-	// Verify the injected tool was invoked via MCP.
-	// The fixture uses "bmcp_coder_coder_template_version_parameters" as the tool ID, which maps to
-	// "coder_template_version_parameters" in the MCP server.
-	invocations := mcpCalls.getCallsByTool("coder_template_version_parameters")
-	require.Len(t, invocations, 1, "expected MCP tool to be invoked once")
+			// Setup mock server with response mutator for multi-turn interaction.
+			mockAPI := newMockServer(ctx, t, files, func(reqCount uint32, resp []byte) []byte {
+				if reqCount == 1 {
+					return resp // First request gets the normal response (with tool call).
+				}
+				// Second request gets the tool response.
+				return files[fixtureNonStreamingToolResponse]
+			})
+			t.Cleanup(mockAPI.Close)
 
-	// Verify the injected tool usage was recorded.
-	// The tool name recorded is the MCP tool name (without prefix).
-	toolUsages := mockRecorder.RecordedToolUsages()
-	require.Len(t, toolUsages, 1)
-	require.Equal(t, "coder_template_version_parameters", toolUsages[0].Tool)
-	require.Equal(t, map[string]any{
-		"template_version_id": "aa4e30e4-a086-4df6-a364-1343f1458104",
-	}, toolUsages[0].Args)
-	require.True(t, toolUsages[0].Injected, "injected tool should be marked as injected")
+			// Setup MCP server proxies (with mock tools).
+			mcpProxiers, mcpCalls := setupMCPServerProxiesForTest(t, testTracer)
+			if tc.toolError != "" {
+				mcpCalls.setToolError(tc.mcpToolName, tc.toolError)
+			}
+			mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
+			require.NoError(t, mcpMgr.Init(ctx))
 
-	// Verify prompt was recorded.
-	prompts := mockRecorder.RecordedPromptUsages()
-	require.Len(t, prompts, 1)
-	require.Equal(t, "list the template params for version aa4e30e4-a086-4df6-a364-1343f1458104", prompts[0].Prompt)
+			prov := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+			mockRecorder := &testutil.MockRecorder{}
+			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 
-	// Verify the response is the final tool response (after agentic loop).
-	require.Equal(t, string(files[fixtureNonStreamingToolResponse]), string(body))
+			bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{prov}, mockRecorder, mcpMgr, logger, nil, testTracer)
+			require.NoError(t, err)
+
+			srv := httptest.NewUnstartedServer(bridge)
+			srv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return aibcontext.AsActor(ctx, userID, nil)
+			}
+			srv.Start()
+			t.Cleanup(srv.Close)
+
+			req := createOpenAIResponsesReq(t, srv.URL, files[fixtureRequest])
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			// Wait for both requests to be made (inner agentic loop).
+			require.Eventually(t, func() bool {
+				return mockAPI.callCount.Load() == 2
+			}, time.Second*10, time.Millisecond*50)
+
+			// Verify the injected tool was invoked via MCP.
+			invocations := mcpCalls.getCallsByTool(tc.mcpToolName)
+			require.Len(t, invocations, 1, "expected MCP tool to be invoked once")
+
+			// Verify the injected tool usage was recorded.
+			toolUsages := mockRecorder.RecordedToolUsages()
+			require.Len(t, toolUsages, 1)
+			require.Equal(t, tc.mcpToolName, toolUsages[0].Tool)
+			require.Equal(t, tc.expectedToolArgs, toolUsages[0].Args)
+			require.True(t, toolUsages[0].Injected, "injected tool should be marked as injected")
+
+			// Verify prompt was recorded.
+			prompts := mockRecorder.RecordedPromptUsages()
+			require.Len(t, prompts, 1)
+			require.Equal(t, tc.expectedPrompt, prompts[0].Prompt)
+
+			// Verify the response is the final tool response (after agentic loop).
+			require.Equal(t, string(files[fixtureNonStreamingToolResponse]), string(body))
+		})
+	}
 }

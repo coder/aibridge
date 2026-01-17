@@ -71,6 +71,9 @@ var (
 
 	//go:embed openai/responses/blocking/single_injected_tool.txtar
 	OaiResponsesSingleInjectedTool []byte
+
+	//go:embed openai/responses/blocking/single_injected_tool_error.txtar
+	OaiResponsesSingleInjectedToolError []byte
 )
 
 var (
