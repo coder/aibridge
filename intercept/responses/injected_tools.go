@@ -25,16 +25,6 @@ func (i *responsesInterceptionBase) injectTools() {
 		return
 	}
 
-	// TODO: implement parallel tool calls.
-	// Disable parallel tool calls to simplify inner agentic loop; best-effort.
-	if len(tools) > 0 {
-		var err error
-		i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)
-		if err != nil {
-			i.logger.Warn(context.Background(), "failed to disable parallel_tool_calls", slog.Error(err))
-		}
-	}
-
 	// Inject tools.
 	for _, tool := range i.mcpProxy.ListTools() {
 		params := map[string]any{
@@ -65,6 +55,20 @@ func (i *responsesInterceptionBase) injectTools() {
 	i.reqPayload, err = sjson.SetBytes(i.reqPayload, "tools", i.req.Tools)
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to set tools", slog.Error(err))
+	}
+}
+
+// disableParallelToolCalls disables parallel tool calls, to simplify the inner agentic loop.
+// This is best-effort, and failing to set this flag does not fail the request.
+// TODO: implement parallel tool calls.
+func (i *responsesInterceptionBase) disableParallelToolCalls() {
+	// Disable parallel tool calls to simplify inner agentic loop; best-effort.
+	if len(i.req.Tools) > 0 {
+		var err error
+		i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)
+		if err != nil {
+			i.logger.Warn(context.Background(), "failed to disable parallel_tool_calls", slog.Error(err))
+		}
 	}
 }
 

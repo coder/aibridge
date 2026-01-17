@@ -156,10 +156,13 @@ func (i *responsesInterceptionBase) lastUserPrompt() (string, error) {
 		return i.req.Input.OfString.Value, nil
 	}
 
-	// If the input list is a slice, check if the final message has a "user" role.
+	// If the input list is a slice and the SDK properly decoded the last item,
+	// check if the final message has a "user" role.
 	if count := len(i.req.Input.OfInputItemList); count > 0 {
 		last := i.req.Input.OfInputItemList[count-1]
-		if last.OfInputMessage == nil || last.OfInputMessage.Role != string(constant.ValueOf[constant.User]()) {
+		// Only do this early check if OfInputMessage is populated (SDK decoded it).
+		// If nil, we fall through to gjson parsing which handles all cases.
+		if last.OfInputMessage != nil && last.OfInputMessage.Role != string(constant.ValueOf[constant.User]()) {
 			// The last message was not user-supplied.
 			return "", nil
 		}
