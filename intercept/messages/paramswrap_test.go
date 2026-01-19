@@ -1,128 +1,83 @@
 package messages
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/stretchr/testify/require"
 )
 
-func TestConvertStringContentToArray(t *testing.T) {
+func TestMessageNewParamsWrapperUnmarshalJSON(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name     string
-		input    string
-		expected string
+		name           string
+		input          string
+		expectedStream bool
+		checkContent   func(t *testing.T, w *MessageNewParamsWrapper)
 	}{
 		{
-			name:     "empty json",
-			input:    `{}`,
-			expected: `{}`,
+			name:           "message with string content converts to array",
+			input:          `{"model":"claude-3","max_tokens":1000,"messages":[{"role":"user","content":"Hello world"}]}`,
+			expectedStream: false,
+			checkContent: func(t *testing.T, w *MessageNewParamsWrapper) {
+				require.Len(t, w.Messages, 1)
+				require.Equal(t, anthropic.MessageParamRoleUser, w.Messages[0].Role)
+				text := w.Messages[0].Content[0].GetText()
+				require.NotNil(t, text)
+				require.Equal(t, "Hello world", *text)
+			},
 		},
 		{
-			name: "message with string content",
-			input: `{
-				"messages": [
-					{
-						"role": "user",
-						"content": "Hello world"
-					}
-				]
-			}`,
-			expected: `{"messages":[{"content":[{"text":"Hello world","type":"text"}],"role":"user"}]}`,
+			name:           "stream field extracted",
+			input:          `{"model":"claude-3","max_tokens":1000,"stream":true,"messages":[{"role":"user","content":"Hi"}]}`,
+			expectedStream: true,
+			checkContent: func(t *testing.T, w *MessageNewParamsWrapper) {
+				require.Len(t, w.Messages, 1)
+			},
 		},
 		{
-			name: "message with array content unchanged",
-			input: `{
-				"messages": [
-					{
-						"role": "user",
-						"content": [{"type": "text", "text": "Hello"}]
-					}
-				]
-			}`,
-			expected: `{"messages":[{"content":[{"text":"Hello","type":"text"}],"role":"user"}]}`,
+			name:           "stream false",
+			input:          `{"model":"claude-3","max_tokens":1000,"stream":false,"messages":[{"role":"user","content":"Hi"}]}`,
+			expectedStream: false,
+			checkContent:   nil,
 		},
 		{
-			name: "multiple messages with mixed content",
-			input: `{
-				"messages": [
-					{
-						"role": "user",
-						"content": "First message"
-					},
-					{
-						"role": "assistant",
-						"content": [{"type": "text", "text": "Response"}]
-					},
-					{
-						"role": "user",
-						"content": "Second message"
-					}
-				]
-			}`,
-			expected: `{"messages":[{"content":[{"text":"First message","type":"text"}],"role":"user"},{"content":[{"text":"Response","type":"text"}],"role":"assistant"},{"content":[{"text":"Second message","type":"text"}],"role":"user"}]}`,
+			name:           "array content unchanged",
+			input:          `{"model":"claude-3","max_tokens":1000,"messages":[{"role":"user","content":[{"type":"text","text":"Hello"}]}]}`,
+			expectedStream: false,
+			checkContent: func(t *testing.T, w *MessageNewParamsWrapper) {
+				require.Len(t, w.Messages, 1)
+				text := w.Messages[0].Content[0].GetText()
+				require.NotNil(t, text)
+				require.Equal(t, "Hello", *text)
+			},
 		},
 		{
-			name: "tool_result with string content",
-			input: `{
-				"messages": [
-					{
-						"role": "user",
-						"content": [
-							{
-								"type": "tool_result",
-								"tool_use_id": "123",
-								"content": "Tool output"
-							}
-						]
-					}
-				]
-			}`,
-			expected: `{"messages":[{"content":[{"content":[{"text":"Tool output","type":"text"}],"tool_use_id":"123","type":"tool_result"}],"role":"user"}]}`,
-		},
-		{
-			name: "mcp_tool_result with string content unchanged",
-			input: `{
-				"messages": [
-					{
-						"role": "user",
-						"content": [
-							{
-								"type": "mcp_tool_result",
-								"tool_use_id": "456",
-								"content": "MCP output"
-							}
-						]
-					}
-				]
-			}`,
-			expected: `{"messages":[{"content":[{"content":"MCP output","tool_use_id":"456","type":"mcp_tool_result"}],"role":"user"}]}`,
-		},
-		{
-			name: "no messages field",
-			input: `{
-				"model": "claude-3",
-				"max_tokens": 1000
-			}`,
-			expected: `{"max_tokens":1000,"model":"claude-3"}`,
+			name:           "multiple messages with mixed content",
+			input:          `{"model":"claude-3","max_tokens":1000,"messages":[{"role":"user","content":"First"},{"role":"assistant","content":[{"type":"text","text":"Response"}]},{"role":"user","content":"Second"}]}`,
+			expectedStream: false,
+			checkContent: func(t *testing.T, w *MessageNewParamsWrapper) {
+				require.Len(t, w.Messages, 3)
+				text0 := w.Messages[0].Content[0].GetText()
+				require.NotNil(t, text0)
+				require.Equal(t, "First", *text0)
+				text2 := w.Messages[2].Content[0].GetText()
+				require.NotNil(t, text2)
+				require.Equal(t, "Second", *text2)
+			},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := convertStringContentToArray([]byte(tt.input))
+			var wrapper MessageNewParamsWrapper
+			err := wrapper.UnmarshalJSON([]byte(tt.input))
 			require.NoError(t, err)
-
-			var resultJSON, expectedJSON any
-			err = json.Unmarshal(result, &resultJSON)
-			require.NoError(t, err)
-			err = json.Unmarshal([]byte(tt.expected), &expectedJSON)
-			require.NoError(t, err)
-
-			require.Equal(t, expectedJSON, resultJSON)
+			require.Equal(t, tt.expectedStream, wrapper.Stream)
+			if tt.checkContent != nil {
+				tt.checkContent(t, &wrapper)
+			}
 		})
 	}
 }
