@@ -156,18 +156,6 @@ func (i *responsesInterceptionBase) lastUserPrompt() (string, error) {
 		return i.req.Input.OfString.Value, nil
 	}
 
-	// If the input list is a slice and the SDK properly decoded the last item,
-	// check if the final message has a "user" role.
-	if count := len(i.req.Input.OfInputItemList); count > 0 {
-		last := i.req.Input.OfInputItemList[count-1]
-		// Only do this early check if OfInputMessage is populated (SDK decoded it).
-		// If nil, we fall through to gjson parsing which handles all cases.
-		if last.OfInputMessage != nil && last.OfInputMessage.Role != string(constant.ValueOf[constant.User]()) {
-			// The last message was not user-supplied.
-			return "", nil
-		}
-	}
-
 	// Fallback to parsing original bytes since golang SDK doesn't properly decode 'Input' field.
 	// If 'type' field of input item is not set it will be omitted from 'Input.OfInputItemList'
 	// It is an optional field according to API: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message
