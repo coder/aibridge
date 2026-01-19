@@ -70,7 +70,8 @@ func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp
 	}
 
 	start := time.Now()
-	res, err := t.Client.CallTool(ctx, mcp.CallToolRequest{
+	var res *mcp.CallToolResult
+	res, outErr = t.Client.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name:      t.Name,
 			Arguments: input,
@@ -78,7 +79,7 @@ func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp
 	})
 
 	logFn := t.Logger.Debug
-	if err != nil {
+	if outErr != nil {
 		logFn = t.Logger.Warn
 	}
 
@@ -88,10 +89,10 @@ func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp
 		slog.F("server", t.ServerName),
 		slog.F("input", inputJson),
 		slog.F("duration_sec", time.Since(start).Seconds()),
-		slog.Error(err),
+		slog.Error(outErr),
 	)
 
-	return res, err
+	return res, outErr
 }
 
 // EncodeToolID namespaces the given tool name with a prefix to identify tools injected by this library.

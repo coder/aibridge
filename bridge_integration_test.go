@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -1853,7 +1854,7 @@ func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
 		s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			acc.addCall(request.Params.Name, request.Params.Arguments)
 			if errMsg, ok := acc.getToolError(request.Params.Name); ok {
-				return mcplib.NewToolResultError(errMsg), nil
+				return nil, errors.New(errMsg)
 			}
 			return mcplib.NewToolResultText("mock"), nil
 		})

@@ -26,7 +26,7 @@ func (i *responsesInterceptionBase) injectTools() {
 	}
 
 	// Inject tools.
-	for _, tool := range i.mcpProxy.ListTools() {
+	for _, tool := range tools {
 		var params map[string]any
 
 		if tool.Params != nil {

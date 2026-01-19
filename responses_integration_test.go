@@ -854,6 +854,9 @@ func TestResponsesBlockingInjectedTool(t *testing.T) {
 			require.Equal(t, tc.mcpToolName, toolUsages[0].Tool)
 			require.Equal(t, tc.expectedToolArgs, toolUsages[0].Args)
 			require.True(t, toolUsages[0].Injected, "injected tool should be marked as injected")
+			if tc.toolError != "" {
+				require.Contains(t, toolUsages[0].InvocationError.Error(), tc.toolError)
+			}
 
 			// Verify prompt was recorded.
 			prompts := mockRecorder.RecordedPromptUsages()
