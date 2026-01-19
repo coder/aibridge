@@ -80,6 +80,9 @@ var (
 	//go:embed openai/responses/streaming/builtin_tool.txtar
 	OaiResponsesStreamingBuiltinTool []byte
 
+	//go:embed openai/responses/streaming/cached_input_tokens.txtar
+	OaiResponsesStreamingCachedInputTokens []byte
+
 	//go:embed openai/responses/streaming/custom_tool.txtar
 	OaiResponsesStreamingCustomTool []byte
 
