@@ -138,6 +138,9 @@ func (i *BlockingResponsesInterceptor) handleInnerAgenticLoop(ctx context.Contex
 	i.prepareRequestForAgenticLoop(response)
 	i.req.Input.OfInputItemList = append(i.req.Input.OfInputItemList, results...)
 
+	// TODO: we should avoid re-marshaling Input, but since it changes from a string to
+	// a list in this loop, we have to.
+	// See responsesInterceptionBase.requestOptions for more details about marshaling issues.
 	i.reqPayload, err = sjson.SetBytes(i.reqPayload, "input", i.req.Input)
 	if err != nil {
 		i.logger.Error(ctx, "failure to marshal new input in inner agentic loop", slog.Error(err))
