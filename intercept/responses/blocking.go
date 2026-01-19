@@ -56,6 +56,9 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	if response != nil {
 		i.recordUserPrompt(ctx, response.ID)
 		i.recordToolUsage(ctx, response)
+		i.recordTokenUsage(ctx, response)
+	} else {
+		i.logger.Warn(ctx, "got empty response, skipping prompt, tool usage and token usage recording")
 	}
 
 	if upstreamErr != nil && !respCopy.responseReceived.Load() {

@@ -379,3 +379,74 @@ func TestParseJSONArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestRecordTokenUsage(t *testing.T) {
+	t.Parallel()
+
+	id := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+
+	tests := []struct {
+		name     string
+		response *oairesponses.Response
+		expected *recorder.TokenUsageRecord
+	}{
+		{
+			name:     "nil_response",
+			response: nil,
+			expected: nil,
+		},
+		{
+			name: "with_all_token_details",
+			response: &oairesponses.Response{
+				ID: "resp_full",
+				Usage: oairesponses.ResponseUsage{
+					InputTokens:  10,
+					OutputTokens: 20,
+					TotalTokens:  30,
+					InputTokensDetails: oairesponses.ResponseUsageInputTokensDetails{
+						CachedTokens: 5,
+					},
+					OutputTokensDetails: oairesponses.ResponseUsageOutputTokensDetails{
+						ReasoningTokens: 5,
+					},
+				},
+			},
+			expected: &recorder.TokenUsageRecord{
+				InterceptionID: id.String(),
+				MsgID:          "resp_full",
+				Input:          5, // 10 input - 5 cached
+				Output:         20,
+				ExtraTokenTypes: map[string]int64{
+					"input_cached":     5,
+					"output_reasoning": 5,
+					"total_tokens":     30,
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			rec := &testutil.MockRecorder{}
+			base := &responsesInterceptionBase{
+				id:       id,
+				recorder: rec,
+				logger:   slog.Make(),
+			}
+
+			base.recordTokenUsage(t.Context(), tc.response)
+
+			tokens := rec.RecordedTokenUsages()
+			if tc.expected == nil {
+				require.Empty(t, tokens)
+			} else {
+				require.Len(t, tokens, 1)
+				got := tokens[0]
+				got.CreatedAt = time.Time{} // ignore time
+				require.Equal(t, tc.expected, got)
+			}
+		})
+	}
+}
