@@ -46,9 +46,10 @@ type AWSBedrock struct {
 	Region                     string
 	AccessKey, AccessKeySecret string
 	Model, SmallFastModel      string
-	// EndpointOverride allows overriding the Bedrock endpoint URL for testing.
-	// If set, requests will be sent to this URL instead of the default AWS Bedrock endpoint.
-	EndpointOverride string
+	// If set, requests will be sent to this URL instead of the default AWS Bedrock endpoint
+	// (https://bedrock-runtime.{region}.amazonaws.com).
+	// This is useful for routing requests through a proxy or for testing.
+	BaseURL string
 }
 
 type OpenAI struct {

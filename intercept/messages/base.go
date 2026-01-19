@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -170,15 +169,10 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 		opts = append(opts, bedrockOpt)
 		i.augmentRequestForBedrock()
 
-		// If an endpoint override is set (for testing), add a custom HTTP client AFTER the bedrock config
-		// This overrides any HTTP client set by the bedrock middleware
-		if i.bedrockCfg.EndpointOverride != "" {
-			opts = append(opts, option.WithHTTPClient(&http.Client{
-				Transport: &redirectTransport{
-					base:          http.DefaultTransport,
-					redirectToURL: i.bedrockCfg.EndpointOverride,
-				},
-			}))
+		// If a custom base URL is set, add it AFTER the bedrock config to override
+		// the default endpoint constructed by the bedrock middleware.
+		if i.bedrockCfg.BaseURL != "" {
+			opts = append(opts, option.WithBaseURL(i.bedrockCfg.BaseURL))
 		}
 	}
 
@@ -189,7 +183,7 @@ func (i *interceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AW
 	if cfg == nil {
 		return nil, fmt.Errorf("nil config given")
 	}
-	if cfg.Region == "" {
+	if cfg.Region == "" && cfg.BaseURL == "" {
 		return nil, fmt.Errorf("region required")
 	}
 	if cfg.AccessKey == "" {
@@ -259,28 +253,6 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *Err
 	} else {
 		_, _ = w.Write(out)
 	}
-}
-
-// redirectTransport is an HTTP RoundTripper that redirects requests to a different endpoint.
-// This is useful for testing when we need to redirect AWS Bedrock requests to a mock server.
-type redirectTransport struct {
-	base          http.RoundTripper
-	redirectToURL string
-}
-
-func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Parse the redirect URL
-	redirectURL, err := url.Parse(t.redirectToURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// Redirect the request to the mock server
-	req.URL.Scheme = redirectURL.Scheme
-	req.URL.Host = redirectURL.Host
-	req.Host = redirectURL.Host
-
-	return t.base.RoundTrip(req)
 }
 
 // accumulateUsage accumulates usage statistics from source into dest.

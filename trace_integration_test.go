@@ -863,11 +863,11 @@ func verifyTraces(t *testing.T, spanRecorder *tracetest.SpanRecorder, expect []e
 
 func testBedrockCfg(url string) *config.AWSBedrock {
 	return &config.AWSBedrock{
-		Region:           "us-west-2",
-		AccessKey:        "test-access-key",
-		AccessKeySecret:  "test-secret-key",
-		Model:            "beddel",  // This model should override the request's given one.
-		SmallFastModel:   "modrock", // Unused but needed for validation.
-		EndpointOverride: url,
+		Region:          "us-west-2",
+		AccessKey:       "test-access-key",
+		AccessKeySecret: "test-secret-key",
+		Model:           "beddel",  // This model should override the request's given one.
+		SmallFastModel:  "modrock", // Unused but needed for validation.
+		BaseURL:         url,
 	}
 }

@@ -281,15 +281,13 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				srv.Start()
 				t.Cleanup(srv.Close)
 
-				// Configure Bedrock with test credentials and model names.
-				// The EndpointOverride will make requests go to the mock server instead of real AWS endpoints.
 				bedrockCfg := &config.AWSBedrock{
-					Region:           "us-west-2",
-					AccessKey:        "test-access-key",
-					AccessKeySecret:  "test-secret-key",
-					Model:            "danthropic",      // This model should override the request's given one.
-					SmallFastModel:   "danthropic-mini", // Unused but needed for validation.
-					EndpointOverride: srv.URL,
+					Region:          "us-west-2",
+					AccessKey:       "test-access-key",
+					AccessKeySecret: "test-secret-key",
+					Model:           "danthropic",      // This model should override the request's given one.
+					SmallFastModel:  "danthropic-mini", // Unused but needed for validation.
+					BaseURL:         srv.URL,           // Use the mock server.
 				}
 
 				recorderClient := &testutil.MockRecorder{}
