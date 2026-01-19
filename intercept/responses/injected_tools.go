@@ -79,7 +79,7 @@ func (i *responsesInterceptionBase) disableParallelToolCalls() {
 // handleInjectedToolCalls checks for function calls that we need to handle in our inner agentic loop.
 // These are functions injected by the MCP proxy.
 // Returns a list of tool call results.
-func (i *BlockingResponsesInterceptor) handleInjectedToolCalls(ctx context.Context, pending []responses.ResponseFunctionToolCall, response *responses.Response) ([]responses.ResponseInputItemUnionParam, error) {
+func (i *responsesInterceptionBase) handleInjectedToolCalls(ctx context.Context, pending []responses.ResponseFunctionToolCall, response *responses.Response) ([]responses.ResponseInputItemUnionParam, error) {
 	if response == nil {
 		return nil, fmt.Errorf("empty response")
 	}
@@ -99,7 +99,7 @@ func (i *BlockingResponsesInterceptor) handleInjectedToolCalls(ctx context.Conte
 
 // prepareRequestForAgenticLoop prepares the request by setting the output of the given
 // response as input to the next request, in order for the tool call result(s) to make function correctly.
-func (i *BlockingResponsesInterceptor) prepareRequestForAgenticLoop(response *responses.Response) {
+func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(response *responses.Response) {
 	// Unset the string input; we need a list now.
 	i.req.Input.OfString = param.Opt[string]{}
 
@@ -111,7 +111,7 @@ func (i *BlockingResponsesInterceptor) prepareRequestForAgenticLoop(response *re
 }
 
 // getPendingInjectedToolCalls extracts function calls from the response that are managed by MCP proxy
-func (i *BlockingResponsesInterceptor) getPendingInjectedToolCalls(ctx context.Context, response *responses.Response) []responses.ResponseFunctionToolCall {
+func (i *responsesInterceptionBase) getPendingInjectedToolCalls(ctx context.Context, response *responses.Response) []responses.ResponseFunctionToolCall {
 	var calls []responses.ResponseFunctionToolCall
 
 	for _, item := range response.Output {
@@ -135,13 +135,13 @@ func (i *BlockingResponsesInterceptor) getPendingInjectedToolCalls(ctx context.C
 	return calls
 }
 
-func (i *BlockingResponsesInterceptor) invokeInjectedTool(ctx context.Context, responseID string, fc responses.ResponseFunctionToolCall) responses.ResponseInputItemUnionParam {
+func (i *responsesInterceptionBase) invokeInjectedTool(ctx context.Context, responseID string, fc responses.ResponseFunctionToolCall) responses.ResponseInputItemUnionParam {
 	tool := i.mcpProxy.GetTool(fc.Name)
 	if tool == nil {
 		return responses.ResponseInputItemParamOfFunctionCallOutput(fc.CallID, fmt.Sprintf("error: unknown injected function %q", fc.ID))
 	}
 
-	args := i.unmarshalArgs(fc.Arguments)
+	args := i.parseFunctionCallJSONArgs(ctx, fc.Arguments)
 	res, err := tool.Call(ctx, args, i.tracer)
 	_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 		InterceptionID:  i.ID().String(),
@@ -178,7 +178,7 @@ func (i *BlockingResponsesInterceptor) invokeInjectedTool(ctx context.Context, r
 // The conversion uses the openai-go library's ToParam() methods where available, which leverage
 // param.Override() with raw JSON to preserve all fields. For types without ToParam(), we use
 // the ResponseInputItemParamOf* helper functions.
-func (i *BlockingResponsesInterceptor) appendOutputToInput(req *ResponsesNewParamsWrapper, item responses.ResponseOutputItemUnion) {
+func (i *responsesInterceptionBase) appendOutputToInput(req *ResponsesNewParamsWrapper, item responses.ResponseOutputItemUnion) {
 	var inputItem responses.ResponseInputItemUnionParam
 
 	switch item.Type {
@@ -232,17 +232,4 @@ func (i *BlockingResponsesInterceptor) appendOutputToInput(req *ResponsesNewPara
 	}
 
 	req.Input.OfInputItemList = append(req.Input.OfInputItemList, inputItem)
-}
-
-// unmarshalArgs unmarshals JSON arguments string into a map
-func (i *BlockingResponsesInterceptor) unmarshalArgs(in string) (args recorder.ToolArgs) {
-	if len(strings.TrimSpace(in)) == 0 {
-		return args
-	}
-
-	if err := json.Unmarshal([]byte(in), &args); err != nil {
-		i.logger.Warn(context.Background(), "failed to unmarshal tool args", slog.Error(err))
-	}
-
-	return args
 }

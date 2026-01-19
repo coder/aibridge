@@ -58,7 +58,7 @@ func TestLastUserPrompt(t *testing.T) {
 	}
 }
 
-func TestLastUserPromptErr(t *testing.T) {
+func TestLastUserPromptEmptyPrompt(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil_struct", func(t *testing.T) {

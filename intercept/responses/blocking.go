@@ -82,7 +82,6 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 
 		// Record prompt usage on first successful response.
 		i.recordUserPrompt(ctx, response.ID)
-		i.recordToolUsage(ctx, response)
 		i.recordTokenUsage(ctx, response)
 
 		// Check if there any injected tools to invoke.
