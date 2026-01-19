@@ -576,10 +576,14 @@ func TestTraceOpenAIErr(t *testing.T) {
 			},
 		},
 		{
-			name:       "trace_openai_responses_blocking_error",
-			fixture:    fixtures.OaiResponsesBlockingWrongResponseFormat,
-			streaming:  false,
-			reqFunc:    createOpenAIResponsesReq,
+			name:      "trace_openai_responses_blocking_error",
+			fixture:   fixtures.OaiResponsesBlockingWrongResponseFormat,
+			streaming: false,
+			reqFunc:   createOpenAIResponsesReq,
+			// Fixture returns http 200 response with wrong body
+			// responses forward received response as is so
+			// expected code == 200 even though ProcessRequest
+			// traces are expected to have error status
 			expectCode: 200,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
