@@ -2,6 +2,7 @@ package apidump
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,8 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"cdr.dev/slog/v3"
+
 	"github.com/coder/quartz"
 	"github.com/google/uuid"
+	"github.com/tidwall/pretty"
 )
 
 const (
@@ -30,7 +34,7 @@ type Middleware = func(*http.Request, MiddlewareNext) (*http.Response, error)
 // NewMiddleware returns a middleware function that dumps requests and responses to files.
 // Files are written to the path returned by DumpPath.
 // If baseDir is empty, returns nil (no middleware).
-func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, clk quartz.Clock) Middleware {
+func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, logger slog.Logger, clk quartz.Clock) Middleware {
 	if baseDir == "" {
 		return nil
 	}
@@ -45,7 +49,7 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, cl
 
 	return func(req *http.Request, next MiddlewareNext) (*http.Response, error) {
 		if err := d.dumpRequest(req); err != nil {
-			fmt.Fprintf(os.Stderr, "apidump: failed to dump request: %v\n", err)
+			logger.Named("apidump").Warn(context.Background(), "failed to dump request", slog.Error(err))
 		}
 
 		resp, err := next(req)
@@ -54,7 +58,7 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, cl
 		}
 
 		if err := d.dumpResponse(resp); err != nil {
-			fmt.Fprintf(os.Stderr, "apidump: failed to dump response: %v\n", err)
+			logger.Named("apidump").Warn(context.Background(), "failed to dump response", slog.Error(err))
 		}
 
 		return resp, nil
@@ -86,10 +90,13 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
 
+	prettyBody := prettyPrintJSON(bodyBytes)
+
 	// Build raw HTTP request format
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%s %s %s\r\n", req.Method, req.URL.RequestURI(), req.Proto)
 	fmt.Fprintf(&buf, "Host: %s\r\n", req.Host)
+	fmt.Fprintf(&buf, "Content-Length: %d\r\n", len(prettyBody))
 	for key, values := range req.Header {
 		_, sensitive := sensitiveRequestHeaders[key]
 		for _, value := range values {
@@ -100,7 +107,7 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 		}
 	}
 	fmt.Fprintf(&buf, "\r\n")
-	buf.Write(prettyPrintJSON(bodyBytes))
+	buf.Write(prettyBody)
 
 	return os.WriteFile(dumpPath, buf.Bytes(), 0o644)
 }
@@ -145,17 +152,18 @@ func (d *dumper) path(suffix string) string {
 }
 
 // prettyPrintJSON returns indented JSON if body is valid JSON, otherwise returns body as-is.
+// Unlike json.MarshalIndent, this preserves the original key order from the input,
+// which makes the dumps easier to read and compare with the original requests.
 func prettyPrintJSON(body []byte) []byte {
 	if len(body) == 0 {
 		return body
 	}
-	var parsed any
-	if err := json.Unmarshal(body, &parsed); err != nil {
+	result := pretty.Pretty(body)
+	// pretty.Pretty returns a truncated/modified result for invalid JSON,
+	// so check if the result is valid JSON; if not, return the original.
+	if !json.Valid(result) {
 		return body
 	}
-	pretty, err := json.MarshalIndent(parsed, "", "  ")
-	if err != nil {
-		return body
-	}
-	return pretty
+	// Trim trailing newline added by pretty.Pretty.
+	return bytes.TrimSuffix(result, []byte("\n"))
 }

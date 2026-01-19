@@ -52,7 +52,7 @@ func (i *responsesInterceptionBase) newResponsesService() responses.ResponseServ
 	opts := []option.RequestOption{option.WithBaseURL(i.cfg.BaseURL), option.WithAPIKey(i.cfg.Key)}
 
 	// Add API dump middleware if configured
-	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, config.ProviderOpenAI, i.Model(), i.id, quartz.NewReal()); mw != nil {
+	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, config.ProviderOpenAI, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))
 	}
 

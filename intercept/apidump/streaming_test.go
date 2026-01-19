@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"cdr.dev/slog/v3"
+	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/quartz"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
@@ -18,10 +20,11 @@ func TestMiddleware_StreamingResponse(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 	clk := quartz.NewMock(t)
 	interceptionID := uuid.New()
 
-	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, clk)
+	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
@@ -93,10 +96,11 @@ func TestMiddleware_PreservesResponseBody(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 	clk := quartz.NewMock(t)
 	interceptionID := uuid.New()
 
-	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, clk)
+	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))

@@ -10,8 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -27,7 +25,6 @@ import (
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
@@ -1854,140 +1851,9 @@ func openaiCfg(url, key string) config.OpenAI {
 	}
 }
 
-func openaiCfgWithAPIDump(url, key, dumpDir string) config.OpenAI {
-	return config.OpenAI{
-		BaseURL:    url,
-		Key:        key,
-		APIDumpDir: dumpDir,
-	}
-}
-
 func anthropicCfg(url, key string) config.Anthropic {
 	return config.Anthropic{
 		BaseURL: url,
 		Key:     key,
-	}
-}
-
-func anthropicCfgWithAPIDump(url, key, dumpDir string) config.Anthropic {
-	return config.Anthropic{
-		BaseURL:    url,
-		Key:        key,
-		APIDumpDir: dumpDir,
-	}
-}
-
-func TestAPIDump(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name              string
-		fixture           []byte
-		providerName      string
-		providersFunc     func(addr, dumpDir string) []aibridge.Provider
-		createRequestFunc createRequestFunc
-	}{
-		{
-			name:         config.ProviderAnthropic,
-			fixture:      fixtures.AntSimple,
-			providerName: config.ProviderAnthropic,
-			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)}
-			},
-			createRequestFunc: createAnthropicMessagesReq,
-		},
-		{
-			name:         config.ProviderOpenAI,
-			fixture:      fixtures.OaiChatSimple,
-			providerName: config.ProviderOpenAI,
-			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
-			},
-			createRequestFunc: createOpenAIChatCompletionsReq,
-		},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-			t.Cleanup(cancel)
-
-			arc := txtar.Parse(tc.fixture)
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureRequest)
-			require.Contains(t, files, fixtureNonStreamingResponse)
-
-			reqBody := files[fixtureRequest]
-
-			// Setup mock upstream server.
-			srv := newMockServer(ctx, t, files, nil)
-			t.Cleanup(srv.Close)
-
-			// Create temp dir for API dumps.
-			dumpDir := t.TempDir()
-
-			recorderClient := &testutil.MockRecorder{}
-			b, err := aibridge.NewRequestBridge(t.Context(), tc.providersFunc(srv.URL, dumpDir), recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
-			require.NoError(t, err)
-
-			mockSrv := httptest.NewUnstartedServer(b)
-			t.Cleanup(mockSrv.Close)
-			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibcontext.AsActor(ctx, userID, nil)
-			}
-			mockSrv.Start()
-
-			req := tc.createRequestFunc(t, mockSrv.URL, reqBody)
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
-			require.Equal(t, http.StatusOK, resp.StatusCode)
-			defer resp.Body.Close()
-			_, _ = io.ReadAll(resp.Body)
-
-			// Verify dump files were created.
-			interceptions := recorderClient.RecordedInterceptions()
-			require.Len(t, interceptions, 1)
-			interceptionID := interceptions[0].ID
-
-			// Find dump files for this interception by walking the dump directory.
-			var reqDumpFile, respDumpFile string
-			err = filepath.Walk(dumpDir, func(path string, info os.FileInfo, err error) error {
-				if err != nil {
-					return err
-				}
-				if info.IsDir() {
-					return nil
-				}
-				// Files are named: {timestamp}-{interceptionID}.{req|resp}.txt
-				if strings.Contains(path, interceptionID) {
-					if strings.HasSuffix(path, apidump.SuffixRequest) {
-						reqDumpFile = path
-					} else if strings.HasSuffix(path, apidump.SuffixResponse) {
-						respDumpFile = path
-					}
-				}
-				return nil
-			})
-			require.NoError(t, err)
-			require.NotEmpty(t, reqDumpFile, "request dump file should exist")
-			require.NotEmpty(t, respDumpFile, "response dump file should exist")
-
-			// Verify request dump contains expected HTTP request format.
-			reqDumpData, err := os.ReadFile(reqDumpFile)
-			require.NoError(t, err)
-			require.Contains(t, string(reqDumpData), "POST ")
-			require.Contains(t, string(reqDumpData), "Host:")
-
-			// Verify response dump contains expected HTTP response format.
-			respDumpData, err := os.ReadFile(respDumpFile)
-			require.NoError(t, err)
-			require.Contains(t, string(respDumpData), "200 OK")
-
-			recorderClient.VerifyAllInterceptionsEnded(t)
-		})
 	}
 }
