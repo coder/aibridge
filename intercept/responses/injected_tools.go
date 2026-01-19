@@ -27,10 +27,14 @@ func (i *responsesInterceptionBase) injectTools() {
 
 	// Inject tools.
 	for _, tool := range i.mcpProxy.ListTools() {
-		params := map[string]any{
-			"type":       "object",
-			"properties": tool.Params,
-			// "additionalProperties": false, // Only relevant when strict=true.
+		var params map[string]any
+
+		if tool.Params != nil {
+			params = map[string]any{
+				"type":       "object",
+				"properties": tool.Params,
+				// "additionalProperties": false, // Only relevant when strict=true.
+			}
 		}
 
 		// Otherwise the request fails with "None is not of type 'array'" if a nil slice is given.
