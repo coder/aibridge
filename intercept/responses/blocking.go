@@ -11,6 +11,7 @@ import (
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
@@ -48,8 +49,10 @@ func (i *BlockingResponsesInterceptor) TraceAttributes(r *http.Request) []attrib
 	return i.responsesInterceptionBase.baseTraceAttributes(r, false)
 }
 
-func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
-	ctx := r.Context()
+func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
+	defer tracing.EndSpanErr(span, &outErr)
+
 	if err := i.validateRequest(ctx, w); err != nil {
 		return err
 	}
@@ -149,4 +152,11 @@ func (i *BlockingResponsesInterceptor) handleInnerAgenticLoop(ctx context.Contex
 	}
 
 	return true, nil
+}
+
+func (i *BlockingResponsesInterceptor) newResponse(ctx context.Context, srv responses.ResponseService, opts []option.RequestOption) (_ *responses.Response, outErr error) {
+	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer tracing.EndSpanErr(span, &outErr)
+
+	return srv.New(ctx, i.req.ResponseNewParams, opts...)
 }

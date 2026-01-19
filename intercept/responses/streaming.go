@@ -12,7 +12,10 @@ import (
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/openai/openai-go/v3/responses"
 	oaiconst "github.com/openai/openai-go/v3/shared/constant"
 	"go.opentelemetry.io/otel/attribute"
@@ -52,8 +55,11 @@ func (i *StreamingResponsesInterceptor) TraceAttributes(r *http.Request) []attri
 	return i.responsesInterceptionBase.baseTraceAttributes(r, true)
 }
 
-func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *http.Request) error {
-	ctx, cancel := context.WithCancel(r.Context())
+func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
+	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
+	defer tracing.EndSpanErr(span, &outErr)
+
+	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
@@ -77,7 +83,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	srv := i.newResponsesService()
 	opts := i.requestOptions(&respCopy)
-	stream := srv.NewStreaming(ctx, i.req.ResponseNewParams, opts...)
+	stream := i.newStream(ctx, srv, opts)
 	defer stream.Close()
 
 	if upstreamErr := stream.Err(); upstreamErr != nil {
@@ -134,4 +140,11 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	err = events.Send(ctx, b)
 	return errors.Join(err, stream.Err())
+}
+
+func (i *StreamingResponsesInterceptor) newStream(ctx context.Context, srv responses.ResponseService, opts []option.RequestOption) *ssestream.Stream[responses.ResponseStreamEventUnion] {
+	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer span.End()
+
+	return srv.NewStreaming(ctx, i.req.ResponseNewParams, opts...)
 }
