@@ -14,6 +14,7 @@ type streamingBodyDumper struct {
 	body       io.ReadCloser
 	dumpPath   string
 	headerData []byte
+	logger     func(err error)
 
 	once    sync.Once
 	file    *os.File
@@ -45,6 +46,9 @@ func (s *streamingBodyDumper) Read(p []byte) (int, error) {
 	n, err := s.body.Read(p)
 	if n > 0 {
 		s.init()
+		if s.initErr != nil && s.logger != nil {
+			s.logger(s.initErr)
+		}
 		if s.file != nil {
 			// Write raw bytes as they stream through.
 			_, _ = s.file.Write(p[:n])
@@ -54,8 +58,15 @@ func (s *streamingBodyDumper) Read(p []byte) (int, error) {
 }
 
 func (s *streamingBodyDumper) Close() error {
+	// Ensure init() has completed to avoid racing with Read().
+	s.init()
+	var closeErr error
 	if s.file != nil {
-		s.file.Close()
+		closeErr = s.file.Close()
 	}
-	return s.body.Close()
+	bodyErr := s.body.Close()
+	if bodyErr != nil {
+		return bodyErr
+	}
+	return closeErr
 }

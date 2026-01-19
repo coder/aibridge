@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"cdr.dev/slog/v3"
@@ -45,6 +46,7 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, lo
 		model:          model,
 		interceptionID: interceptionID,
 		clk:            clk,
+		logger:         logger,
 	}
 
 	return func(req *http.Request, next MiddlewareNext) (*http.Response, error) {
@@ -71,6 +73,7 @@ type dumper struct {
 	model          string
 	interceptionID uuid.UUID
 	clk            quartz.Clock
+	logger         slog.Logger
 }
 
 func (d *dumper) dumpRequest(req *http.Request) error {
@@ -97,9 +100,21 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 	fmt.Fprintf(&buf, "%s %s %s\r\n", req.Method, req.URL.RequestURI(), req.Proto)
 	fmt.Fprintf(&buf, "Host: %s\r\n", req.Host)
 	fmt.Fprintf(&buf, "Content-Length: %d\r\n", len(prettyBody))
-	for key, values := range req.Header {
+
+	// Sort header keys for deterministic output.
+	headerKeys := make([]string, 0, len(req.Header))
+	for key := range req.Header {
+		headerKeys = append(headerKeys, key)
+	}
+	slices.Sort(headerKeys)
+
+	for _, key := range headerKeys {
+		// Skip Content-Length since we write it explicitly above with the pretty-printed body length.
+		if key == "Content-Length" {
+			continue
+		}
 		_, sensitive := sensitiveRequestHeaders[key]
-		for _, value := range values {
+		for _, value := range req.Header[key] {
 			if sensitive {
 				value = redactHeaderValue(value)
 			}
@@ -118,9 +133,17 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 	// Build raw HTTP response headers
 	var headerBuf bytes.Buffer
 	fmt.Fprintf(&headerBuf, "%s %s\r\n", resp.Proto, resp.Status)
-	for key, values := range resp.Header {
+
+	// Sort header keys for deterministic output.
+	headerKeys := make([]string, 0, len(resp.Header))
+	for key := range resp.Header {
+		headerKeys = append(headerKeys, key)
+	}
+	slices.Sort(headerKeys)
+
+	for _, key := range headerKeys {
 		_, sensitive := sensitiveResponseHeaders[key]
-		for _, value := range values {
+		for _, value := range resp.Header[key] {
 			if sensitive {
 				value = redactHeaderValue(value)
 			}
@@ -135,6 +158,9 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 			body:       resp.Body,
 			dumpPath:   dumpPath,
 			headerData: headerBuf.Bytes(),
+			logger: func(err error) {
+				d.logger.Named("apidump").Warn(context.Background(), "failed to initialize response dump", slog.Error(err))
+			},
 		}
 	} else {
 		// No body, just write headers
