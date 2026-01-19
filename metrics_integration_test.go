@@ -30,43 +30,122 @@ func TestMetrics_Interception(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
+		name           string
 		fixture        []byte
-		expectedStatus string
+		reqFunc        func(*testing.T, string, []byte) *http.Request
+		expectStatus   string
+		expectModel    string
+		expectRoute    string
+		expectProvider string
 	}{
 		{
+			name:           "ant_simple",
 			fixture:        fixtures.AntSimple,
-			expectedStatus: metrics.InterceptionCountStatusCompleted,
+			reqFunc:        createAnthropicMessagesReq,
+			expectStatus:   metrics.InterceptionCountStatusCompleted,
+			expectModel:    "claude-sonnet-4-0",
+			expectRoute:    "/v1/messages",
+			expectProvider: config.ProviderAnthropic,
 		},
 		{
+			name:           "ant_error",
 			fixture:        fixtures.AntNonStreamError,
-			expectedStatus: metrics.InterceptionCountStatusFailed,
+			reqFunc:        createAnthropicMessagesReq,
+			expectStatus:   metrics.InterceptionCountStatusFailed,
+			expectModel:    "claude-sonnet-4-0",
+			expectRoute:    "/v1/messages",
+			expectProvider: config.ProviderAnthropic,
+		},
+		{
+			name:           "oai_chat_simple",
+			fixture:        fixtures.OaiChatSimple,
+			reqFunc:        createOpenAIChatCompletionsReq,
+			expectStatus:   metrics.InterceptionCountStatusCompleted,
+			expectModel:    "gpt-4.1",
+			expectRoute:    "/v1/chat/completions",
+			expectProvider: config.ProviderOpenAI,
+		},
+		{
+			name:           "oai_chat_error",
+			fixture:        fixtures.OaiChatNonStreamError,
+			reqFunc:        createOpenAIChatCompletionsReq,
+			expectStatus:   metrics.InterceptionCountStatusFailed,
+			expectModel:    "gpt-4.1",
+			expectRoute:    "/v1/chat/completions",
+			expectProvider: config.ProviderOpenAI,
+		},
+		{
+			name:           "oai_responses_blocking_simple",
+			fixture:        fixtures.OaiResponsesBlockingSimple,
+			reqFunc:        createOpenAIResponsesReq,
+			expectStatus:   metrics.InterceptionCountStatusCompleted,
+			expectModel:    "gpt-4o-mini",
+			expectRoute:    "/v1/responses",
+			expectProvider: config.ProviderOpenAI,
+		},
+		{
+			name:           "oai_responses_blocking_error",
+			fixture:        fixtures.OaiResponsesBlockingHttpErr,
+			reqFunc:        createOpenAIResponsesReq,
+			expectStatus:   metrics.InterceptionCountStatusFailed,
+			expectModel:    "gpt-4o-mini",
+			expectRoute:    "/v1/responses",
+			expectProvider: config.ProviderOpenAI,
+		},
+		{
+			name:           "oai_responses_streaming_simple",
+			fixture:        fixtures.OaiResponsesStreamingSimple,
+			reqFunc:        createOpenAIResponsesReq,
+			expectStatus:   metrics.InterceptionCountStatusCompleted,
+			expectModel:    "gpt-4o-mini",
+			expectRoute:    "/v1/responses",
+			expectProvider: config.ProviderOpenAI,
+		},
+		{
+			name:           "oai_responses_streaming_error",
+			fixture:        fixtures.OaiResponsesStreamingHttpErr,
+			reqFunc:        createOpenAIResponsesReq,
+			expectStatus:   metrics.InterceptionCountStatusFailed,
+			expectModel:    "gpt-4o-mini",
+			expectRoute:    "/v1/responses",
+			expectProvider: config.ProviderOpenAI,
 		},
 	}
 
 	for _, tc := range cases {
-		arc := txtar.Parse(tc.fixture)
-		files := filesMap(arc)
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-		t.Cleanup(cancel)
+			arc := txtar.Parse(tc.fixture)
+			files := filesMap(arc)
 
-		mockAPI := newMockServer(ctx, t, files, nil)
-		t.Cleanup(mockAPI.Close)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
 
-		metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-		provider := provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), nil)
-		srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
+			mockAPI := newMockServer(ctx, t, files, nil)
+			t.Cleanup(mockAPI.Close)
 
-		req := createAnthropicMessagesReq(t, srv.URL, files[fixtureRequest])
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
-		defer resp.Body.Close()
-		_, _ = io.ReadAll(resp.Body)
+			metrics := aibridge.NewMetrics(prometheus.NewRegistry())
+			var prov aibridge.Provider
+			if tc.expectProvider == config.ProviderAnthropic {
+				prov = provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), nil)
+			} else {
+				prov = provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+			}
+			srv, _ := newTestSrv(t, ctx, prov, metrics, testTracer)
 
-		count := promtest.ToFloat64(metrics.InterceptionCount.WithLabelValues(
-			config.ProviderAnthropic, "claude-sonnet-4-0", tc.expectedStatus, "/v1/messages", "POST", userID))
-		require.Equal(t, 1.0, count)
-		require.Equal(t, 1, promtest.CollectAndCount(metrics.InterceptionDuration))
+			req := tc.reqFunc(t, srv.URL, files[fixtureRequest])
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			_, _ = io.ReadAll(resp.Body)
+
+			count := promtest.ToFloat64(metrics.InterceptionCount.WithLabelValues(
+				tc.expectProvider, tc.expectModel, tc.expectStatus, tc.expectRoute, "POST", userID))
+			require.Equal(t, 1.0, count)
+			require.Equal(t, 1, promtest.CollectAndCount(metrics.InterceptionDuration))
+			require.Equal(t, 1, promtest.CollectAndCount(metrics.InterceptionCount))
+		})
 	}
 }
 

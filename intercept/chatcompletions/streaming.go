@@ -220,8 +220,9 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 				}
 			}
 		} else {
-			// Stream has not started yet; write to response if present.
+			// response/downstream Stream has not started yet; write error response and exit.
 			i.writeUpstreamError(w, getErrorResponse(stream.Err()))
+			return stream.Err()
 		}
 
 		// No tool call, nothing more to do.
