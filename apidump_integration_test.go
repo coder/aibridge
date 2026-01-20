@@ -72,6 +72,15 @@ func TestAPIDump(t *testing.T) {
 			},
 			createRequestFunc: createOpenAIChatCompletionsReq,
 		},
+		{
+			name:         config.ProviderOpenAI,
+			fixture:      fixtures.OaiResponsesBlockingSimple,
+			providerName: config.ProviderOpenAI,
+			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
+				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
+			},
+			createRequestFunc: createOpenAIResponsesReq,
+		},
 	}
 
 	for _, tc := range cases {

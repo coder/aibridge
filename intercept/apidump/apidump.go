@@ -54,6 +54,7 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, lo
 			logger.Named("apidump").Warn(context.Background(), "failed to dump request", slog.Error(err))
 		}
 
+		// TODO: https://github.com/coder/aibridge/issues/129
 		resp, err := next(req)
 		if err != nil {
 			return resp, err
@@ -98,29 +99,10 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 	// Build raw HTTP request format
 	var buf bytes.Buffer
 	fmt.Fprintf(&buf, "%s %s %s\r\n", req.Method, req.URL.RequestURI(), req.Proto)
-	fmt.Fprintf(&buf, "Host: %s\r\n", req.Host)
-	fmt.Fprintf(&buf, "Content-Length: %d\r\n", len(prettyBody))
+	d.writeRedactedHeaders(&buf, req.Header, sensitiveRequestHeaders, map[string]string{
+		"Content-Length": fmt.Sprintf("%d", len(prettyBody)),
+	})
 
-	// Sort header keys for deterministic output.
-	headerKeys := make([]string, 0, len(req.Header))
-	for key := range req.Header {
-		headerKeys = append(headerKeys, key)
-	}
-	slices.Sort(headerKeys)
-
-	for _, key := range headerKeys {
-		// Skip Content-Length since we write it explicitly above with the pretty-printed body length.
-		if key == "Content-Length" {
-			continue
-		}
-		_, sensitive := sensitiveRequestHeaders[key]
-		for _, value := range req.Header[key] {
-			if sensitive {
-				value = redactHeaderValue(value)
-			}
-			fmt.Fprintf(&buf, "%s: %s\r\n", key, value)
-		}
-	}
 	fmt.Fprintf(&buf, "\r\n")
 	buf.Write(prettyBody)
 
@@ -133,23 +115,7 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 	// Build raw HTTP response headers
 	var headerBuf bytes.Buffer
 	fmt.Fprintf(&headerBuf, "%s %s\r\n", resp.Proto, resp.Status)
-
-	// Sort header keys for deterministic output.
-	headerKeys := make([]string, 0, len(resp.Header))
-	for key := range resp.Header {
-		headerKeys = append(headerKeys, key)
-	}
-	slices.Sort(headerKeys)
-
-	for _, key := range headerKeys {
-		_, sensitive := sensitiveResponseHeaders[key]
-		for _, value := range resp.Header[key] {
-			if sensitive {
-				value = redactHeaderValue(value)
-			}
-			fmt.Fprintf(&headerBuf, "%s: %s\r\n", key, value)
-		}
-	}
+	d.writeRedactedHeaders(&headerBuf, resp.Header, sensitiveResponseHeaders, nil)
 	fmt.Fprintf(&headerBuf, "\r\n")
 
 	// Wrap the response body to capture it as it streams
@@ -168,6 +134,50 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 	}
 
 	return nil
+}
+
+// writeRedactedHeaders writes HTTP headers in wire format (Key: Value\r\n) to w,
+// redacting sensitive values and applying any overrides. Headers are sorted by key
+// for deterministic output.
+// `sensitive` and `overrides` must both supply keys in canoncialized form.
+// See [textproto.MIMEHeader].
+func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitive map[string]struct{}, overrides map[string]string) {
+	// Collect all header keys including overrides.
+	headerKeys := make([]string, 0, len(headers)+len(overrides))
+	seen := make(map[string]struct{}, len(headers)+len(overrides))
+	for key := range headers {
+		headerKeys = append(headerKeys, key)
+		seen[key] = struct{}{}
+	}
+	// Add override keys that don't exist in headers.
+	for key := range overrides {
+		if _, ok := seen[key]; !ok {
+			headerKeys = append(headerKeys, key)
+		}
+	}
+	slices.Sort(headerKeys)
+
+	for _, key := range headerKeys {
+		_, isSensitive := sensitive[key]
+		values := headers[key]
+		// If no values exist but we have an override, use that.
+		if len(values) == 0 {
+			if override, ok := overrides[key]; ok {
+				fmt.Fprintf(w, "%s: %s\r\n", key, override)
+			}
+			continue
+		}
+		for _, value := range values {
+			if override, ok := overrides[key]; ok {
+				value = override
+			}
+
+			if isSensitive {
+				value = redactHeaderValue(value)
+			}
+			fmt.Fprintf(w, "%s: %s\r\n", key, value)
+		}
+	}
 }
 
 // path returns the path to a request/response dump file for a given interception.
