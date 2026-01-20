@@ -331,6 +331,11 @@ func (r *responseCopier) readAll() ([]byte, error) {
 
 // forwardResp writes whole response as received to ResponseWriter
 func (r *responseCopier) forwardResp(w http.ResponseWriter) error {
+	// no response was received, nothing to forward
+	if !r.responseReceived.Load() {
+		return nil
+	}
+
 	w.Header().Set("Content-Type", r.responseHeaders.Get("Content-Type"))
 	w.WriteHeader(r.responseStatus)
 

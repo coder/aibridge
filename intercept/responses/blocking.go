@@ -3,6 +3,7 @@ package responses
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -102,6 +103,7 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	if upstreamErr != nil && !respCopy.responseReceived.Load() {
 		// no response received from upstream, return custom error
 		i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
+		return fmt.Errorf("failed to connect to upstream: %w", upstreamErr)
 	}
 
 	err = respCopy.forwardResp(w)
