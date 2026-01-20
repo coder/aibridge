@@ -607,7 +607,7 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	cbConfig := &config.CircuitBreaker{
 		FailureThreshold: 2,
 		Interval:         time.Minute,
-		Timeout:          50 * time.Millisecond,
+		Timeout:          500 * time.Millisecond,
 		MaxRequests:      1,
 	}
 	prov := provider.NewAnthropic(config.Anthropic{
