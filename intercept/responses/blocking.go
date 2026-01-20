@@ -72,7 +72,7 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 
 		opts := i.requestOptions(&respCopy)
 		opts = append(opts, option.WithRequestTimeout(time.Second*600))
-		response, upstreamErr = srv.New(ctx, i.req.ResponseNewParams, opts...)
+		response, upstreamErr = i.newResponse(ctx, srv, opts)
 
 		if upstreamErr != nil {
 			break
