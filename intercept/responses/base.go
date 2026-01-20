@@ -26,10 +26,10 @@ import (
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
-	oaiconst "github.com/openai/openai-go/v3/shared/constant"
+	"github.com/openai/openai-go/v3/shared/constant"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -42,6 +42,7 @@ type responsesInterceptionBase struct {
 	reqPayload []byte
 	cfg        config.OpenAI
 	model      string
+	tracer     trace.Tracer
 	recorder   recorder.Recorder
 	mcpProxy   mcp.ServerProxier
 	logger     slog.Logger
@@ -95,18 +96,6 @@ func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.
 		err := fmt.Errorf("background requests are currently not supported by AI Bridge")
 		i.sendCustomErr(ctx, w, http.StatusNotImplemented, err)
 		return err
-	}
-
-	// keeping the same logic for 'parallel_tool_calls' as in chat-completions
-	// https://github.com/coder/aibridge/blob/7535a71e91a1d214a31a9b59bb810befb26141bc/intercept/chatcompletions/streaming.go#L99
-	if len(i.req.Tools) > 0 {
-		var err error
-		i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)
-		if err != nil {
-			err = fmt.Errorf("failed set parallel_tool_calls parameter: %w", err)
-			i.sendCustomErr(ctx, w, http.StatusInternalServerError, err)
-			return err
-		}
 	}
 
 	return nil
@@ -174,7 +163,7 @@ func (i *responsesInterceptionBase) lastUserPrompt() (string, error) {
 	inputItems := gjson.GetBytes(i.reqPayload, "input").Array()
 	for i := len(inputItems) - 1; i >= 0; i-- {
 		item := inputItems[i]
-		if item.Get("role").Str == "user" {
+		if item.Get("role").Str == string(constant.ValueOf[constant.User]()) {
 			var sb strings.Builder
 
 			// content can be a string or array of objects:
@@ -194,7 +183,8 @@ func (i *responsesInterceptionBase) lastUserPrompt() (string, error) {
 		}
 	}
 
-	return "", errors.New("failed to find last user prompt")
+	// Request was likely not human-initiated.
+	return "", nil
 }
 
 func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string) {
@@ -204,8 +194,8 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 		return
 	}
 
+	// No prompt found: last request was not human-initiated.
 	if prompt == "" {
-		i.logger.Warn(ctx, "got empty last prompt, skipping prompt recording")
 		return
 	}
 
@@ -224,7 +214,7 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 	}
 }
 
-func (i *responsesInterceptionBase) recordToolUsage(ctx context.Context, response *responses.Response) {
+func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Context, response *responses.Response) {
 	if response == nil {
 		i.logger.Warn(ctx, "got empty response, skipping tool usage recording")
 		return
@@ -235,9 +225,9 @@ func (i *responsesInterceptionBase) recordToolUsage(ctx context.Context, respons
 
 		// recording other function types to be considered: https://github.com/coder/aibridge/issues/121
 		switch item.Type {
-		case string(oaiconst.ValueOf[oaiconst.FunctionCall]()):
+		case string(constant.ValueOf[constant.FunctionCall]()):
 			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments)
-		case string(oaiconst.ValueOf[oaiconst.CustomToolCall]()):
+		case string(constant.ValueOf[constant.CustomToolCall]()):
 			args = item.Input
 		default:
 			continue

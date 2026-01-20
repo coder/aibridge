@@ -51,8 +51,8 @@ var (
 	//go:embed openai/responses/blocking/simple.txtar
 	OaiResponsesBlockingSimple []byte
 
-	//go:embed openai/responses/blocking/builtin_tool.txtar
-	OaiResponsesBlockingBuiltinTool []byte
+	//go:embed openai/responses/blocking/single_builtin_tool.txtar
+	OaiResponsesBlockingSingleBuiltinTool []byte
 
 	//go:embed openai/responses/blocking/cached_input_tokens.txtar
 	OaiResponsesBlockingCachedInputTokens []byte
@@ -68,6 +68,12 @@ var (
 
 	//go:embed openai/responses/blocking/wrong_response_format.txtar
 	OaiResponsesBlockingWrongResponseFormat []byte
+
+	//go:embed openai/responses/blocking/single_injected_tool.txtar
+	OaiResponsesSingleInjectedTool []byte
+
+	//go:embed openai/responses/blocking/single_injected_tool_error.txtar
+	OaiResponsesSingleInjectedToolError []byte
 )
 
 var (

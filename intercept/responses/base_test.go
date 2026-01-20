@@ -28,7 +28,7 @@ func TestLastUserPrompt(t *testing.T) {
 		},
 		{
 			name:       "array_single_input_string",
-			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingBuiltinTool),
+			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingSingleBuiltinTool),
 			expected:   "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
 		},
 		{
@@ -58,7 +58,7 @@ func TestLastUserPrompt(t *testing.T) {
 	}
 }
 
-func TestLastUserPromptErr(t *testing.T) {
+func TestLastUserPromptEmptyPrompt(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil_struct", func(t *testing.T) {
@@ -71,45 +71,30 @@ func TestLastUserPromptErr(t *testing.T) {
 		require.Contains(t, "cannot get last user prompt: nil struct", err.Error())
 	})
 
-	t.Run("nil_struct", func(t *testing.T) {
-		t.Parallel()
-
-		base := responsesInterceptionBase{}
-		prompt, err := base.lastUserPrompt()
-		require.Error(t, err)
-		require.Empty(t, prompt)
-		require.Contains(t, "cannot get last user prompt: nil req struct", err.Error())
-	})
-
+	// Other cases where the user prompt might be empty.
 	tests := []struct {
 		name       string
 		reqPayload []byte
-		wantErrMsg string
 	}{
 		{
 			name:       "empty_input",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": []}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 		{
 			name:       "no_user_role",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "assistant", "content": "hello"}]}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 		{
 			name:       "user_with_empty_content",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": ""}]}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 		{
 			name:       "user_with_empty_content_array",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": []}]}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 		{
 			name:       "user_with_non_input_text_content",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": [{"type": "input_image", "url": "http://example.com/img.png"}]}]}`),
-			wantErrMsg: "failed to find last user prompt",
 		},
 	}
 
@@ -127,9 +112,8 @@ func TestLastUserPromptErr(t *testing.T) {
 			}
 
 			prompt, err := base.lastUserPrompt()
-			require.Error(t, err)
+			require.NoError(t, err)
 			require.Empty(t, prompt)
-			require.Contains(t, tc.wantErrMsg, err.Error())
 		})
 	}
 }
@@ -318,7 +302,7 @@ func TestRecordToolUsage(t *testing.T) {
 				logger:   slog.Make(),
 			}
 
-			base.recordToolUsage(t.Context(), tc.response)
+			base.recordNonInjectedToolUsage(t.Context(), tc.response)
 
 			tools := rec.RecordedToolUsages()
 			require.Len(t, tools, len(tc.expected))

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"regexp"
 	"strings"
+	"time"
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/tracing"
@@ -68,12 +69,30 @@ func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp
 		span.SetAttributes(attribute.String(tracing.MCPInput, strJson))
 	}
 
-	return t.Client.CallTool(ctx, mcp.CallToolRequest{
+	start := time.Now()
+	var res *mcp.CallToolResult
+	res, outErr = t.Client.CallTool(ctx, mcp.CallToolRequest{
 		Params: mcp.CallToolParams{
 			Name:      t.Name,
 			Arguments: input,
 		},
 	})
+
+	logFn := t.Logger.Debug
+	if outErr != nil {
+		logFn = t.Logger.Warn
+	}
+
+	// We don't log MCP results because they could be large or contain sensitive information.
+	logFn(ctx, "injected tool invoked",
+		slog.F("name", t.Name),
+		slog.F("server", t.ServerName),
+		slog.F("input", inputJson),
+		slog.F("duration_sec", time.Since(start).Seconds()),
+		slog.Error(outErr),
+	)
+
+	return res, outErr
 }
 
 // EncodeToolID namespaces the given tool name with a prefix to identify tools injected by this library.
