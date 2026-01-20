@@ -28,8 +28,7 @@ var openAIOpenErrorResponse = func() []byte {
 
 // OpenAI allows for interactions with the OpenAI API.
 type OpenAI struct {
-	baseURL        string
-	key            string
+	cfg            config.OpenAI
 	circuitBreaker *config.CircuitBreaker
 }
 
@@ -39,9 +38,11 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1/"
 	}
-
 	if cfg.Key == "" {
 		cfg.Key = os.Getenv("OPENAI_API_KEY")
+	}
+	if cfg.APIDumpDir == "" {
+		cfg.APIDumpDir = os.Getenv("BRIDGE_DUMP_DIR")
 	}
 
 	if cfg.CircuitBreaker != nil {
@@ -49,8 +50,7 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	}
 
 	return &OpenAI{
-		baseURL:        cfg.BaseURL,
-		key:            cfg.Key,
+		cfg:            cfg,
 		circuitBreaker: cfg.CircuitBreaker,
 	}
 }
@@ -103,9 +103,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.baseURL, p.key, tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.cfg, tracer)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.baseURL, p.key, tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.cfg, tracer)
 		}
 
 	case routeResponses:
@@ -114,9 +114,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 		if req.Stream {
-			interceptor = responses.NewStreamingInterceptor(id, &req, payload, p.baseURL, p.key, string(req.Model))
+			interceptor = responses.NewStreamingInterceptor(id, &req, payload, p.cfg, string(req.Model))
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, &req, payload, p.baseURL, p.key, string(req.Model))
+			interceptor = responses.NewBlockingInterceptor(id, &req, payload, p.cfg, string(req.Model))
 		}
 
 	default:
@@ -128,7 +128,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 }
 
 func (p *OpenAI) BaseURL() string {
-	return p.baseURL
+	return p.cfg.BaseURL
 }
 
 func (p *OpenAI) AuthHeader() string {
@@ -140,7 +140,7 @@ func (p *OpenAI) InjectAuthHeader(headers *http.Header) {
 		headers = &http.Header{}
 	}
 
-	headers.Set(p.AuthHeader(), "Bearer "+p.key)
+	headers.Set(p.AuthHeader(), "Bearer "+p.cfg.Key)
 }
 
 func (p *OpenAI) CircuitBreakerConfig() *config.CircuitBreaker {

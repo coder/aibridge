@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/google/uuid"
@@ -15,14 +16,13 @@ type BlockingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewBlockingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, baseURL string, key string, model string) *BlockingResponsesInterceptor {
+func NewBlockingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string) *BlockingResponsesInterceptor {
 	return &BlockingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
 			id:         id,
 			req:        req,
 			reqPayload: reqPayload,
-			baseURL:    baseURL,
-			apiKey:     key,
+			cfg:        cfg,
 			model:      model,
 		},
 	}

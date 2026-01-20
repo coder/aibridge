@@ -17,10 +17,12 @@ import (
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/quartz"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/responses"
@@ -38,8 +40,7 @@ type responsesInterceptionBase struct {
 	id         uuid.UUID
 	req        *ResponsesNewParamsWrapper
 	reqPayload []byte
-	baseURL    string
-	apiKey     string
+	cfg        config.OpenAI
 	model      string
 	recorder   recorder.Recorder
 	mcpProxy   mcp.ServerProxier
@@ -48,9 +49,11 @@ type responsesInterceptionBase struct {
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
-	opts := []option.RequestOption{
-		option.WithBaseURL(i.baseURL),
-		option.WithAPIKey(i.apiKey),
+	opts := []option.RequestOption{option.WithBaseURL(i.cfg.BaseURL), option.WithAPIKey(i.cfg.Key)}
+
+	// Add API dump middleware if configured
+	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, config.ProviderOpenAI, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
+		opts = append(opts, option.WithMiddleware(mw))
 	}
 
 	return responses.NewResponseService(opts...)

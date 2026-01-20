@@ -38,6 +38,7 @@ func DefaultCircuitBreaker() CircuitBreaker {
 type Anthropic struct {
 	BaseURL        string
 	Key            string
+	APIDumpDir     string
 	CircuitBreaker *CircuitBreaker
 }
 
@@ -53,5 +54,6 @@ type AWSBedrock struct {
 type OpenAI struct {
 	BaseURL        string
 	Key            string
+	APIDumpDir     string
 	CircuitBreaker *CircuitBreaker
 }

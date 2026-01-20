@@ -46,6 +46,9 @@ func NewAnthropic(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) *Anthropi
 	if cfg.Key == "" {
 		cfg.Key = os.Getenv("ANTHROPIC_API_KEY")
 	}
+	if cfg.APIDumpDir == "" {
+		cfg.APIDumpDir = os.Getenv("BRIDGE_DUMP_DIR")
+	}
 	if cfg.CircuitBreaker != nil {
 		cfg.CircuitBreaker.IsFailure = anthropicIsFailure
 		cfg.CircuitBreaker.OpenErrorResponse = anthropicOpenErrorResponse

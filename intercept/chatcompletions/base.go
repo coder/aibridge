@@ -9,9 +9,11 @@ import (
 
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/quartz"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
@@ -23,10 +25,9 @@ import (
 )
 
 type interceptionBase struct {
-	id      uuid.UUID
-	req     *ChatCompletionNewParamsWrapper
-	baseURL string
-	key     string
+	id  uuid.UUID
+	req *ChatCompletionNewParamsWrapper
+	cfg config.OpenAI
 
 	logger slog.Logger
 	tracer trace.Tracer
@@ -35,8 +36,13 @@ type interceptionBase struct {
 	mcpProxy mcp.ServerProxier
 }
 
-func (i *interceptionBase) newCompletionsService(baseURL string, key string) openai.ChatCompletionService {
-	opts := []option.RequestOption{option.WithAPIKey(key), option.WithBaseURL(baseURL)}
+func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService {
+	opts := []option.RequestOption{option.WithAPIKey(i.cfg.Key), option.WithBaseURL(i.cfg.BaseURL)}
+
+	// Add API dump middleware if configured
+	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, config.ProviderOpenAI, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
+		opts = append(opts, option.WithMiddleware(mw))
+	}
 
 	return openai.NewChatCompletionService(opts...)
 }
