@@ -533,7 +533,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			fixture:    fixtures.OaiChatMidStreamError,
 			streaming:  true,
 			reqFunc:    createOpenAIChatCompletionsReq,
-			expectCode: 200,
+			expectCode: http.StatusOK,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -549,7 +549,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			fixture:    fixtures.OaiChatNonStreamError,
 			streaming:  false,
 			reqFunc:    createOpenAIChatCompletionsReq,
-			expectCode: 500,
+			expectCode: http.StatusInternalServerError,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -564,7 +564,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			streaming:  true,
 			fixture:    fixtures.OaiResponsesStreamingWrongResponseFormat,
 			reqFunc:    createOpenAIResponsesReq,
-			expectCode: 200,
+			expectCode: http.StatusOK,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -584,7 +584,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			// responses forward received response as is so
 			// expected code == 200 even though ProcessRequest
 			// traces are expected to have error status
-			expectCode: 200,
+			expectCode: http.StatusOK,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -600,7 +600,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			streaming:        true,
 			useMockReflector: true,
 			reqFunc:          createOpenAIResponsesReq,
-			expectCode:       429,
+			expectCode:       http.StatusTooManyRequests,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -616,7 +616,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			streaming:        false,
 			useMockReflector: true,
 			reqFunc:          createOpenAIResponsesReq,
-			expectCode:       401,
+			expectCode:       http.StatusUnauthorized,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
