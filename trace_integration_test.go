@@ -389,12 +389,14 @@ func TestTraceOpenAI(t *testing.T) {
 		name      string
 		fixture   []byte
 		streaming bool
+		reqFunc   func(t *testing.T, baseURL string, input []byte) *http.Request
 		expect    []expectTrace
 	}{
 		{
-			name:      "trace_openai_streaming",
+			name:      "trace_openai_chat_streaming",
 			fixture:   fixtures.OaiChatSimple,
 			streaming: true,
+			reqFunc:   createOpenAIChatCompletionsReq,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -407,9 +409,42 @@ func TestTraceOpenAI(t *testing.T) {
 			},
 		},
 		{
-			name:      "trace_openai_non_streaming",
+			name:      "trace_openai_chat_blocking",
 			fixture:   fixtures.OaiChatSimple,
+			reqFunc:   createOpenAIChatCompletionsReq,
 			streaming: false,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Unset},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Unset},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.RecordPromptUsage", 1, codes.Unset},
+				{"Intercept.RecordTokenUsage", 1, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+			},
+		},
+		{
+			name:      "trace_openai_responses_streaming",
+			fixture:   fixtures.OaiResponsesStreamingSimple,
+			streaming: true,
+			reqFunc:   createOpenAIResponsesReq,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Unset},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Unset},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.RecordPromptUsage", 1, codes.Unset},
+				{"Intercept.RecordTokenUsage", 1, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+			},
+		},
+		{
+			name:      "trace_openai_responses_blocking",
+			fixture:   fixtures.OaiResponsesBlockingSimple,
+			streaming: false,
+			reqFunc:   createOpenAIResponsesReq,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -424,7 +459,7 @@ func TestTraceOpenAI(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(t.Name(), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
@@ -432,8 +467,11 @@ func TestTraceOpenAI(t *testing.T) {
 
 			files := filesMap(arc)
 			require.Contains(t, files, fixtureRequest)
-			require.Contains(t, files, fixtureStreamingResponse)
-			require.Contains(t, files, fixtureNonStreamingResponse)
+			if tc.streaming {
+				require.Contains(t, files, fixtureStreamingResponse)
+			} else {
+				require.Contains(t, files, fixtureNonStreamingResponse)
+			}
 
 			fixtureReqBody := files[fixtureRequest]
 
@@ -450,7 +488,7 @@ func TestTraceOpenAI(t *testing.T) {
 			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
-			req := createOpenAIChatCompletionsReq(t, srv.URL, reqBody)
+			req := tc.reqFunc(t, srv.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			require.NoError(t, err)
@@ -482,13 +520,20 @@ func TestTraceOpenAI(t *testing.T) {
 
 func TestTraceOpenAIErr(t *testing.T) {
 	cases := []struct {
-		name      string
-		streaming bool
-		expect    []expectTrace
+		name             string
+		fixture          []byte
+		streaming        bool
+		useMockReflector bool
+		reqFunc          func(t *testing.T, baseURL string, input []byte) *http.Request
+		expect           []expectTrace
+		expectCode       int
 	}{
 		{
-			name:      "trace_openai_streaming_err",
-			streaming: true,
+			name:       "trace_openai_chat_streaming_error",
+			fixture:    fixtures.OaiChatMidStreamError,
+			streaming:  true,
+			reqFunc:    createOpenAIChatCompletionsReq,
+			expectCode: http.StatusOK,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -500,8 +545,78 @@ func TestTraceOpenAIErr(t *testing.T) {
 			},
 		},
 		{
-			name:      "trace_openai_non_streaming_err",
+			name:       "trace_openai_chat_blocking_error",
+			fixture:    fixtures.OaiChatNonStreamError,
+			streaming:  false,
+			reqFunc:    createOpenAIChatCompletionsReq,
+			expectCode: http.StatusInternalServerError,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Error},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Error},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Error},
+			},
+		},
+		{
+			name:       "trace_openai_responses_streaming_error",
+			streaming:  true,
+			fixture:    fixtures.OaiResponsesStreamingWrongResponseFormat,
+			reqFunc:    createOpenAIResponsesReq,
+			expectCode: http.StatusOK,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Error},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Error},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.RecordPromptUsage", 1, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+			},
+		},
+		{
+			name:      "trace_openai_responses_blocking_error",
+			fixture:   fixtures.OaiResponsesBlockingWrongResponseFormat,
 			streaming: false,
+			reqFunc:   createOpenAIResponsesReq,
+			// Fixture returns http 200 response with wrong body
+			// responses forward received response as is so
+			// expected code == 200 even though ProcessRequest
+			// traces are expected to have error status
+			expectCode: http.StatusOK,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Error},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Error},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Error},
+			},
+		},
+		{
+			name:             "trace_openai_responses_streaming_http_error",
+			fixture:          fixtures.OaiResponsesStreamingHttpErr,
+			streaming:        true,
+			useMockReflector: true,
+			reqFunc:          createOpenAIResponsesReq,
+			expectCode:       http.StatusTooManyRequests,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Error},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Error},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+			},
+		},
+		{
+			name:             "trace_openai_responses_blocking_http_error",
+			fixture:          fixtures.OaiResponsesBlockingHttpErr,
+			streaming:        false,
+			useMockReflector: true,
+			reqFunc:          createOpenAIResponsesReq,
+			expectCode:       http.StatusUnauthorized,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -514,18 +629,11 @@ func TestTraceOpenAIErr(t *testing.T) {
 	}
 
 	for _, tc := range cases {
-		t.Run(t.Name(), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			var arc *txtar.Archive
-			if tc.streaming {
-				arc = txtar.Parse(fixtures.OaiChatMidStreamError)
-			} else {
-				arc = txtar.Parse(fixtures.OaiChatNonStreamError)
-			}
-
-			files := filesMap(arc)
+			files := filesMap(txtar.Parse(tc.fixture))
 			require.Contains(t, files, fixtureRequest)
 			if tc.streaming {
 				require.Contains(t, files, fixtureStreamingResponse)
@@ -543,20 +651,30 @@ func TestTraceOpenAIErr(t *testing.T) {
 			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
 			require.NoError(t, err)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
-			t.Cleanup(mockAPI.Close)
-			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
-			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
+			var respBody []byte
+			if tc.streaming {
+				respBody = files[fixtureStreamingResponse]
+			} else {
+				respBody = files[fixtureNonStreamingResponse]
+			}
+			var prov *provider.OpenAI
+			if tc.useMockReflector {
+				mockAPI := newMockHTTPReflector(ctx, t, respBody)
+				t.Cleanup(mockAPI.Close)
+				prov = provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+			} else {
+				mockAPI := newMockServer(ctx, t, files, nil)
+				t.Cleanup(mockAPI.Close)
+				prov = provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+			}
+			srv, recorder := newTestSrv(t, ctx, prov, nil, tracer)
 
-			req := createOpenAIChatCompletionsReq(t, srv.URL, reqBody)
+			req := tc.reqFunc(t, srv.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			require.NoError(t, err)
-			if tc.streaming {
-				require.Equal(t, http.StatusOK, resp.StatusCode)
-			} else {
-				require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
-			}
+
+			require.Equal(t, tc.expectCode, resp.StatusCode)
 			defer resp.Body.Close()
 			srv.Close()
 

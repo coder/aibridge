@@ -42,11 +42,11 @@ type responsesInterceptionBase struct {
 	reqPayload []byte
 	cfg        config.OpenAI
 	model      string
-	tracer     trace.Tracer
 	recorder   recorder.Recorder
 	mcpProxy   mcp.ServerProxier
 	logger     slog.Logger
 	metrics    metrics.Metrics
+	tracer     trace.Tracer
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {

@@ -63,6 +63,9 @@ var (
 	//go:embed openai/responses/blocking/conversation.txtar
 	OaiResponsesBlockingConversation []byte
 
+	//go:embed openai/responses/blocking/http_error.txtar
+	OaiResponsesBlockingHttpErr []byte
+
 	//go:embed openai/responses/blocking/prev_response_id.txtar
 	OaiResponsesBlockingPrevResponseID []byte
 
@@ -94,6 +97,9 @@ var (
 
 	//go:embed openai/responses/streaming/conversation.txtar
 	OaiResponsesStreamingConversation []byte
+
+	//go:embed openai/responses/streaming/http_error.txtar
+	OaiResponsesStreamingHttpErr []byte
 
 	//go:embed openai/responses/streaming/prev_response_id.txtar
 	OaiResponsesStreamingPrevResponseID []byte
