@@ -3,7 +3,6 @@ package provider
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"os"
 
@@ -81,15 +80,10 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
 	defer tracing.EndSpanErr(span, &outErr)
 
-	payload, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
-
 	switch r.URL.Path {
 	case routeMessages:
 		var req messages.MessageNewParamsWrapper
-		if err := json.Unmarshal(payload, &req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal request: %w", err)
 		}
 
