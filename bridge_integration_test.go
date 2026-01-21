@@ -186,7 +186,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 		t.Cleanup(cancel)
 
-		// Invalid bedrock config - missing region
+		// Invalid bedrock config - missing region & base url
 		bedrockCfg := &config.AWSBedrock{
 			Region:          "",
 			AccessKey:       "test-key",
@@ -218,7 +218,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		require.Contains(t, string(body), "create anthropic client")
-		require.Contains(t, string(body), "region required")
+		require.Contains(t, string(body), "region or base url required")
 	})
 
 	t.Run("/v1/messages", func(t *testing.T) {
@@ -281,15 +281,14 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				srv.Start()
 				t.Cleanup(srv.Close)
 
-				// Configure Bedrock with test credentials and model names.
-				// The EndpointOverride will make requests go to the mock server instead of real AWS endpoints.
+				// We define region here to validate that with Region & BaseURL defined, the latter takes precedence.
 				bedrockCfg := &config.AWSBedrock{
-					Region:           "us-west-2",
-					AccessKey:        "test-access-key",
-					AccessKeySecret:  "test-secret-key",
-					Model:            "danthropic",      // This model should override the request's given one.
-					SmallFastModel:   "danthropic-mini", // Unused but needed for validation.
-					EndpointOverride: srv.URL,
+					Region:          "us-west-2",
+					AccessKey:       "test-access-key",
+					AccessKeySecret: "test-secret-key",
+					Model:           "danthropic",      // This model should override the request's given one.
+					SmallFastModel:  "danthropic-mini", // Unused but needed for validation.
+					BaseURL:         srv.URL,           // Use the mock server.
 				}
 
 				recorderClient := &testutil.MockRecorder{}

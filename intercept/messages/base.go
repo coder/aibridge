@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"time"
 
@@ -163,34 +162,23 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	if i.bedrockCfg != nil {
 		ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 		defer cancel()
-		bedrockOpt, err := i.withAWSBedrock(ctx, i.bedrockCfg)
+		bedrockOpts, err := i.withAWSBedrockOptions(ctx, i.bedrockCfg)
 		if err != nil {
 			return anthropic.MessageService{}, err
 		}
-		opts = append(opts, bedrockOpt)
+		opts = append(opts, bedrockOpts...)
 		i.augmentRequestForBedrock()
-
-		// If an endpoint override is set (for testing), add a custom HTTP client AFTER the bedrock config
-		// This overrides any HTTP client set by the bedrock middleware
-		if i.bedrockCfg.EndpointOverride != "" {
-			opts = append(opts, option.WithHTTPClient(&http.Client{
-				Transport: &redirectTransport{
-					base:          http.DefaultTransport,
-					redirectToURL: i.bedrockCfg.EndpointOverride,
-				},
-			}))
-		}
 	}
 
 	return anthropic.NewMessageService(opts...), nil
 }
 
-func (i *interceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AWSBedrock) (option.RequestOption, error) {
+func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("nil config given")
 	}
-	if cfg.Region == "" {
-		return nil, fmt.Errorf("region required")
+	if cfg.Region == "" && cfg.BaseURL == "" {
+		return nil, fmt.Errorf("region or base url required")
 	}
 	if cfg.AccessKey == "" {
 		return nil, fmt.Errorf("access key required")
@@ -221,7 +209,15 @@ func (i *interceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AW
 		return nil, fmt.Errorf("failed to load AWS Bedrock config: %w", err)
 	}
 
-	return bedrock.WithConfig(awsCfg), nil
+	var out []option.RequestOption
+	out = append(out, bedrock.WithConfig(awsCfg))
+
+	// If a custom base URL is set, override the default endpoint constructed by the bedrock middleware.
+	if cfg.BaseURL != "" {
+		out = append(out, option.WithBaseURL(cfg.BaseURL))
+	}
+
+	return out, nil
 }
 
 // augmentRequestForBedrock will change the model used for the request since AWS Bedrock doesn't support
@@ -259,28 +255,6 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *Err
 	} else {
 		_, _ = w.Write(out)
 	}
-}
-
-// redirectTransport is an HTTP RoundTripper that redirects requests to a different endpoint.
-// This is useful for testing when we need to redirect AWS Bedrock requests to a mock server.
-type redirectTransport struct {
-	base          http.RoundTripper
-	redirectToURL string
-}
-
-func (t *redirectTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	// Parse the redirect URL
-	redirectURL, err := url.Parse(t.redirectToURL)
-	if err != nil {
-		return nil, err
-	}
-
-	// Redirect the request to the mock server
-	req.URL.Scheme = redirectURL.Scheme
-	req.URL.Host = redirectURL.Host
-	req.Host = redirectURL.Host
-
-	return t.base.RoundTrip(req)
 }
 
 // accumulateUsage accumulates usage statistics from source into dest.
