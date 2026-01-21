@@ -162,29 +162,23 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	if i.bedrockCfg != nil {
 		ctx, cancel := context.WithTimeout(ctx, time.Second*30)
 		defer cancel()
-		bedrockOpt, err := i.withAWSBedrock(ctx, i.bedrockCfg)
+		bedrockOpts, err := i.withAWSBedrockOptions(ctx, i.bedrockCfg)
 		if err != nil {
 			return anthropic.MessageService{}, err
 		}
-		opts = append(opts, bedrockOpt)
+		opts = append(opts, bedrockOpts...)
 		i.augmentRequestForBedrock()
-
-		// If a custom base URL is set, add it AFTER the bedrock config to override
-		// the default endpoint constructed by the bedrock middleware.
-		if i.bedrockCfg.BaseURL != "" {
-			opts = append(opts, option.WithBaseURL(i.bedrockCfg.BaseURL))
-		}
 	}
 
 	return anthropic.NewMessageService(opts...), nil
 }
 
-func (i *interceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AWSBedrock) (option.RequestOption, error) {
+func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
 	if cfg == nil {
 		return nil, fmt.Errorf("nil config given")
 	}
 	if cfg.Region == "" && cfg.BaseURL == "" {
-		return nil, fmt.Errorf("region required")
+		return nil, fmt.Errorf("region or base url required")
 	}
 	if cfg.AccessKey == "" {
 		return nil, fmt.Errorf("access key required")
@@ -215,7 +209,15 @@ func (i *interceptionBase) withAWSBedrock(ctx context.Context, cfg *aibconfig.AW
 		return nil, fmt.Errorf("failed to load AWS Bedrock config: %w", err)
 	}
 
-	return bedrock.WithConfig(awsCfg), nil
+	var out []option.RequestOption
+	out = append(out, bedrock.WithConfig(awsCfg))
+
+	// If a custom base URL is set, override the default endpoint constructed by the bedrock middleware.
+	if cfg.BaseURL != "" {
+		out = append(out, option.WithBaseURL(cfg.BaseURL))
+	}
+
+	return out, nil
 }
 
 // augmentRequestForBedrock will change the model used for the request since AWS Bedrock doesn't support

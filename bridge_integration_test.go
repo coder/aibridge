@@ -186,7 +186,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 		t.Cleanup(cancel)
 
-		// Invalid bedrock config - missing region
+		// Invalid bedrock config - missing region & base url
 		bedrockCfg := &config.AWSBedrock{
 			Region:          "",
 			AccessKey:       "test-key",
@@ -218,7 +218,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		require.Contains(t, string(body), "create anthropic client")
-		require.Contains(t, string(body), "region required")
+		require.Contains(t, string(body), "region or base url required")
 	})
 
 	t.Run("/v1/messages", func(t *testing.T) {
@@ -281,6 +281,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				srv.Start()
 				t.Cleanup(srv.Close)
 
+				// We define region here to validate that with Region & BaseURL defined, the latter takes precedence.
 				bedrockCfg := &config.AWSBedrock{
 					Region:          "us-west-2",
 					AccessKey:       "test-access-key",

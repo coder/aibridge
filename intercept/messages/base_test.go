@@ -21,8 +21,9 @@ func TestAWSBedrockValidation(t *testing.T) {
 		expectError bool
 		errorMsg    string
 	}{
+		// Valid cases.
 		{
-			name: "valid",
+			name: "valid with region",
 			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
@@ -32,7 +33,33 @@ func TestAWSBedrockValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "missing region",
+			name: "valid with base url",
+			cfg: &config.AWSBedrock{
+				BaseURL:         "http://bedrock.internal",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+		},
+		{
+			// There unfortunately isn't a way for us to determine precedence in a unit test,
+			// since the produced options take a `requestconfig.RequestConfig` input value
+			// which is internal to the anthropic SDK.
+			//
+			// See TestAWSBedrockIntegration which validates this.
+			name: "valid with base url & region",
+			cfg: &config.AWSBedrock{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+		},
+		// Invalid cases.
+		{
+			name: "missing region & base url",
 			cfg: &config.AWSBedrock{
 				Region:          "",
 				AccessKey:       "test-key",
@@ -41,7 +68,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 				SmallFastModel:  "test-small-model",
 			},
 			expectError: true,
-			errorMsg:    "region required",
+			errorMsg:    "region or base url required",
 		},
 		{
 			name: "missing access key",
@@ -95,7 +122,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 			name:        "all fields empty",
 			cfg:         &config.AWSBedrock{},
 			expectError: true,
-			errorMsg:    "region required",
+			errorMsg:    "region or base url required",
 		},
 		{
 			name:        "nil config",
@@ -108,12 +135,13 @@ func TestAWSBedrockValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			base := &interceptionBase{}
-			_, err := base.withAWSBedrock(context.Background(), tt.cfg)
+			opts, err := base.withAWSBedrockOptions(context.Background(), tt.cfg)
 
 			if tt.expectError {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tt.errorMsg)
 			} else {
+				require.NotEmpty(t, opts)
 				require.NoError(t, err)
 			}
 		})
