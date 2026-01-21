@@ -39,6 +39,12 @@ type interceptionBase struct {
 func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService {
 	opts := []option.RequestOption{option.WithAPIKey(i.cfg.Key), option.WithBaseURL(i.cfg.BaseURL)}
 
+	// Add extra headers if configured.
+	// Some providers require additional headers that are not added by the SDK.
+	for key, value := range i.cfg.ExtraHeaders {
+		opts = append(opts, option.WithHeader(key, value))
+	}
+
 	// Add API dump middleware if configured
 	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, config.ProviderOpenAI, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))

@@ -5,6 +5,7 @@ import "time"
 const (
 	ProviderAnthropic = "anthropic"
 	ProviderOpenAI    = "openai"
+	ProviderCopilot   = "copilot"
 )
 
 // CircuitBreaker holds configuration for circuit breakers.
@@ -55,6 +56,13 @@ type AWSBedrock struct {
 type OpenAI struct {
 	BaseURL        string
 	Key            string
+	APIDumpDir     string
+	CircuitBreaker *CircuitBreaker
+	ExtraHeaders   map[string]string
+}
+
+type Copilot struct {
+	BaseURL        string
 	APIDumpDir     string
 	CircuitBreaker *CircuitBreaker
 }
