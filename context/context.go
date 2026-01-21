@@ -27,3 +27,12 @@ func ActorFromContext(ctx context.Context) *Actor {
 
 	return a
 }
+
+// ActorIDFromContext safely extracts the actor ID from the context.
+// Returns an empty string if no actor is found.
+func ActorIDFromContext(ctx context.Context) string {
+	if actor := ActorFromContext(ctx); actor != nil {
+		return actor.ID
+	}
+	return ""
+}
