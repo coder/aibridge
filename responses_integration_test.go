@@ -691,6 +691,253 @@ func TestUpstreamError(t *testing.T) {
 	}
 }
 
+// TestResponsesBlockingInjectedTool tests that injected MCP tool calls trigger the inner agentic loop,
+// invoke the tool via MCP, and send the result back to the model.
+func TestResponsesBlockingInjectedTool(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name              string
+		fixture           []byte
+		streaming         bool
+		mcpToolName       string
+		expectToolArgs    map[string]any
+		expectToolError   string // If non-empty, MCP tool returns this error.
+		expectPrompt      string
+		expectTokenUsages []recorder.TokenUsageRecord
+	}{
+		{
+			name:        "blocking_success",
+			fixture:     fixtures.OaiResponsesBlockingSingleInjectedTool,
+			mcpToolName: "coder_template_version_parameters",
+			expectToolArgs: map[string]any{
+				"template_version_id": "aa4e30e4-a086-4df6-a364-1343f1458104",
+			},
+			expectPrompt: "list the template params for version aa4e30e4-a086-4df6-a364-1343f1458104",
+			expectTokenUsages: []recorder.TokenUsageRecord{
+				{
+					MsgID:  "resp_012db006225b0ec700696b5de8a01481a28182ea6885448f93",
+					Input:  227, // 6371 input - 6144 cached
+					Output: 75,
+					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
+						"output_reasoning": 25,
+						"total_tokens":     6446,
+					},
+				},
+				{
+					MsgID:  "resp_012db006225b0ec700696b5dec1d4c81a2a6a416e31af39b90",
+					Input:  612, // 6756 input - 6144 cached
+					Output: 231,
+					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
+						"output_reasoning": 43,
+						"total_tokens":     6987,
+					},
+				},
+			},
+		},
+		{
+			name:        "blocking_tool_error",
+			fixture:     fixtures.OaiResponsesBlockingSingleInjectedToolError,
+			mcpToolName: "coder_delete_template",
+			expectToolArgs: map[string]any{
+				"template_id": "03cb4fdd-8109-4a22-8e22-bb4975171395",
+			},
+			expectPrompt:    "delete the template with ID 03cb4fdd-8109-4a22-8e22-bb4975171395, don't ask for confirmation",
+			expectToolError: "500 Internal error deleting template: unauthorized: rbac: forbidden",
+			expectTokenUsages: []recorder.TokenUsageRecord{
+				{
+					MsgID:  "resp_06e2afba24b6b2ad00696b774d1df0819eaf1ec802bc8a2ca9",
+					Input:  233, // 6377 input - 6144 cached
+					Output: 119,
+					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
+						"output_reasoning": 70,
+						"total_tokens":     6496,
+					},
+				},
+				{
+					MsgID:  "resp_06e2afba24b6b2ad00696b775044e8819ea14840698ef966e2",
+					Input:  395, // 6539 input - 6144 cached
+					Output: 144,
+					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
+						"output_reasoning": 28,
+						"total_tokens":     6683,
+					},
+				},
+			},
+		},
+		{
+			name:           "streaming_success",
+			fixture:        fixtures.OaiResponsesStreamingSingleInjectedTool,
+			streaming:      true,
+			mcpToolName:    "coder_list_templates",
+			expectToolArgs: map[string]any{},
+			expectPrompt:   "List my coder templates.",
+			expectTokenUsages: []recorder.TokenUsageRecord{
+				{
+					MsgID:  "resp_016595fe42aa62ca0069724419c52081a0b7eb479c6bc8109f",
+					Input:  6269, // 6269 input - 0 cached
+					Output: 18,
+					ExtraTokenTypes: map[string]int64{
+						"input_cached":     0,
+						"output_reasoning": 0,
+						"total_tokens":     6287,
+					},
+				},
+				{
+					MsgID:  "resp_0bc5f54fce6df69a006972442175908194bb81d31f576e6ca6",
+					Input:  319, // 6463 input - 6144 cached
+					Output: 182,
+					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
+						"output_reasoning": 0,
+						"total_tokens":     6645,
+					},
+				},
+			},
+		},
+		{
+			name:        "streaming_tool_error",
+			fixture:     fixtures.OaiResponsesStreamingSingleInjectedToolError,
+			streaming:   true,
+			mcpToolName: "coder_create_workspace_build",
+			expectToolArgs: map[string]any{
+				"transition":   "start",
+				"workspace_id": "non_existing_id",
+			},
+			expectPrompt:    "Create a new workspace build for an workspace with id: 'non_existing_id'",
+			expectToolError: "workspace_id must be a valid UUID: invalid UUID length: 15",
+			expectTokenUsages: []recorder.TokenUsageRecord{
+				{
+					MsgID:  "resp_0dfed48e1052ad7f0069725ca129f88193b97d6deff1760524",
+					Input:  6280, // 6280 input - 0 cached
+					Output: 30,
+					ExtraTokenTypes: map[string]int64{
+						"input_cached":     0,
+						"output_reasoning": 0,
+						"total_tokens":     6310,
+					},
+				},
+				{
+					MsgID:  "resp_0dfed48e1052ad7f0069725ca39880819390fcc5b2eb8cf8c6",
+					Input:  6346, // 6346 input - 0 cached
+					Output: 56,
+					ExtraTokenTypes: map[string]int64{
+						"input_cached":     0,
+						"output_reasoning": 0,
+						"total_tokens":     6402,
+					},
+				},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			files := filesMap(txtar.Parse(tc.fixture))
+			require.Contains(t, files, fixtureRequest)
+			if tc.streaming {
+				require.Contains(t, files, fixtureStreamingResponse)
+				require.Contains(t, files, fixtureStreamingToolResponse)
+			} else {
+				require.Contains(t, files, fixtureNonStreamingResponse)
+				require.Contains(t, files, fixtureNonStreamingToolResponse)
+			}
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			// Setup mock server with response mutator for multi-turn interaction.
+			mockAPI := newMockServer(ctx, t, files, func(reqCount uint32, resp []byte) []byte {
+				if reqCount == 1 {
+					return resp // First request gets the normal response (with tool call).
+				}
+				// Second request gets the tool response.
+				if tc.streaming {
+					return files[fixtureStreamingToolResponse]
+				}
+				return files[fixtureNonStreamingToolResponse]
+			})
+			t.Cleanup(mockAPI.Close)
+
+			// Setup MCP server proxies (with mock tools).
+			mcpProxiers, mcpCalls := setupMCPServerProxiesForTest(t, testTracer)
+			if tc.expectToolError != "" {
+				mcpCalls.setToolError(tc.mcpToolName, tc.expectToolError)
+			}
+			mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
+			require.NoError(t, mcpMgr.Init(ctx))
+
+			prov := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+			mockRecorder := &testutil.MockRecorder{}
+			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+
+			bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{prov}, mockRecorder, mcpMgr, logger, nil, testTracer)
+			require.NoError(t, err)
+
+			srv := httptest.NewUnstartedServer(bridge)
+			srv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return aibcontext.AsActor(ctx, userID, nil)
+			}
+			srv.Start()
+			t.Cleanup(srv.Close)
+
+			req := createOpenAIResponsesReq(t, srv.URL, files[fixtureRequest])
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			body, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			// Wait for both requests to be made (inner agentic loop).
+			require.Eventually(t, func() bool {
+				return mockAPI.callCount.Load() == 2
+			}, time.Second*10, time.Millisecond*50)
+
+			// Verify the injected tool was invoked via MCP.
+			invocations := mcpCalls.getCallsByTool(tc.mcpToolName)
+			require.Len(t, invocations, 1, "expected MCP tool to be invoked once")
+
+			// Verify the injected tool usage was recorded.
+			toolUsages := mockRecorder.RecordedToolUsages()
+			require.Len(t, toolUsages, 1)
+			require.Equal(t, tc.mcpToolName, toolUsages[0].Tool)
+			require.Equal(t, tc.expectToolArgs, toolUsages[0].Args)
+			require.True(t, toolUsages[0].Injected, "injected tool should be marked as injected")
+			if tc.expectToolError != "" {
+				require.Contains(t, toolUsages[0].InvocationError.Error(), tc.expectToolError)
+			}
+
+			// Verify prompt was recorded.
+			prompts := mockRecorder.RecordedPromptUsages()
+			require.Len(t, prompts, 1)
+			require.Equal(t, tc.expectPrompt, prompts[0].Prompt)
+
+			tokenUsages := mockRecorder.RecordedTokenUsages()
+			require.Len(t, tokenUsages, len(tc.expectTokenUsages))
+			for i := range tokenUsages {
+				tokenUsages[i].InterceptionID = "" // ignore interception ID and time creation when comparing
+				tokenUsages[i].CreatedAt = time.Time{}
+				require.Equal(t, tc.expectTokenUsages[i], *tokenUsages[i])
+			}
+
+			// Verify the response is the final tool response (after agentic loop).
+			if tc.streaming {
+				require.Equal(t, string(files[fixtureStreamingToolResponse]), string(body))
+			} else {
+				require.Equal(t, string(files[fixtureNonStreamingToolResponse]), string(body))
+			}
+		})
+	}
+}
+
 func createOpenAIResponsesReq(t *testing.T, baseURL string, input []byte) *http.Request {
 	t.Helper()
 
@@ -750,121 +997,4 @@ func startRejectingListener(t *testing.T) (addr string) {
 	}()
 
 	return "http://" + ln.Addr().String()
-}
-
-// TestResponsesBlockingInjectedTool tests that injected MCP tool calls trigger the inner agentic loop,
-// invoke the tool via MCP, and send the result back to the model.
-func TestResponsesBlockingInjectedTool(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name             string
-		fixture          []byte
-		mcpToolName      string
-		expectedToolArgs map[string]any
-		expectedPrompt   string
-		toolError        string // If non-empty, MCP tool returns this error.
-	}{
-		{
-			name:        "success",
-			fixture:     fixtures.OaiResponsesSingleInjectedTool,
-			mcpToolName: "coder_template_version_parameters",
-			expectedToolArgs: map[string]any{
-				"template_version_id": "aa4e30e4-a086-4df6-a364-1343f1458104",
-			},
-			expectedPrompt: "list the template params for version aa4e30e4-a086-4df6-a364-1343f1458104",
-		},
-		{
-			name:        "tool_error",
-			fixture:     fixtures.OaiResponsesSingleInjectedToolError,
-			mcpToolName: "coder_delete_template",
-			expectedToolArgs: map[string]any{
-				"template_id": "03cb4fdd-8109-4a22-8e22-bb4975171395",
-			},
-			expectedPrompt: "delete the template with ID 03cb4fdd-8109-4a22-8e22-bb4975171395, don't ask for confirmation",
-			toolError:      "500 Internal error deleting template: unauthorized: rbac: forbidden",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			files := filesMap(txtar.Parse(tc.fixture))
-			require.Contains(t, files, fixtureRequest)
-			require.Contains(t, files, fixtureNonStreamingResponse)
-			require.Contains(t, files, fixtureNonStreamingToolResponse)
-
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-			t.Cleanup(cancel)
-
-			// Setup mock server with response mutator for multi-turn interaction.
-			mockAPI := newMockServer(ctx, t, files, func(reqCount uint32, resp []byte) []byte {
-				if reqCount == 1 {
-					return resp // First request gets the normal response (with tool call).
-				}
-				// Second request gets the tool response.
-				return files[fixtureNonStreamingToolResponse]
-			})
-			t.Cleanup(mockAPI.Close)
-
-			// Setup MCP server proxies (with mock tools).
-			mcpProxiers, mcpCalls := setupMCPServerProxiesForTest(t, testTracer)
-			if tc.toolError != "" {
-				mcpCalls.setToolError(tc.mcpToolName, tc.toolError)
-			}
-			mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
-			require.NoError(t, mcpMgr.Init(ctx))
-
-			prov := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
-			mockRecorder := &testutil.MockRecorder{}
-			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-
-			bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{prov}, mockRecorder, mcpMgr, logger, nil, testTracer)
-			require.NoError(t, err)
-
-			srv := httptest.NewUnstartedServer(bridge)
-			srv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibcontext.AsActor(ctx, userID, nil)
-			}
-			srv.Start()
-			t.Cleanup(srv.Close)
-
-			req := createOpenAIResponsesReq(t, srv.URL, files[fixtureRequest])
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
-			require.Equal(t, http.StatusOK, resp.StatusCode)
-
-			body, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
-
-			// Wait for both requests to be made (inner agentic loop).
-			require.Eventually(t, func() bool {
-				return mockAPI.callCount.Load() == 2
-			}, time.Second*10, time.Millisecond*50)
-
-			// Verify the injected tool was invoked via MCP.
-			invocations := mcpCalls.getCallsByTool(tc.mcpToolName)
-			require.Len(t, invocations, 1, "expected MCP tool to be invoked once")
-
-			// Verify the injected tool usage was recorded.
-			toolUsages := mockRecorder.RecordedToolUsages()
-			require.Len(t, toolUsages, 1)
-			require.Equal(t, tc.mcpToolName, toolUsages[0].Tool)
-			require.Equal(t, tc.expectedToolArgs, toolUsages[0].Args)
-			require.True(t, toolUsages[0].Injected, "injected tool should be marked as injected")
-			if tc.toolError != "" {
-				require.Contains(t, toolUsages[0].InvocationError.Error(), tc.toolError)
-			}
-
-			// Verify prompt was recorded.
-			prompts := mockRecorder.RecordedPromptUsages()
-			require.Len(t, prompts, 1)
-			require.Equal(t, tc.expectedPrompt, prompts[0].Prompt)
-
-			// Verify the response is the final tool response (after agentic loop).
-			require.Equal(t, string(files[fixtureNonStreamingToolResponse]), string(body))
-		})
-	}
 }
