@@ -11,9 +11,12 @@ import (
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -106,7 +109,12 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
 	defer streamCancel(errors.New("deferred"))
 
-	svc, err := i.newMessagesService(streamCtx)
+	var opts []option.RequestOption
+	if actor := aibcontext.ActorFromContext(ctx); actor != nil && i.cfg.SendActorHeaders {
+		opts = append(opts, intercept.ActorHeadersAsAnthropicOpts(actor)...)
+	}
+
+	svc, err := i.newMessagesService(streamCtx, opts...)
 	if err != nil {
 		err = fmt.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)

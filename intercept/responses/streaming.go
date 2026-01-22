@@ -9,6 +9,8 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -83,6 +85,10 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	srv := i.newResponsesService()
 	opts := i.requestOptions(&respCopy)
+	if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
+		opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
+	}
+
 	stream := i.newStream(ctx, srv, opts)
 	defer stream.Close()
 

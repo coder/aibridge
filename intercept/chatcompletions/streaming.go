@@ -11,12 +11,15 @@ import (
 	"time"
 
 	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
@@ -116,7 +119,12 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	)
 	for {
 		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
-		stream = i.newStream(streamCtx, svc)
+		var opts []option.RequestOption
+		if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
+			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
+		}
+
+		stream = i.newStream(streamCtx, svc, opts)
 		processor := newStreamProcessor(streamCtx, i.logger.Named("stream-processor"), i.getInjectedToolByName)
 
 		var toolCall *openai.FinishedChatCompletionToolCall
@@ -349,11 +357,11 @@ func (i *StreamingInterception) encodeForStream(payload []byte) []byte {
 }
 
 // newStream traces svc.NewStreaming(streamCtx, i.req.ChatCompletionNewParams) call
-func (i *StreamingInterception) newStream(ctx context.Context, svc openai.ChatCompletionService) *ssestream.Stream[openai.ChatCompletionChunk] {
+func (i *StreamingInterception) newStream(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) *ssestream.Stream[openai.ChatCompletionChunk] {
 	_, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
-	return svc.NewStreaming(ctx, i.req.ChatCompletionNewParams)
+	return svc.NewStreaming(ctx, i.req.ChatCompletionNewParams, opts...)
 }
 
 type streamProcessor struct {

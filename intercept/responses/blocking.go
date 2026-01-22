@@ -9,6 +9,8 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
@@ -72,6 +74,10 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 
 		opts := i.requestOptions(&respCopy)
 		opts = append(opts, option.WithRequestTimeout(time.Second*600))
+		if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
+			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
+		}
+
 		response, upstreamErr = i.newResponse(ctx, srv, opts)
 
 		if upstreamErr != nil {

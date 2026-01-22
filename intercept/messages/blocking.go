@@ -9,6 +9,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -71,6 +73,9 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	}
 
 	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 600)}
+	if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
+		opts = append(opts, intercept.ActorHeadersAsAnthropicOpts(actor)...)
+	}
 
 	svc, err := i.newMessagesService(ctx, opts...)
 	if err != nil {
