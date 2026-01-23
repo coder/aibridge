@@ -23,18 +23,23 @@ func TestLastUserPrompt(t *testing.T) {
 		expect     string
 	}{
 		{
-			name:       "empty_string_input_str",
+			name:       "input_empty_string",
 			reqPayload: []byte(`{"input": ""}`),
 			expect:     "",
 		},
 		{
-			name:       "empty_string_input_array_content_str",
+			name:       "input_array_content_empty_string",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": ""}]}`),
 			expect:     "",
 		},
 		{
-			name:       "empty_string_input_array_content_array",
+			name:       "input_array_content_array_empty_string",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [ { "role": "user", "content": [{"type": "input_text", "text": ""}] } ] }`),
+		},
+		{
+			name:       "input_array_content_array_multiple_inputs",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [ { "role": "user", "content": [{"type": "input_text", "text": "a"}, {"type": "input_text", "text": "b"}] } ] }`),
+			expect:     "ab",
 		},
 		{
 			name:       "simple_string_input",
