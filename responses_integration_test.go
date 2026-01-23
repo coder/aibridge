@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -974,15 +975,22 @@ func responsesRequestBytes(t *testing.T, streaming bool, additionalFields ...key
 
 func startRejectingListener(t *testing.T) (addr string) {
 	t.Helper()
+	var wg sync.WaitGroup
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = ln.Close() })
+	t.Cleanup(func() {
+		_ = ln.Close()
+		wg.Wait()
+	})
 
 	go func() {
 		for {
+			wg.Add(1)
+			defer wg.Done()
+
 			c, err := ln.Accept()
 			if err != nil {
 				// When ln.Close() is called, Accept returns an error -> exit.
