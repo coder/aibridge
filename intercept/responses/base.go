@@ -188,14 +188,17 @@ func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (*string
 	var sb strings.Builder
 	promptExists := false
 	for _, c := range content.Array() {
-		if c.Get(string(constant.ValueOf[constant.Type]())).Str == string(constant.ValueOf[constant.InputText]()) {
-			text := c.Get(string(constant.ValueOf[constant.Text]()))
-			if text.Type == gjson.String {
-				promptExists = true
-				sb.WriteString(text.Str)
-			} else {
-				i.logger.Warn(ctx, fmt.Sprintf("unexpected input array type: %v", text.Type))
-			}
+		// ignore inputs of not `input_text` type
+		if c.Get(string(constant.ValueOf[constant.Type]())).Str != string(constant.ValueOf[constant.InputText]()) {
+			continue
+		}
+
+		text := c.Get(string(constant.ValueOf[constant.Text]()))
+		if text.Type == gjson.String {
+			promptExists = true
+			sb.WriteString(text.Str)
+		} else {
+			i.logger.Warn(ctx, fmt.Sprintf("unexpected input array type: %v", text.Type))
 		}
 	}
 
