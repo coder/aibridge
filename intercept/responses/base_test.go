@@ -1,6 +1,7 @@
 package responses
 
 import (
+	"net/http"
 	"testing"
 	"time"
 
@@ -433,4 +434,45 @@ func TestRecordTokenUsage(t *testing.T) {
 			}
 		})
 	}
+}
+
+type mockResponseWriter struct {
+	headerCalled      bool
+	writeCalled       bool
+	writeHeaderCalled bool
+}
+
+func (mrw *mockResponseWriter) Header() http.Header {
+	mrw.headerCalled = true
+	return http.Header{}
+}
+
+func (mrw *mockResponseWriter) Write([]byte) (int, error) {
+	mrw.writeCalled = true
+	return 0, nil
+}
+
+func (mrw *mockResponseWriter) WriteHeader(statusCode int) {
+	mrw.writeHeaderCalled = true
+}
+
+func TestResponseCopierDoesntSendIfNoResponseReceived(t *testing.T) {
+	mrw := mockResponseWriter{}
+
+	respCopy := responseCopier{}
+	body := "test_body"
+	respCopy.buff.Write([]byte(body))
+
+	respCopy.forwardResp(&mrw)
+	require.False(t, mrw.headerCalled)
+	require.False(t, mrw.writeCalled)
+	require.False(t, mrw.writeHeaderCalled)
+
+	// after response is received data is forwarded
+	respCopy.responseReceived.Store(true)
+
+	respCopy.forwardResp(&mrw)
+	require.True(t, mrw.headerCalled)
+	require.True(t, mrw.writeCalled)
+	require.True(t, mrw.writeHeaderCalled)
 }
