@@ -20,22 +20,36 @@ func TestLastUserPrompt(t *testing.T) {
 	tests := []struct {
 		name       string
 		reqPayload []byte
-		expected   string
+		expect     string
 	}{
+		{
+			name:       "empty_string_input_str",
+			reqPayload: []byte(`{"input": ""}`),
+			expect:     "",
+		},
+		{
+			name:       "empty_string_input_array_content_str",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": ""}]}`),
+			expect:     "",
+		},
+		{
+			name:       "empty_string_input_array_content_array",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [ { "role": "user", "content": [{"type": "input_text", "text": ""}] } ] }`),
+		},
 		{
 			name:       "simple_string_input",
 			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingSimple),
-			expected:   "tell me a joke",
+			expect:     "tell me a joke",
 		},
 		{
 			name:       "array_single_input_string",
 			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingSingleBuiltinTool),
-			expected:   "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
+			expect:     "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
 		},
 		{
 			name:       "array_multiple_items_content_objects",
 			reqPayload: fixtures.Request(t, fixtures.OaiResponsesStreamingCodex),
-			expected:   "hello",
+			expect:     "hello",
 		},
 	}
 
@@ -52,50 +66,79 @@ func TestLastUserPrompt(t *testing.T) {
 				reqPayload: tc.reqPayload,
 			}
 
-			prompt, err := base.lastUserPrompt()
+			prompt, err := base.lastUserPrompt(t.Context())
 			require.NoError(t, err)
-			require.Equal(t, tc.expected, prompt)
+			require.NotNil(t, prompt)
+			require.Equal(t, tc.expect, *prompt)
 		})
 	}
 }
 
-func TestLastUserPromptEmptyPrompt(t *testing.T) {
+func TestLastUserPromptNil(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil_struct", func(t *testing.T) {
 		t.Parallel()
 
 		var base *responsesInterceptionBase
-		prompt, err := base.lastUserPrompt()
+		prompt, err := base.lastUserPrompt(t.Context())
 		require.Error(t, err)
-		require.Empty(t, prompt)
+		require.Nil(t, prompt)
 		require.Contains(t, "cannot get last user prompt: nil struct", err.Error())
+	})
+
+	t.Run("nil_request", func(t *testing.T) {
+		t.Parallel()
+
+		base := responsesInterceptionBase{}
+		prompt, err := base.lastUserPrompt(t.Context())
+		require.Error(t, err)
+		require.Nil(t, prompt)
+		require.Contains(t, "cannot get last user prompt: nil request struct", err.Error())
 	})
 
 	// Other cases where the user prompt might be empty.
 	tests := []struct {
 		name       string
 		reqPayload []byte
+		expectErr  string
 	}{
 		{
-			name:       "empty_input",
+			name:       "non_existing_input",
+			reqPayload: []byte(`{"model": "gpt-4o"}`),
+		},
+		{
+			name:       "input_empty_array",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": []}`),
+		},
+		{
+			name:       "input_integer",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": 123}`),
 		},
 		{
 			name:       "no_user_role",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "assistant", "content": "hello"}]}`),
 		},
 		{
-			name:       "user_with_empty_content",
-			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": ""}]}`),
-		},
-		{
 			name:       "user_with_empty_content_array",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": []}]}`),
 		},
 		{
+			name:       "input_array_integer",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": 123}]}`),
+			expectErr:  "unexpected input type",
+		},
+		{
 			name:       "user_with_non_input_text_content",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": [{"type": "input_image", "url": "http://example.com/img.png"}]}]}`),
+		},
+		{
+			name:       "user_content_not_last",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [ {"role": "user", "content":"input"}, {"role": "assistant", "content": "hello"} ]}`),
+		},
+		{
+			name:       "input_array_content_array_integer",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [ { "role": "user", "content": [{"type": "input_text", "text": 123}] } ] }`),
 		},
 	}
 
@@ -112,9 +155,14 @@ func TestLastUserPromptEmptyPrompt(t *testing.T) {
 				reqPayload: tc.reqPayload,
 			}
 
-			prompt, err := base.lastUserPrompt()
-			require.NoError(t, err)
-			require.Empty(t, prompt)
+			prompt, err := base.lastUserPrompt(t.Context())
+			if tc.expectErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.expectErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Nil(t, prompt)
 		})
 	}
 }
