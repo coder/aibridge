@@ -196,7 +196,7 @@ func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (*string
 		text := c.Get(string(constant.ValueOf[constant.Text]()))
 		if text.Type == gjson.String {
 			promptExists = true
-			sb.WriteString(text.Str)
+			sb.WriteString(text.Str + "\n")
 		} else {
 			i.logger.Warn(ctx, fmt.Sprintf("unexpected input array type: %v", text.Type))
 		}
@@ -206,7 +206,7 @@ func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (*string
 		return nil, nil
 	}
 
-	prompt := sb.String()
+	prompt := strings.TrimSuffix(sb.String(), "\n")
 	return &prompt, nil
 }
 

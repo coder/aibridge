@@ -39,7 +39,7 @@ func TestLastUserPrompt(t *testing.T) {
 		{
 			name:       "input_array_content_array_multiple_inputs",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [ { "role": "user", "content": [{"type": "input_text", "text": "a"}, {"type": "input_text", "text": "b"}] } ] }`),
-			expect:     "ab",
+			expect:     "a\nb",
 		},
 		{
 			name:       "simple_string_input",
