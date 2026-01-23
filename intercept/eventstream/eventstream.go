@@ -199,6 +199,15 @@ func (s *EventStream) IsStreaming() bool {
 	return s.initiated.Load() || len(s.eventsCh) > 0
 }
 
+// MarkInitiated marks the stream as initiated, even if no events have been
+// sent to the client yet. A stream is considered initiated when processing
+// injected tool calls that don't relay chunks to the client.
+func (s *EventStream) MarkInitiated() {
+	s.initiateOnce.Do(func() {
+		s.initiated.Store(true)
+	})
+}
+
 // IsConnError checks if an error is related to client disconnection or context cancellation.
 func IsConnError(err error) bool {
 	if err == nil {

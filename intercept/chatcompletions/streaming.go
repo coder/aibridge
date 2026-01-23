@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -148,16 +149,24 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 			}
 		}
 
-		// Builtin tools are not intercepted.
-		if toolCall != nil && i.getInjectedToolByName(toolCall.Name) == nil {
-			_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
-				InterceptionID: i.ID().String(),
-				MsgID:          processor.getMsgID(),
-				Tool:           toolCall.Name,
-				Args:           i.unmarshalArgs(toolCall.Arguments),
-				Injected:       false,
-			})
-			toolCall = nil
+		if toolCall != nil {
+			// Builtin tools are not intercepted.
+			if i.getInjectedToolByName(toolCall.Name) == nil {
+				_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
+					InterceptionID: i.ID().String(),
+					MsgID:          processor.getMsgID(),
+					Tool:           toolCall.Name,
+					Args:           i.unmarshalArgs(toolCall.Arguments),
+					Injected:       false,
+				})
+				toolCall = nil
+			} else {
+				// Injected tools mark the stream as initiated so we continue to tool invocation.
+				// When the provider responds with a tool call as the first chunk (no text
+				// preamble), no chunks are relayed to the client. Marking as initiated
+				// ensures we continue to tool invocation instead of returning early.
+				events.MarkInitiated()
+			}
 		}
 
 		if prompt != nil {
@@ -239,7 +248,13 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 		// Invoke the injected tool, and use the tool result to make a subsequent request to the upstream.
 		// Append the completion from this stream as context.
-		i.req.Messages = append(i.req.Messages, processor.getLastCompletion().ToParam())
+		// Some providers may return tool calls with non-zero starting indices,
+		// resulting in nil entries in the array that must be removed.
+		completion := processor.getLastCompletion()
+		if completion != nil {
+			compactToolCalls(completion)
+			i.req.Messages = append(i.req.Messages, completion.ToParam())
+		}
 
 		id := toolCall.ID
 		args := i.unmarshalArgs(toolCall.Arguments)
@@ -485,4 +500,14 @@ func (s *streamProcessor) getLastUsage() openai.CompletionUsage {
 
 func (s *streamProcessor) getCumulativeUsage() openai.CompletionUsage {
 	return s.cumulativeUsage
+}
+
+// compactToolCalls removes nil/empty tool call entries (without an ID).
+func compactToolCalls(msg *openai.ChatCompletionMessage) {
+	if msg == nil || len(msg.ToolCalls) == 0 {
+		return
+	}
+	msg.ToolCalls = slices.DeleteFunc(msg.ToolCalls, func(tc openai.ChatCompletionMessageToolCallUnion) bool {
+		return tc.ID == ""
+	})
 }

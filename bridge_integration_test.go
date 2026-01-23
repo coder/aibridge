@@ -437,6 +437,114 @@ func TestOpenAIChatCompletions(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("streaming injected tool call edge cases", func(t *testing.T) {
+		t.Parallel()
+
+		cases := []struct {
+			name         string
+			fixture      []byte
+			expectedArgs map[string]any
+		}{
+			{
+				name:         "tool call no preamble",
+				fixture:      fixtures.OaiChatStreamingInjectedToolNoPreamble,
+				expectedArgs: map[string]any{"owner": "me"},
+			},
+			{
+				name:         "tool call with non-zero index",
+				fixture:      fixtures.OaiChatStreamingInjectedToolNonzeroIndex,
+				expectedArgs: nil, // No arguments in this fixture
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				t.Parallel()
+
+				arc := txtar.Parse(tc.fixture)
+				t.Logf("%s: %s", t.Name(), arc.Comment)
+
+				files := filesMap(arc)
+				require.Len(t, files, 3)
+				require.Contains(t, files, fixtureRequest)
+				require.Contains(t, files, fixtureStreamingResponse)
+				require.Contains(t, files, fixtureStreamingToolResponse)
+
+				reqBody := files[fixtureRequest]
+
+				// Add the stream param to the request.
+				newBody, err := setJSON(reqBody, "stream", true)
+				require.NoError(t, err)
+				reqBody = newBody
+
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				t.Cleanup(cancel)
+
+				// Setup mock server with response mutator for multi-turn interaction.
+				srv := newMockServer(ctx, t, files, func(reqCount uint32, resp []byte) []byte {
+					if reqCount == 1 {
+						// First request gets the tool call response
+						return resp
+					}
+					// Second request gets final response
+					return files[fixtureStreamingToolResponse]
+				})
+				t.Cleanup(srv.Close)
+
+				recorderClient := &testutil.MockRecorder{}
+
+				// Setup MCP proxies with the tool from the fixture
+				mcpProxiers, mcpCalls := setupMCPServerProxiesForTest(t, testTracer)
+				mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
+				require.NoError(t, mcpMgr.Init(ctx))
+
+				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(srv.URL, apiKey))}
+				b, err := aibridge.NewRequestBridge(t.Context(), providers, recorderClient, mcpMgr, logger, nil, testTracer)
+				require.NoError(t, err)
+
+				mockSrv := httptest.NewUnstartedServer(b)
+				t.Cleanup(mockSrv.Close)
+				mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+					return aibcontext.AsActor(ctx, userID, nil)
+				}
+				mockSrv.Start()
+
+				req := createOpenAIChatCompletionsReq(t, mockSrv.URL, reqBody)
+
+				client := &http.Client{}
+				resp, err := client.Do(req)
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, resp.StatusCode)
+
+				// Consume the full response body to ensure the interception completes
+				_, err = io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				resp.Body.Close()
+
+				// Verify the MCP tool was actually invoked
+				invocations := mcpCalls.getCallsByTool(mockToolName)
+				require.Len(t, invocations, 1, "expected MCP tool to be invoked")
+
+				// Verify tool was invoked with the expected args (if specified)
+				if tc.expectedArgs != nil {
+					expected, err := json.Marshal(tc.expectedArgs)
+					require.NoError(t, err)
+					actual, err := json.Marshal(invocations[0])
+					require.NoError(t, err)
+					require.EqualValues(t, expected, actual)
+				}
+
+				// Verify tool usage was recorded
+				toolUsages := recorderClient.RecordedToolUsages()
+				require.Len(t, toolUsages, 1)
+				assert.Equal(t, mockToolName, toolUsages[0].Tool)
+
+				recorderClient.VerifyAllInterceptionsEnded(t)
+			})
+		}
+	})
 }
 
 func TestSimple(t *testing.T) {
