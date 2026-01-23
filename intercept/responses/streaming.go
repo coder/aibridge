@@ -93,56 +93,65 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		respCopy = responseCopier{}
 		opts := i.requestOptions(&respCopy)
 		stream := i.newStream(ctx, srv, opts)
-		defer stream.Close()
 
-		if upstreamErr := stream.Err(); upstreamErr != nil {
-			// events stream should never be initialized
-			if events.IsStreaming() {
-				i.logger.Warn(ctx, "event stream was initialized when no response was received from upstream")
-				return upstreamErr
+		// func scope to defer steam.Close()
+		err := func() error {
+			defer stream.Close()
+
+			if upstreamErr := stream.Err(); upstreamErr != nil {
+				// events stream should never be initialized
+				if events.IsStreaming() {
+					i.logger.Warn(ctx, "event stream was initialized when no response was received from upstream")
+					return upstreamErr
+				}
+
+				// no response received from upstream (eg. client/connection error), return custom error
+				if !respCopy.responseReceived.Load() {
+					i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
+					return upstreamErr
+				}
+
+				// forward received response as-is
+				err := respCopy.forwardResp(w)
+				return errors.Join(upstreamErr, err)
 			}
 
-			// no response received from upstream (eg. client/connection error), return custom error
-			if !respCopy.responseReceived.Load() {
-				i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
-				return upstreamErr
-			}
+			for stream.Next() {
+				ev := stream.Current()
 
-			// forward received response as-is
-			err := respCopy.forwardResp(w)
-			return errors.Join(upstreamErr, err)
-		}
+				// Not every event has response.id set (eg: fixtures/openai/responses/streaming/simple.txtar).
+				// First event should be of 'response.created' type and have response.id set.
+				// Set responseID to the first response.id that is set.
+				if responseID == "" && ev.Response.ID != "" {
+					responseID = ev.Response.ID
+				}
 
-		for stream.Next() {
-			ev := stream.Current()
+				// Capture the response from the response.completed event.
+				// Only response.completed event type have 'usage' field set.
+				if ev.Type == string(oaiconst.ValueOf[oaiconst.ResponseCompleted]()) {
+					completedEvent := ev.AsResponseCompleted()
+					completedResponse = &completedEvent.Response
+				}
 
-			// Not every event has response.id set (eg: fixtures/openai/responses/streaming/simple.txtar).
-			// First event should be of 'response.created' type and have response.id set.
-			// Set responseID to the first response.id that is set.
-			if responseID == "" && ev.Response.ID != "" {
-				responseID = ev.Response.ID
-			}
-
-			// Capture the response from the response.completed event.
-			// Only response.completed event type have 'usage' field set.
-			if ev.Type == string(oaiconst.ValueOf[oaiconst.ResponseCompleted]()) {
-				completedEvent := ev.AsResponseCompleted()
-				completedResponse = &completedEvent.Response
-			}
-
-			// If no tools are injected, inner loop will never iterate more than once,
-			// so events can be forwarded as soon as received.
-			// Otherwise loop could iterate so only last response will be forwarded.
-			// This is needed to keep consistency between response.id and response.previous_response_id fields.
-			if i.mcpProxy == nil {
-				if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
-					err = fmt.Errorf("failed to relay chunk: %w", err)
-					return err
+				// If no MCP proxy is provided then no tools are injected.
+				// Inner loop will never iterate more than once, so events can be forwarded as soon as received.
+				//
+				// Otherwise inner loop could iterate. Only last response should be forwarded.
+				// This is needed to keep consistency between response.id and response.previous_response_id fields.
+				if i.mcpProxy == nil {
+					if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
+						err = fmt.Errorf("failed to relay chunk: %w", err)
+						return err
+					}
 				}
 			}
+			streamErr = stream.Err()
+			return nil
+		}()
+
+		if err != nil {
+			return err
 		}
-		streamErr = stream.Err()
-		stream.Close()
 
 		if i.mcpProxy != nil && completedResponse != nil {
 			pending := i.getPendingInjectedToolCalls(completedResponse)
