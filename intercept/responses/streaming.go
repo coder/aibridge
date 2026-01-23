@@ -148,7 +148,6 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 			streamErr = stream.Err()
 			return nil
 		}()
-
 		if err != nil {
 			return err
 		}
