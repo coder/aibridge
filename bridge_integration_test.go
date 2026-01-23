@@ -1751,6 +1751,7 @@ func TestActorHeaders(t *testing.T) {
 				client := &http.Client{}
 				resp, err := client.Do(req)
 				require.NoError(t, err)
+				require.NotEmpty(t, receivedHeaders)
 				defer resp.Body.Close()
 
 				// Verify that the actor headers were only received if intended.
