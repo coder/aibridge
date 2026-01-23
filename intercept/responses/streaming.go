@@ -33,12 +33,13 @@ type StreamingResponsesInterceptor struct {
 func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string, tracer trace.Tracer) *StreamingResponsesInterceptor {
 	return &StreamingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
-			id:         id,
-			req:        req,
-			reqPayload: reqPayload,
-			cfg:        cfg,
-			model:      model,
-			tracer:     tracer,
+			id:                id,
+			req:               req,
+			reqPayload:        reqPayload,
+			cfg:               cfg,
+			promptWasRecorded: false,
+			model:             model,
+			tracer:            tracer,
 		},
 	}
 }
@@ -145,6 +146,8 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 					}
 				}
 			}
+
+			i.recordUserPrompt(ctx, responseID)
 			streamErr = stream.Err()
 			return nil
 		}()
@@ -165,7 +168,6 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		}
 	}
 
-	i.recordUserPrompt(ctx, responseID)
 	i.recordNonInjectedToolUsage(ctx, completedResponse)
 
 	// On innerLoop error custom error has been already sent,

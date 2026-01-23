@@ -26,12 +26,13 @@ type BlockingResponsesInterceptor struct {
 func NewBlockingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string, tracer trace.Tracer) *BlockingResponsesInterceptor {
 	return &BlockingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
-			id:         id,
-			req:        req,
-			reqPayload: reqPayload,
-			cfg:        cfg,
-			model:      model,
-			tracer:     tracer,
+			id:                id,
+			req:               req,
+			reqPayload:        reqPayload,
+			cfg:               cfg,
+			promptWasRecorded: false,
+			model:             model,
+			tracer:            tracer,
 		},
 	}
 }
@@ -67,7 +68,6 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	)
 
 	shouldLoop := true
-	recordPromptOnce := true
 	for shouldLoop {
 		srv := i.newResponsesService()
 		respCopy = responseCopier{}
@@ -80,13 +80,7 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 			break
 		}
 
-		// Record prompt usage on first successful response.
-		if recordPromptOnce {
-			recordPromptOnce = false
-			i.recordUserPrompt(ctx, response.ID)
-		}
-
-		// Record token usage for each inner loop iteration
+		i.recordUserPrompt(ctx, response.ID)
 		i.recordTokenUsage(ctx, response)
 
 		// Check if there any injected tools to invoke.

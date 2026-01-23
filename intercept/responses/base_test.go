@@ -176,11 +176,12 @@ func TestRecordPrompt(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		reqPayload   []byte
-		responseID   string
-		wantRecorded bool
-		wantPrompt   string
+		name              string
+		promptWasRecorded bool
+		reqPayload        []byte
+		responseID        string
+		wantRecorded      bool
+		wantPrompt        string
 	}{
 		{
 			name:         "records_prompt_successfully",
@@ -188,6 +189,13 @@ func TestRecordPrompt(t *testing.T) {
 			responseID:   "resp_123",
 			wantRecorded: true,
 			wantPrompt:   "tell me a joke",
+		},
+		{
+			name:              "skips_record_if_prompt_was_recorded_before",
+			promptWasRecorded: true,
+			reqPayload:        fixtures.Request(t, fixtures.OaiResponsesBlockingSimple),
+			responseID:        "resp_123",
+			wantRecorded:      false,
 		},
 		{
 			name:         "skips_recording_on_empty_response_id",
@@ -214,11 +222,12 @@ func TestRecordPrompt(t *testing.T) {
 			rec := &testutil.MockRecorder{}
 			id := uuid.New()
 			base := &responsesInterceptionBase{
-				id:         id,
-				req:        req,
-				reqPayload: tc.reqPayload,
-				recorder:   rec,
-				logger:     slog.Make(),
+				id:                id,
+				req:               req,
+				reqPayload:        tc.reqPayload,
+				promptWasRecorded: tc.promptWasRecorded,
+				recorder:          rec,
+				logger:            slog.Make(),
 			}
 
 			base.recordUserPrompt(t.Context(), tc.responseID)

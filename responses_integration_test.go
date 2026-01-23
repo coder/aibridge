@@ -692,9 +692,9 @@ func TestUpstreamError(t *testing.T) {
 	}
 }
 
-// TestResponsesBlockingInjectedTool tests that injected MCP tool calls trigger the inner agentic loop,
+// TestResponsesInjectedTool tests that injected MCP tool calls trigger the inner agentic loop,
 // invoke the tool via MCP, and send the result back to the model.
-func TestResponsesBlockingInjectedTool(t *testing.T) {
+func TestResponsesInjectedTool(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

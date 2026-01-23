@@ -37,16 +37,17 @@ const (
 )
 
 type responsesInterceptionBase struct {
-	id         uuid.UUID
-	req        *ResponsesNewParamsWrapper
-	reqPayload []byte
-	cfg        config.OpenAI
-	model      string
-	recorder   recorder.Recorder
-	mcpProxy   mcp.ServerProxier
-	logger     slog.Logger
-	metrics    metrics.Metrics
-	tracer     trace.Tracer
+	id                uuid.UUID
+	req               *ResponsesNewParamsWrapper
+	reqPayload        []byte
+	promptWasRecorded bool
+	cfg               config.OpenAI
+	model             string
+	recorder          recorder.Recorder
+	mcpProxy          mcp.ServerProxier
+	logger            slog.Logger
+	metrics           metrics.Metrics
+	tracer            trace.Tracer
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -211,6 +212,11 @@ func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (*string
 }
 
 func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string) {
+	if i.promptWasRecorded {
+		return
+	}
+	i.promptWasRecorded = true
+
 	prompt, err := i.lastUserPrompt(ctx)
 	if err != nil {
 		i.logger.Warn(ctx, "failed to get last user prompt", slog.Error(err))
