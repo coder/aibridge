@@ -130,7 +130,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 				completedResponse = &completedEvent.Response
 			}
 
-			// If no tools are inected, inner loop will never iterate more then once,
+			// If no tools are injected, inner loop will never iterate more than once,
 			// so events can be forwarded as soon as received.
 			// Otherwise loop could iterate so only last response will be forwarded.
 			// This is needed to keep consistency between response.id and response.previous_response_id fields.
@@ -142,6 +142,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 			}
 		}
 		streamErr = stream.Err()
+		stream.Close()
 
 		if i.mcpProxy != nil && completedResponse != nil {
 			pending := i.getPendingInjectedToolCalls(completedResponse)
@@ -165,7 +166,6 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		return innerLoopErr
 	}
 
-	var b []byte
 	b, err := respCopy.readAll()
 	if err != nil {
 		return fmt.Errorf("failed to read response body: %w", err)

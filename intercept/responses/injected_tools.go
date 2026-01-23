@@ -96,9 +96,9 @@ func (i *responsesInterceptionBase) handleInnerAgenticLoop(ctx context.Context, 
 	}
 
 	// We'll use the tool results to issue another request to provide the model with.
-	i.prepareRequestForAgenticLoop(ctx, response, results)
+	err = i.prepareRequestForAgenticLoop(ctx, response, results)
 
-	return true, nil
+	return true, err
 }
 
 // handleInjectedToolCalls checks for function calls that we need to handle in our inner agentic loop.
@@ -126,6 +126,7 @@ func (i *responsesInterceptionBase) handleInjectedToolCalls(ctx context.Context,
 // response as input to the next request, in order for the tool call result(s) to make function correctly.
 func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(ctx context.Context, response *responses.Response, toolResults []responses.ResponseInputItemUnionParam) error {
 	var err error
+	originalInputSize := len(i.req.Input.OfInputItemList)
 
 	// Unset the string input; we need a list now.
 	if i.req.Input.OfString.Valid() {
@@ -136,15 +137,10 @@ func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(ctx context.Con
 				responses.EasyInputMessageRoleUser,
 			),
 		}
-		if i.reqPayload, err = sjson.SetBytes(i.reqPayload, "input", i.req.Input.OfInputItemList); err != nil {
-			i.logger.Error(ctx, "failure to marshal str output to new input in inner agentic loop", slog.Error(err))
-			return fmt.Errorf("failed to marshal input: %v", err)
-		}
 
 		// clear old value
 		i.req.Input.OfString = param.Opt[string]{}
 	}
-	inputSize := len(i.req.Input.OfInputItemList)
 
 	// OutputText is also available, but by definition the trigger for a function call is not a simple
 	// text response from the model.
@@ -158,12 +154,21 @@ func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(ctx context.Con
 		i.req.Input.OfInputItemList = append(i.req.Input.OfInputItemList, result)
 	}
 
+	// If original payload was in string format or was an empty list re-marshal whole input
+	if originalInputSize == 0 {
+		if i.reqPayload, err = sjson.SetBytes(i.reqPayload, "input", i.req.Input.OfInputItemList); err != nil {
+			i.logger.Error(ctx, "failure to marshal new input in inner agentic loop", slog.Error(err))
+			return fmt.Errorf("failed to marshal input: %v", err)
+		}
+		return nil
+	}
+
 	// Append newly added items to reqPayload field
 	// New items are appended to limit Input re-marshaling.
 	// See responsesInterceptionBase.requestOptions for more details about marshaling issues.
-	for j := inputSize; j < len(i.req.Input.OfInputItemList); j++ {
+	for j := originalInputSize; j < len(i.req.Input.OfInputItemList); j++ {
 		if i.reqPayload, err = sjson.SetBytes(i.reqPayload, "input.-1", i.req.Input.OfInputItemList[j]); err != nil {
-			i.logger.Error(ctx, "failure to marshal output to new input in inner agentic loop", slog.Error(err))
+			i.logger.Error(ctx, "failure to marshal output item to new input in inner agentic loop", slog.Error(err))
 			return fmt.Errorf("failed to marshal input: %v", err)
 		}
 	}
