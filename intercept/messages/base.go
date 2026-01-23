@@ -180,12 +180,6 @@ func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibco
 	if cfg.Region == "" && cfg.BaseURL == "" {
 		return nil, fmt.Errorf("region or base url required")
 	}
-	if cfg.AccessKey == "" {
-		return nil, fmt.Errorf("access key required")
-	}
-	if cfg.AccessKeySecret == "" {
-		return nil, fmt.Errorf("access key secret required")
-	}
 	if cfg.Model == "" {
 		return nil, fmt.Errorf("model required")
 	}
@@ -195,13 +189,19 @@ func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibco
 
 	opts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
-		config.WithCredentialsProvider(
+	}
+
+	// Only use static credentials if explicitly provided.
+	// Otherwise, the SDK uses the default credential chain (env vars, shared credentials file,
+	// web identity token, EC2/ECS instance metadata, etc.).
+	if cfg.AccessKey != "" && cfg.AccessKeySecret != "" {
+		opts = append(opts, config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(
 				cfg.AccessKey,
 				cfg.AccessKeySecret,
-				"",
+				cfg.SessionToken, // empty string is fine for non-temporary credentials
 			),
-		),
+		))
 	}
 
 	awsCfg, err := config.LoadDefaultConfig(ctx, opts...)

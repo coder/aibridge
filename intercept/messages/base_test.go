@@ -21,9 +21,9 @@ func TestAWSBedrockValidation(t *testing.T) {
 		expectError bool
 		errorMsg    string
 	}{
-		// Valid cases.
+		// Valid cases with explicit credentials.
 		{
-			name: "valid with region",
+			name: "valid with region and explicit credentials",
 			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
@@ -33,7 +33,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "valid with base url",
+			name: "valid with base url and explicit credentials",
 			cfg: &config.AWSBedrock{
 				BaseURL:         "http://bedrock.internal",
 				AccessKey:       "test-key",
@@ -57,6 +57,34 @@ func TestAWSBedrockValidation(t *testing.T) {
 				SmallFastModel:  "test-small-model",
 			},
 		},
+		{
+			name: "valid with session token for temporary credentials",
+			cfg: &config.AWSBedrock{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				SessionToken:    "test-session-token",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+		},
+		// Valid cases without explicit credentials (uses default credential chain).
+		{
+			name: "valid without credentials - uses default chain",
+			cfg: &config.AWSBedrock{
+				Region:         "us-east-1",
+				Model:          "test-model",
+				SmallFastModel: "test-small-model",
+			},
+		},
+		{
+			name: "valid with base url without credentials - uses default chain",
+			cfg: &config.AWSBedrock{
+				BaseURL:        "http://bedrock.internal",
+				Model:          "test-model",
+				SmallFastModel: "test-small-model",
+			},
+		},
 		// Invalid cases.
 		{
 			name: "missing region & base url",
@@ -69,30 +97,6 @@ func TestAWSBedrockValidation(t *testing.T) {
 			},
 			expectError: true,
 			errorMsg:    "region or base url required",
-		},
-		{
-			name: "missing access key",
-			cfg: &config.AWSBedrock{
-				Region:          "us-east-1",
-				AccessKey:       "",
-				AccessKeySecret: "test-secret",
-				Model:           "test-model",
-				SmallFastModel:  "test-small-model",
-			},
-			expectError: true,
-			errorMsg:    "access key required",
-		},
-		{
-			name: "missing access key secret",
-			cfg: &config.AWSBedrock{
-				Region:          "us-east-1",
-				AccessKey:       "test-key",
-				AccessKeySecret: "",
-				Model:           "test-model",
-				SmallFastModel:  "test-small-model",
-			},
-			expectError: true,
-			errorMsg:    "access key secret required",
 		},
 		{
 			name: "missing model",

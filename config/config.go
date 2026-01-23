@@ -45,7 +45,10 @@ type Anthropic struct {
 type AWSBedrock struct {
 	Region                     string
 	AccessKey, AccessKeySecret string
-	Model, SmallFastModel      string
+	// SessionToken is used for temporary credentials (e.g., from AssumeRole).
+	// Optional; only used when AccessKey and AccessKeySecret are also provided.
+	SessionToken          string
+	Model, SmallFastModel string
 	// If set, requests will be sent to this URL instead of the default AWS Bedrock endpoint
 	// (https://bedrock-runtime.{region}.amazonaws.com).
 	// This is useful for routing requests through a proxy or for testing.
