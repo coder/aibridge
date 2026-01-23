@@ -49,3 +49,10 @@ endif
 
 mocks: mcp/api.go
 	go generate ./mcpmock/
+
+lint: lint/go
+.PHONY: lint
+
+lint/go:
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.8.0 run
+.PHONY: lint/go
