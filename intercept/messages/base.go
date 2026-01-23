@@ -75,7 +75,7 @@ func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) 
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),
 		attribute.String(tracing.InterceptionID, s.id.String()),
-		attribute.String(tracing.InitiatorID, aibcontext.ActorFromContext(r.Context()).ID),
+		attribute.String(tracing.InitiatorID, aibcontext.ActorIDFromContext(r.Context())),
 		attribute.String(tracing.Provider, aibconfig.ProviderAnthropic),
 		attribute.String(tracing.Model, s.Model()),
 		attribute.Bool(tracing.Streaming, streaming),
