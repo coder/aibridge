@@ -161,11 +161,15 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 				})
 				toolCall = nil
 			} else {
-				// Injected tools mark the stream as initiated so we continue to tool invocation.
-				// When the provider responds with a tool call as the first chunk (no text
-				// preamble), no chunks are relayed to the client. Marking as initiated
-				// ensures we continue to tool invocation instead of returning early.
-				events.MarkInitiated()
+				// When the provider responds with only tool calls (no text content),
+				// no chunks are relayed to the client, so the stream is not yet
+				// initiated. Initiate it here so the SSE headers are sent and the
+				// ping ticker is started, preventing client timeout during tool invocation.
+				// Only initiate if no stream error, if there's an error, we'll return
+				// an HTTP error response instead of starting an SSE stream.
+				if stream.Err() == nil {
+					events.MarkInitiated(w)
+				}
 			}
 		}
 

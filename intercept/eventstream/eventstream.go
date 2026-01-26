@@ -37,10 +37,18 @@ type EventStream struct {
 
 	// doneCh is closed when the start loop exits.
 	doneCh chan struct{}
+
+	// tick sends periodic pings to keep the connection alive.
+	tick *time.Ticker
 }
 
 // NewEventStream creates a new SSE stream, with an optional payload which is used to send pings every [pingInterval].
 func NewEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte) *EventStream {
+	// Send periodic pings to keep connections alive.
+	// The upstream provider may also send their own pings, but we can't rely on this.
+	tick := time.NewTicker(time.Nanosecond)
+	tick.Stop() // Ticker will start after stream initiation.
+
 	return &EventStream{
 		ctx:    ctx,
 		logger: logger,
@@ -49,7 +57,33 @@ func NewEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte)
 
 		eventsCh: make(chan event, 128), // Small buffer to unblock senders; once full, senders will block.
 		doneCh:   make(chan struct{}),
+		tick:     tick,
 	}
+}
+
+// MarkInitiated initiates the SSE stream by sending headers and starting the
+// ping ticker. This is safe to call multiple times as only the first call has
+// any effect.
+func (s *EventStream) MarkInitiated(w http.ResponseWriter) {
+	s.initiateOnce.Do(func() {
+		s.initiated.Store(true)
+		s.logger.Debug(s.ctx, "stream initiated")
+
+		// Send headers for Server-Sent Event stream.
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.Header().Set("Cache-Control", "no-cache")
+		w.Header().Set("Connection", "keep-alive")
+		w.Header().Set("X-Accel-Buffering", "no")
+
+		// Send initial flush to ensure connection is established.
+		if err := flush(w); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
+		// Start ping ticker.
+		s.tick.Reset(pingInterval)
+	})
 }
 
 // Start handles sending Server-Sent Event to the client.
@@ -59,11 +93,7 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 
 	ctx := r.Context()
 
-	// Send periodic pings to keep connections alive.
-	// The upstream provider may also send their own pings, but we can't rely on this.
-	tick := time.NewTicker(time.Nanosecond)
-	tick.Stop() // Ticker will start after stream initiation.
-	defer tick.Stop()
+	defer s.tick.Stop()
 
 	for {
 		var (
@@ -83,33 +113,9 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 
-			// Initiate the stream once the first event is received.
-			s.initiateOnce.Do(func() {
-				s.initiated.Store(true)
-				s.logger.Debug(ctx, "stream initiated")
-
-				// Send headers for Server-Sent Event stream.
-				//
-				// We only send these once an event is processed because an error can occur in the upstream
-				// request prior to the stream starting, in which case the SSE headers are inappropriate to
-				// send to the client.
-				//
-				// See use of IsStreaming().
-				w.Header().Set("Content-Type", "text/event-stream")
-				w.Header().Set("Cache-Control", "no-cache")
-				w.Header().Set("Connection", "keep-alive")
-				w.Header().Set("X-Accel-Buffering", "no")
-
-				// Send initial flush to ensure connection is established.
-				if err := flush(w); err != nil {
-					http.Error(w, err.Error(), http.StatusInternalServerError)
-					return
-				}
-
-				// Start ping ticker.
-				tick.Reset(pingInterval)
-			})
-		case <-tick.C:
+			// Initiate the stream on first event (if not already initiated).
+			s.MarkInitiated(w)
+		case <-s.tick.C:
 			ev = s.pingPayload
 			if ev == nil {
 				continue
@@ -132,7 +138,7 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 
 		// Reset the timer once we've flushed some data to the stream, since it's already fresh.
 		// No need to ping in that case.
-		tick.Reset(pingInterval)
+		s.tick.Reset(pingInterval)
 	}
 }
 
@@ -197,15 +203,6 @@ func (s *EventStream) Shutdown(shutdownCtx context.Context) error {
 // when events are buffered which - when processed - will initiate the stream.
 func (s *EventStream) IsStreaming() bool {
 	return s.initiated.Load() || len(s.eventsCh) > 0
-}
-
-// MarkInitiated marks the stream as initiated, even if no events have been
-// sent to the client yet. A stream is considered initiated when processing
-// injected tool calls that don't relay chunks to the client.
-func (s *EventStream) MarkInitiated() {
-	s.initiateOnce.Do(func() {
-		s.initiated.Store(true)
-	})
 }
 
 // IsConnError checks if an error is related to client disconnection or context cancellation.
