@@ -212,7 +212,11 @@ func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (*string
 }
 
 func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string) {
+	// User prompt should be recorded only during first inner loop iteration.
+	// Subsequent inner loop iterations would fail to extract user prompt
+	// since last input item should be function call result / not contain user prompt.
 	if i.promptWasRecorded {
+		// Exiting early to avoid confusing log entries.
 		return
 	}
 	i.promptWasRecorded = true
