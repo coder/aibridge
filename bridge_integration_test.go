@@ -519,6 +519,11 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				require.NoError(t, err)
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 
+				// Verify SSE headers are sent correctly
+				require.Equal(t, "text/event-stream", resp.Header.Get("Content-Type"))
+				require.Equal(t, "no-cache", resp.Header.Get("Cache-Control"))
+				require.Equal(t, "keep-alive", resp.Header.Get("Connection"))
+
 				// Consume the full response body to ensure the interception completes
 				_, err = io.ReadAll(resp.Body)
 				require.NoError(t, err)
