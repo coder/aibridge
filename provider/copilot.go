@@ -19,7 +19,9 @@ import (
 )
 
 const (
-	copilotBaseURL              = "https://api.individual.githubcopilot.com"
+	copilotBaseURL = "https://api.individual.githubcopilot.com"
+
+	// Copilot exposes an OpenAI-compatible API, including for Anthropic models.
 	routeCopilotChatCompletions = "/copilot/chat/completions"
 	routeCopilotResponses       = "/copilot/responses"
 )
@@ -109,11 +111,6 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		return nil, fmt.Errorf("missing Copilot authorization: Authorization header not found or invalid")
 	}
 
-	payload, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
-
 	id := uuid.New()
 
 	// Build config for the interceptor using the per-request key.
@@ -132,7 +129,7 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 	switch r.URL.Path {
 	case routeCopilotChatCompletions:
 		var req chatcompletions.ChatCompletionNewParamsWrapper
-		if err := json.Unmarshal(payload, &req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			return nil, fmt.Errorf("unmarshal chat completions request body: %w", err)
 		}
 
@@ -143,6 +140,10 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		}
 
 	case routeCopilotResponses:
+		payload, err := io.ReadAll(r.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read body: %w", err)
+		}
 		var req responses.ResponsesNewParamsWrapper
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, fmt.Errorf("unmarshal responses request body: %w", err)
@@ -177,7 +178,7 @@ func extractBearerToken(auth string) string {
 // extractCopilotHeaders extracts headers required by the Copilot API from the
 // incoming request. Copilot requires certain client headers to be forwarded.
 func extractCopilotHeaders(r *http.Request) map[string]string {
-	headers := make(map[string]string)
+	headers := make(map[string]string, len(copilotForwardHeaders))
 	for _, h := range copilotForwardHeaders {
 		if v := r.Header.Get(h); v != "" {
 			headers[h] = v
