@@ -3,11 +3,5 @@
 .idea
 **/*.swp
 
-# Build
-bin/
-build/
-dist/
-out/
-
 # Project specific
 example/aibridge.db
