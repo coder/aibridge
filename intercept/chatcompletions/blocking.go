@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -73,8 +75,12 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	for {
 		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
+
 		var opts []option.RequestOption
 		opts = append(opts, option.WithRequestTimeout(time.Second*600))
+		if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
+			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
+		}
 
 		completion, err = i.newChatCompletion(ctx, svc, opts)
 		if err != nil {
