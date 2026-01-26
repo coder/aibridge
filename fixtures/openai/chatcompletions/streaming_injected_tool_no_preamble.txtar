@@ -32,6 +32,7 @@ data: {"choices":[{"finish_reason":"tool_calls","index":0,"delta":{"content":nul
 
 data: [DONE]
 
+
 -- streaming/tool-call --
 data: {"choices":[{"index":0,"delta":{"content":"You","role":"assistant"}}],"created":1769198061,"id":"msg_vrtx_015B1npskreQgEjMrfsdjH1m","model":"claude-haiku-4.5"}
 
@@ -68,3 +69,5 @@ data: {"choices":[{"index":0,"delta":{"content":" to date","role":"assistant"}}]
 data: {"choices":[{"finish_reason":"stop","index":0,"delta":{"content":null}}],"created":1769198062,"id":"msg_vrtx_015B1npskreQgEjMrfsdjH1m","usage":{"completion_tokens":85,"prompt_tokens":25989,"prompt_tokens_details":{"cached_tokens":0},"total_tokens":26074},"model":"claude-haiku-4.5"}
 
 data: [DONE]
+
+
