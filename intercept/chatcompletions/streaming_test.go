@@ -1,14 +1,13 @@
 package chatcompletions
 
 import (
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
 	"testing"
 
 	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/sloghuman"
+	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/google/uuid"
@@ -85,7 +84,7 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 			tracer := otel.Tracer("test")
 			interceptor := NewStreamingInterceptor(uuid.New(), req, cfg, tracer)
 
-			logger := slog.Make(sloghuman.Sink(io.Discard))
+			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
 
 			// Create test request
