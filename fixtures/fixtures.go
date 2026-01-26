@@ -69,14 +69,14 @@ var (
 	//go:embed openai/responses/blocking/prev_response_id.txtar
 	OaiResponsesBlockingPrevResponseID []byte
 
-	//go:embed openai/responses/blocking/wrong_response_format.txtar
-	OaiResponsesBlockingWrongResponseFormat []byte
-
 	//go:embed openai/responses/blocking/single_injected_tool.txtar
-	OaiResponsesSingleInjectedTool []byte
+	OaiResponsesBlockingSingleInjectedTool []byte
 
 	//go:embed openai/responses/blocking/single_injected_tool_error.txtar
-	OaiResponsesSingleInjectedToolError []byte
+	OaiResponsesBlockingSingleInjectedToolError []byte
+
+	//go:embed openai/responses/blocking/wrong_response_format.txtar
+	OaiResponsesBlockingWrongResponseFormat []byte
 )
 
 var (
@@ -103,6 +103,12 @@ var (
 
 	//go:embed openai/responses/streaming/prev_response_id.txtar
 	OaiResponsesStreamingPrevResponseID []byte
+
+	//go:embed openai/responses/streaming/single_injected_tool.txtar
+	OaiResponsesStreamingSingleInjectedTool []byte
+
+	//go:embed openai/responses/streaming/single_injected_tool_error.txtar
+	OaiResponsesStreamingSingleInjectedToolError []byte
 
 	//go:embed openai/responses/streaming/stream_error.txtar
 	OaiResponsesStreamingStreamError []byte

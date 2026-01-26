@@ -69,6 +69,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		return err
 	}
 
+	i.injectTools()
 	i.disableParallelToolCalls()
 
 	events := eventstream.NewEventStream(ctx, i.logger.Named("sse-sender"), nil)
@@ -82,61 +83,100 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	var respCopy responseCopier
 	var responseID string
 	var completedResponse *responses.Response
+	var innerLoopErr error
+	var streamErr error
 
+	shouldLoop := true
 	srv := i.newResponsesService()
-	opts := i.requestOptions(&respCopy)
-	if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
-		opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
-	}
 
-	stream := i.newStream(ctx, srv, opts)
-	defer stream.Close()
+	for shouldLoop {
+		shouldLoop = false
 
-	if upstreamErr := stream.Err(); upstreamErr != nil {
-		// events stream should never be initialized
-		if events.IsStreaming() {
-			i.logger.Warn(ctx, "event stream was initialized when no response was received from upstream")
-			return upstreamErr
+		respCopy = responseCopier{}
+		opts := i.requestOptions(&respCopy)
+		if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
+			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
 		}
+		stream := i.newStream(ctx, srv, opts)
 
-		// no response received from upstream (eg. client/connection error), return custom error
-		if !respCopy.responseReceived.Load() {
-			i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
-			return upstreamErr
-		}
+		// func scope to defer steam.Close()
+		err := func() error {
+			defer stream.Close()
 
-		// forward received response as-is
-		err := respCopy.forwardResp(w)
-		return errors.Join(upstreamErr, err)
-	}
+			if upstreamErr := stream.Err(); upstreamErr != nil {
+				// events stream should never be initialized
+				if events.IsStreaming() {
+					i.logger.Warn(ctx, "event stream was initialized when no response was received from upstream")
+					return upstreamErr
+				}
 
-	for stream.Next() {
-		ev := stream.Current()
+				// no response received from upstream (eg. client/connection error), return custom error
+				if !respCopy.responseReceived.Load() {
+					i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
+					return upstreamErr
+				}
 
-		// Not every event has response.id set (eg: fixtures/openai/responses/streaming/simple.txtar).
-		// First event should be of 'response.created' type and have response.id set.
-		// Set responseID to the first response.id that is set.
-		if responseID == "" && ev.Response.ID != "" {
-			responseID = ev.Response.ID
-		}
+				// forward received response as-is
+				err := respCopy.forwardResp(w)
+				return errors.Join(upstreamErr, err)
+			}
 
-		// Capture the response from the response.completed event.
-		// Only response.completed event type have 'usage' field set.
-		if ev.Type == string(oaiconst.ValueOf[oaiconst.ResponseCompleted]()) {
-			completedEvent := ev.AsResponseCompleted()
-			completedResponse = &completedEvent.Response
-		}
-		if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
-			err = fmt.Errorf("failed to relay chunk: %w", err)
+			for stream.Next() {
+				ev := stream.Current()
+
+				// Not every event has response.id set (eg: fixtures/openai/responses/streaming/simple.txtar).
+				// First event should be of 'response.created' type and have response.id set.
+				// Set responseID to the first response.id that is set.
+				if responseID == "" && ev.Response.ID != "" {
+					responseID = ev.Response.ID
+				}
+
+				// Capture the response from the response.completed event.
+				// Only response.completed event type have 'usage' field set.
+				if ev.Type == string(oaiconst.ValueOf[oaiconst.ResponseCompleted]()) {
+					completedEvent := ev.AsResponseCompleted()
+					completedResponse = &completedEvent.Response
+				}
+
+				// If no MCP proxy is provided then no tools are injected.
+				// Inner loop will never iterate more than once, so events can be forwarded as soon as received.
+				//
+				// Otherwise inner loop could iterate. Only last response should be forwarded.
+				// This is needed to keep consistency between response.id and response.previous_response_id fields.
+				if i.mcpProxy == nil {
+					if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
+						err = fmt.Errorf("failed to relay chunk: %w", err)
+						return err
+					}
+				}
+			}
+			streamErr = stream.Err()
+			return nil
+		}()
+		if err != nil {
 			return err
 		}
+
+		if i.mcpProxy != nil && completedResponse != nil {
+			pending := i.getPendingInjectedToolCalls(completedResponse)
+			shouldLoop, innerLoopErr = i.handleInnerAgenticLoop(ctx, pending, completedResponse)
+			if innerLoopErr != nil {
+				i.sendCustomErr(ctx, w, http.StatusInternalServerError, innerLoopErr)
+				shouldLoop = false
+			}
+
+			// Record token usage for each inner loop iteration
+			i.recordTokenUsage(ctx, completedResponse)
+		}
 	}
+
 	i.recordUserPrompt(ctx, responseID)
-	if completedResponse != nil {
-		i.recordNonInjectedToolUsage(ctx, completedResponse)
-		i.recordTokenUsage(ctx, completedResponse)
-	} else {
-		i.logger.Warn(ctx, "got empty response, skipping tool and token usage recording")
+	i.recordNonInjectedToolUsage(ctx, completedResponse)
+
+	// On innerLoop error custom error has been already sent,
+	// exit without emptying respCopy buffer.
+	if innerLoopErr != nil {
+		return innerLoopErr
 	}
 
 	b, err := respCopy.readAll()
@@ -145,7 +185,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	}
 
 	err = events.Send(ctx, b)
-	return errors.Join(err, stream.Err())
+	return errors.Join(err, streamErr)
 }
 
 func (i *StreamingResponsesInterceptor) newStream(ctx context.Context, srv responses.ResponseService, opts []option.RequestOption) *ssestream.Stream[responses.ResponseStreamEventUnion] {

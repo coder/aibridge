@@ -78,7 +78,7 @@ func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streami
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),
 		attribute.String(tracing.InterceptionID, i.id.String()),
-		attribute.String(tracing.InitiatorID, aibcontext.ActorFromContext(r.Context()).ID),
+		attribute.String(tracing.InitiatorID, aibcontext.ActorIDFromContext(r.Context())),
 		attribute.String(tracing.Provider, config.ProviderOpenAI),
 		attribute.String(tracing.Model, i.Model()),
 		attribute.Bool(tracing.Streaming, streaming),
@@ -331,6 +331,11 @@ func (r *responseCopier) readAll() ([]byte, error) {
 
 // forwardResp writes whole response as received to ResponseWriter
 func (r *responseCopier) forwardResp(w http.ResponseWriter) error {
+	// no response was received, nothing to forward
+	if !r.responseReceived.Load() {
+		return nil
+	}
+
 	w.Header().Set("Content-Type", r.responseHeaders.Get("Content-Type"))
 	w.WriteHeader(r.responseStatus)
 

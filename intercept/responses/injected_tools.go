@@ -76,6 +76,31 @@ func (i *responsesInterceptionBase) disableParallelToolCalls() {
 	}
 }
 
+// handleInnerAgenticLoop orchestrates the inner agentic loop whereby injected tools
+// are invoked and their results are sent back to the model.
+// This is in contrast to regular tool calls which will be handled by the client
+// in its own agentic loop.
+func (i *responsesInterceptionBase) handleInnerAgenticLoop(ctx context.Context, pending []responses.ResponseFunctionToolCall, response *responses.Response) (bool, error) {
+	// Invoke any injected function calls.
+	// The Responses API refers to what we call "tools" as "functions", so we keep the terminology
+	// consistent in this package.
+	// See https://platform.openai.com/docs/guides/function-calling
+	results, err := i.handleInjectedToolCalls(ctx, pending, response)
+	if err != nil {
+		return false, fmt.Errorf("failed to handle injected tool calls: %w", err)
+	}
+
+	// No tool results means no tools were invocable, so the flow is complete.
+	if len(results) == 0 {
+		return false, nil
+	}
+
+	// We'll use the tool results to issue another request to provide the model with.
+	err = i.prepareRequestForAgenticLoop(ctx, response, results)
+
+	return true, err
+}
+
 // handleInjectedToolCalls checks for function calls that we need to handle in our inner agentic loop.
 // These are functions injected by the MCP proxy.
 // Returns a list of tool call results.
@@ -99,19 +124,60 @@ func (i *responsesInterceptionBase) handleInjectedToolCalls(ctx context.Context,
 
 // prepareRequestForAgenticLoop prepares the request by setting the output of the given
 // response as input to the next request, in order for the tool call result(s) to make function correctly.
-func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(response *responses.Response) {
+func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(ctx context.Context, response *responses.Response, toolResults []responses.ResponseInputItemUnionParam) error {
+	var err error
+	originalInputSize := len(i.req.Input.OfInputItemList)
+
 	// Unset the string input; we need a list now.
-	i.req.Input.OfString = param.Opt[string]{}
+	if i.req.Input.OfString.Valid() {
+		// convert old string value to list item
+		i.req.Input.OfInputItemList = responses.ResponseInputParam{
+			responses.ResponseInputItemParamOfMessage(
+				i.req.Input.OfString.Value,
+				responses.EasyInputMessageRoleUser,
+			),
+		}
+
+		// clear old value
+		i.req.Input.OfString = param.Opt[string]{}
+	}
 
 	// OutputText is also available, but by definition the trigger for a function call is not a simple
 	// text response from the model.
 	for _, output := range response.Output {
-		i.appendOutputToInput(i.req, output)
+		if inputItem := i.convertOutputToInput(output); inputItem != nil {
+			i.req.Input.OfInputItemList = append(i.req.Input.OfInputItemList, *inputItem)
+		}
 	}
+
+	for _, result := range toolResults {
+		i.req.Input.OfInputItemList = append(i.req.Input.OfInputItemList, result)
+	}
+
+	// If original payload was in string format or was an empty list re-marshal whole input
+	if originalInputSize == 0 {
+		if i.reqPayload, err = sjson.SetBytes(i.reqPayload, "input", i.req.Input.OfInputItemList); err != nil {
+			i.logger.Error(ctx, "failure to marshal new input in inner agentic loop", slog.Error(err))
+			return fmt.Errorf("failed to marshal input: %v", err)
+		}
+		return nil
+	}
+
+	// Append newly added items to reqPayload field
+	// New items are appended to limit Input re-marshaling.
+	// See responsesInterceptionBase.requestOptions for more details about marshaling issues.
+	for j := originalInputSize; j < len(i.req.Input.OfInputItemList); j++ {
+		if i.reqPayload, err = sjson.SetBytes(i.reqPayload, "input.-1", i.req.Input.OfInputItemList[j]); err != nil {
+			i.logger.Error(ctx, "failure to marshal output item to new input in inner agentic loop", slog.Error(err))
+			return fmt.Errorf("failed to marshal input: %v", err)
+		}
+	}
+
+	return nil
 }
 
 // getPendingInjectedToolCalls extracts function calls from the response that are managed by MCP proxy
-func (i *responsesInterceptionBase) getPendingInjectedToolCalls(ctx context.Context, response *responses.Response) []responses.ResponseFunctionToolCall {
+func (i *responsesInterceptionBase) getPendingInjectedToolCalls(response *responses.Response) []responses.ResponseFunctionToolCall {
 	var calls []responses.ResponseFunctionToolCall
 
 	for _, item := range response.Output {
@@ -171,14 +237,14 @@ func (i *responsesInterceptionBase) invokeInjectedTool(ctx context.Context, resp
 	return responses.ResponseInputItemParamOfFunctionCallOutput(fc.CallID, output)
 }
 
-// appendOutputToInput converts a response output item to an input item and appends it to the
+// convertOutputToInput converts a response output item to an input item and appends it to the
 // request's input list. This is used in agentic loops where we need to feed the model's output
 // back as input for the next iteration (e.g., when processing tool call results).
 //
 // The conversion uses the openai-go library's ToParam() methods where available, which leverage
 // param.Override() with raw JSON to preserve all fields. For types without ToParam(), we use
 // the ResponseInputItemParamOf* helper functions.
-func (i *responsesInterceptionBase) appendOutputToInput(req *ResponsesNewParamsWrapper, item responses.ResponseOutputItemUnion) {
+func (i *responsesInterceptionBase) convertOutputToInput(item responses.ResponseOutputItemUnion) *responses.ResponseInputItemUnionParam {
 	var inputItem responses.ResponseInputItemUnionParam
 
 	switch item.Type {
@@ -228,8 +294,8 @@ func (i *responsesInterceptionBase) appendOutputToInput(req *ResponsesNewParamsW
 	// - mcp_call, mcp_list_tools, mcp_approval_request: MCP-specific outputs
 	default:
 		i.logger.Debug(context.Background(), "skipping output item type for input", slog.F("type", item.Type))
-		return
+		return nil
 	}
 
-	req.Input.OfInputItemList = append(req.Input.OfInputItemList, inputItem)
+	return &inputItem
 }
