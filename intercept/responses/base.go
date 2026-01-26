@@ -37,17 +37,16 @@ const (
 )
 
 type responsesInterceptionBase struct {
-	id                uuid.UUID
-	req               *ResponsesNewParamsWrapper
-	reqPayload        []byte
-	promptWasRecorded bool
-	cfg               config.OpenAI
-	model             string
-	recorder          recorder.Recorder
-	mcpProxy          mcp.ServerProxier
-	logger            slog.Logger
-	metrics           metrics.Metrics
-	tracer            trace.Tracer
+	id         uuid.UUID
+	req        *ResponsesNewParamsWrapper
+	reqPayload []byte
+	cfg        config.OpenAI
+	model      string
+	recorder   recorder.Recorder
+	mcpProxy   mcp.ServerProxier
+	logger     slog.Logger
+	metrics    metrics.Metrics
+	tracer     trace.Tracer
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -140,14 +139,15 @@ func (i *responsesInterceptionBase) requestOptions(respCopy *responseCopier) []o
 	return opts
 }
 
-// lastUserPrompt returns input text with "user" role from last input item or string input value if it is present.
-// If no such input was found nil is returned.
-func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (*string, error) {
+// lastUserPrompt returns input text with "user" role from last input item
+// or string input value if it is present + bool indicating if input was found or not.
+// If no such input was found empty string + false is returned.
+func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (string, bool, error) {
 	if i == nil {
-		return nil, errors.New("cannot get last user prompt: nil struct")
+		return "", false, errors.New("cannot get last user prompt: nil struct")
 	}
 	if i.req == nil {
-		return nil, errors.New("cannot get last user prompt: nil request struct")
+		return "", false, errors.New("cannot get last user prompt: nil request struct")
 	}
 
 	// 'input' field can be a string or array of objects:
@@ -155,23 +155,31 @@ func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (*string
 
 	// Check string variant
 	if i.req.Input.OfString.Valid() {
-		return &i.req.Input.OfString.Value, nil
+		return i.req.Input.OfString.Value, true, nil
 	}
 
 	// Fallback to parsing original bytes since golang SDK doesn't properly decode 'Input' field.
 	// If 'type' field of input item is not set it will be omitted from 'Input.OfInputItemList'
 	// It is an optional field according to API: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message
 	// example: fixtures/openai/responses/blocking/builtin_tool.txtar
-	inputItems := gjson.GetBytes(i.reqPayload, "input").Array()
-	if len(inputItems) == 0 {
-		return nil, nil
+	inputItems := gjson.GetBytes(i.reqPayload, "input")
+
+	if !inputItems.IsArray() {
+		if inputItems.Type == gjson.Null {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("unexpected input type: %v", inputItems.Type.String())
 	}
 
-	lastItem := inputItems[len(inputItems)-1]
+	inputItemsArr := inputItems.Array()
+	if len(inputItemsArr) == 0 {
+		return "", false, nil
+	}
+	lastItem := inputItemsArr[len(inputItemsArr)-1]
 
 	// Request was likely not human-initiated.
 	if lastItem.Get("role").Str != string(constant.ValueOf[constant.User]()) {
-		return nil, nil
+		return "", false, nil
 	}
 
 	// content can be a string or array of objects:
@@ -181,9 +189,9 @@ func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (*string
 	// non array case, should be string
 	if !content.IsArray() {
 		if content.Type == gjson.String {
-			return &content.Str, nil
+			return content.Str, true, nil
 		}
-		return nil, fmt.Errorf("unexpected input type: %v", content.Type.String())
+		return "", false, fmt.Errorf("unexpected input content type: %v", content.Type.String())
 	}
 
 	var sb strings.Builder
@@ -199,39 +207,19 @@ func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (*string
 			promptExists = true
 			sb.WriteString(text.Str + "\n")
 		} else {
-			i.logger.Warn(ctx, fmt.Sprintf("unexpected input array type: %v", text.Type))
+			i.logger.Warn(ctx, fmt.Sprintf("unexpected input content array element text type: %v", text.Type))
 		}
 	}
 
 	if !promptExists {
-		return nil, nil
+		return "", false, nil
 	}
 
 	prompt := strings.TrimSuffix(sb.String(), "\n")
-	return &prompt, nil
+	return prompt, true, nil
 }
 
-func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string) {
-	// User prompt should be recorded only during first inner loop iteration.
-	// Subsequent inner loop iterations would fail to extract user prompt
-	// since last input item should be function call result / not contain user prompt.
-	if i.promptWasRecorded {
-		// Exiting early to avoid confusing log entries.
-		return
-	}
-	i.promptWasRecorded = true
-
-	prompt, err := i.lastUserPrompt(ctx)
-	if err != nil {
-		i.logger.Warn(ctx, "failed to get last user prompt", slog.Error(err))
-		return
-	}
-
-	// No prompt found: last request was not human-initiated.
-	if prompt == nil {
-		return
-	}
-
+func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string, prompt string) {
 	if responseID == "" {
 		i.logger.Warn(ctx, "got empty response ID, skipping prompt recording")
 		return
@@ -240,7 +228,7 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 	promptUsage := &recorder.PromptUsageRecord{
 		InterceptionID: i.ID().String(),
 		MsgID:          responseID,
-		Prompt:         *prompt,
+		Prompt:         prompt,
 	}
 	if err := i.recorder.RecordPromptUsage(ctx, promptUsage); err != nil {
 		i.logger.Warn(ctx, "failed to record prompt usage", slog.Error(err))

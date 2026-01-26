@@ -26,13 +26,12 @@ type BlockingResponsesInterceptor struct {
 func NewBlockingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string, tracer trace.Tracer) *BlockingResponsesInterceptor {
 	return &BlockingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
-			id:                id,
-			req:               req,
-			reqPayload:        reqPayload,
-			cfg:               cfg,
-			promptWasRecorded: false,
-			model:             model,
-			tracer:            tracer,
+			id:         id,
+			req:        req,
+			reqPayload: reqPayload,
+			cfg:        cfg,
+			model:      model,
+			tracer:     tracer,
 		},
 	}
 }
@@ -61,13 +60,18 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	i.disableParallelToolCalls()
 
 	var (
-		response    *responses.Response
-		err         error
-		upstreamErr error
-		respCopy    responseCopier
+		response        *responses.Response
+		upstreamErr     error
+		respCopy        responseCopier
+		firstResponseID string
 	)
 
+	prompt, promptFound, err := i.lastUserPrompt(ctx)
+	if err != nil {
+		i.logger.Warn(ctx, "failed to get user prompt", slog.Error(err))
+	}
 	shouldLoop := true
+
 	for shouldLoop {
 		srv := i.newResponsesService()
 		respCopy = responseCopier{}
@@ -80,7 +84,10 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 			break
 		}
 
-		i.recordUserPrompt(ctx, response.ID)
+		if firstResponseID == "" {
+			firstResponseID = response.ID
+		}
+
 		i.recordTokenUsage(ctx, response)
 
 		// Check if there any injected tools to invoke.
@@ -92,6 +99,9 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 		}
 	}
 
+	if promptFound {
+		i.recordUserPrompt(ctx, firstResponseID, prompt)
+	}
 	i.recordNonInjectedToolUsage(ctx, response)
 
 	if upstreamErr != nil && !respCopy.responseReceived.Load() {

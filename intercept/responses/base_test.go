@@ -71,24 +71,25 @@ func TestLastUserPrompt(t *testing.T) {
 				reqPayload: tc.reqPayload,
 			}
 
-			prompt, err := base.lastUserPrompt(t.Context())
+			prompt, promptFound, err := base.lastUserPrompt(t.Context())
 			require.NoError(t, err)
-			require.NotNil(t, prompt)
-			require.Equal(t, tc.expect, *prompt)
+			require.Equal(t, tc.expect, prompt)
+			require.True(t, promptFound)
 		})
 	}
 }
 
-func TestLastUserPromptNil(t *testing.T) {
+func TestLastUserPromptNotFound(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil_struct", func(t *testing.T) {
 		t.Parallel()
 
 		var base *responsesInterceptionBase
-		prompt, err := base.lastUserPrompt(t.Context())
+		prompt, promptFound, err := base.lastUserPrompt(t.Context())
 		require.Error(t, err)
-		require.Nil(t, prompt)
+		require.Empty(t, prompt)
+		require.False(t, promptFound)
 		require.Contains(t, "cannot get last user prompt: nil struct", err.Error())
 	})
 
@@ -96,13 +97,14 @@ func TestLastUserPromptNil(t *testing.T) {
 		t.Parallel()
 
 		base := responsesInterceptionBase{}
-		prompt, err := base.lastUserPrompt(t.Context())
+		prompt, promptFound, err := base.lastUserPrompt(t.Context())
 		require.Error(t, err)
-		require.Nil(t, prompt)
+		require.Empty(t, prompt)
+		require.False(t, promptFound)
 		require.Contains(t, "cannot get last user prompt: nil request struct", err.Error())
 	})
 
-	// Other cases where the user prompt might be empty.
+	// Cases where the user prompt is not found / wrong format.
 	tests := []struct {
 		name       string
 		reqPayload []byte
@@ -119,6 +121,7 @@ func TestLastUserPromptNil(t *testing.T) {
 		{
 			name:       "input_integer",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": 123}`),
+			expectErr:  "unexpected input type",
 		},
 		{
 			name:       "no_user_role",
@@ -131,7 +134,7 @@ func TestLastUserPromptNil(t *testing.T) {
 		{
 			name:       "input_array_integer",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": 123}]}`),
-			expectErr:  "unexpected input type",
+			expectErr:  "unexpected input content type",
 		},
 		{
 			name:       "user_with_non_input_text_content",
@@ -160,14 +163,15 @@ func TestLastUserPromptNil(t *testing.T) {
 				reqPayload: tc.reqPayload,
 			}
 
-			prompt, err := base.lastUserPrompt(t.Context())
+			prompt, promptFound, err := base.lastUserPrompt(t.Context())
 			if tc.expectErr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.expectErr)
 			} else {
 				require.NoError(t, err)
 			}
-			require.Nil(t, prompt)
+			require.Empty(t, prompt)
+			require.False(t, promptFound)
 		})
 	}
 }
@@ -178,35 +182,29 @@ func TestRecordPrompt(t *testing.T) {
 	tests := []struct {
 		name              string
 		promptWasRecorded bool
-		reqPayload        []byte
+		prompt            string
 		responseID        string
 		wantRecorded      bool
 		wantPrompt        string
 	}{
 		{
 			name:         "records_prompt_successfully",
-			reqPayload:   fixtures.Request(t, fixtures.OaiResponsesBlockingSimple),
+			prompt:       "tell me a joke",
 			responseID:   "resp_123",
 			wantRecorded: true,
 			wantPrompt:   "tell me a joke",
 		},
 		{
-			name:              "skips_record_if_prompt_was_recorded_before",
-			promptWasRecorded: true,
-			reqPayload:        fixtures.Request(t, fixtures.OaiResponsesBlockingSimple),
-			responseID:        "resp_123",
-			wantRecorded:      false,
+			name:         "records_empty_prompt_successfully",
+			prompt:       "",
+			responseID:   "resp_123",
+			wantRecorded: true,
+			wantPrompt:   "",
 		},
 		{
 			name:         "skips_recording_on_empty_response_id",
-			reqPayload:   fixtures.Request(t, fixtures.OaiResponsesBlockingSimple),
+			prompt:       "tell me a joke",
 			responseID:   "",
-			wantRecorded: false,
-		},
-		{
-			name:         "skips_recording_on_lastUserPrompt_error",
-			reqPayload:   []byte(`{"model": "gpt-4o", "input": []}`),
-			responseID:   "resp_123",
 			wantRecorded: false,
 		},
 	}
@@ -215,22 +213,15 @@ func TestRecordPrompt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := &ResponsesNewParamsWrapper{}
-			err := req.UnmarshalJSON(tc.reqPayload)
-			require.NoError(t, err)
-
 			rec := &testutil.MockRecorder{}
 			id := uuid.New()
 			base := &responsesInterceptionBase{
-				id:                id,
-				req:               req,
-				reqPayload:        tc.reqPayload,
-				promptWasRecorded: tc.promptWasRecorded,
-				recorder:          rec,
-				logger:            slog.Make(),
+				id:       id,
+				recorder: rec,
+				logger:   slog.Make(),
 			}
 
-			base.recordUserPrompt(t.Context(), tc.responseID)
+			base.recordUserPrompt(t.Context(), tc.responseID, tc.prompt)
 
 			prompts := rec.RecordedPromptUsages()
 			if tc.wantRecorded {
