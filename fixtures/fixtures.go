@@ -45,6 +45,12 @@ var (
 
 	//go:embed openai/chatcompletions/non_stream_error.txtar
 	OaiChatNonStreamError []byte
+
+	//go:embed openai/chatcompletions/streaming_injected_tool_no_preamble.txtar
+	OaiChatStreamingInjectedToolNoPreamble []byte
+
+	//go:embed openai/chatcompletions/streaming_injected_tool_nonzero_index.txtar
+	OaiChatStreamingInjectedToolNonzeroIndex []byte
 )
 
 var (
