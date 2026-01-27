@@ -5,6 +5,7 @@ import "time"
 const (
 	ProviderAnthropic = "anthropic"
 	ProviderOpenAI    = "openai"
+	ProviderCopilot   = "copilot"
 )
 
 type Anthropic struct {
@@ -31,6 +32,7 @@ type OpenAI struct {
 	APIDumpDir       string
 	CircuitBreaker   *CircuitBreaker
 	SendActorHeaders bool
+	ExtraHeaders     map[string]string
 }
 
 // CircuitBreaker holds configuration for circuit breakers.
@@ -59,4 +61,10 @@ func DefaultCircuitBreaker() CircuitBreaker {
 		Timeout:          30 * time.Second,
 		MaxRequests:      3,
 	}
+}
+
+type Copilot struct {
+	BaseURL        string
+	APIDumpDir     string
+	CircuitBreaker *CircuitBreaker
 }
