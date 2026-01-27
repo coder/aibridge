@@ -61,10 +61,10 @@ func NewEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte)
 	}
 }
 
-// MarkInitiated initiates the SSE stream by sending headers and starting the
+// InitiateStream initiates the SSE stream by sending headers and starting the
 // ping ticker. This is safe to call multiple times as only the first call has
 // any effect.
-func (s *EventStream) MarkInitiated(w http.ResponseWriter) {
+func (s *EventStream) InitiateStream(w http.ResponseWriter) {
 	s.initiateOnce.Do(func() {
 		s.initiated.Store(true)
 		s.logger.Debug(s.ctx, "stream initiated")
@@ -114,7 +114,7 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 			}
 
 			// Initiate the stream on first event (if not already initiated).
-			s.MarkInitiated(w)
+			s.InitiateStream(w)
 		case <-s.tick.C:
 			ev = s.pingPayload
 			if ev == nil {
