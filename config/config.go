@@ -32,7 +32,7 @@ type OpenAI struct {
 	APIDumpDir       string
 	CircuitBreaker   *CircuitBreaker
 	SendActorHeaders bool
-  ExtraHeaders     map[string]string
+	ExtraHeaders     map[string]string
 }
 
 // CircuitBreaker holds configuration for circuit breakers.
