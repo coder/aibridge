@@ -168,7 +168,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 				// Only initiate if no stream error, if there's an error, we'll return
 				// an HTTP error response instead of starting an SSE stream.
 				if stream.Err() == nil {
-					events.MarkInitiated(w)
+					events.InitiateStream(w)
 				}
 			}
 		}
