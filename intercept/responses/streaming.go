@@ -81,11 +81,15 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	}()
 
 	var respCopy responseCopier
-	var responseID string
+	var firstResponseID string
 	var completedResponse *responses.Response
 	var innerLoopErr error
 	var streamErr error
 
+	prompt, promptFound, err := i.lastUserPrompt(ctx)
+	if err != nil {
+		i.logger.Warn(ctx, "failed to get user prompt", slog.Error(err))
+	}
 	shouldLoop := true
 	srv := i.newResponsesService()
 
@@ -127,8 +131,8 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 				// Not every event has response.id set (eg: fixtures/openai/responses/streaming/simple.txtar).
 				// First event should be of 'response.created' type and have response.id set.
 				// Set responseID to the first response.id that is set.
-				if responseID == "" && ev.Response.ID != "" {
-					responseID = ev.Response.ID
+				if firstResponseID == "" && ev.Response.ID != "" {
+					firstResponseID = ev.Response.ID
 				}
 
 				// Capture the response from the response.completed event.
@@ -150,6 +154,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 					}
 				}
 			}
+
 			streamErr = stream.Err()
 			return nil
 		}()
@@ -170,7 +175,9 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 		}
 	}
 
-	i.recordUserPrompt(ctx, responseID)
+	if promptFound {
+		i.recordUserPrompt(ctx, firstResponseID, prompt)
+	}
 	i.recordNonInjectedToolUsage(ctx, completedResponse)
 
 	// On innerLoop error custom error has been already sent,

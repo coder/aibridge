@@ -62,14 +62,18 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	i.disableParallelToolCalls()
 
 	var (
-		response    *responses.Response
-		err         error
-		upstreamErr error
-		respCopy    responseCopier
+		response        *responses.Response
+		upstreamErr     error
+		respCopy        responseCopier
+		firstResponseID string
 	)
 
+	prompt, promptFound, err := i.lastUserPrompt(ctx)
+	if err != nil {
+		i.logger.Warn(ctx, "failed to get user prompt", slog.Error(err))
+	}
 	shouldLoop := true
-	recordPromptOnce := true
+
 	for shouldLoop {
 		srv := i.newResponsesService()
 		respCopy = responseCopier{}
@@ -86,13 +90,10 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 			break
 		}
 
-		// Record prompt usage on first successful response.
-		if recordPromptOnce {
-			recordPromptOnce = false
-			i.recordUserPrompt(ctx, response.ID)
+		if firstResponseID == "" {
+			firstResponseID = response.ID
 		}
 
-		// Record token usage for each inner loop iteration
 		i.recordTokenUsage(ctx, response)
 
 		// Check if there any injected tools to invoke.
@@ -104,6 +105,9 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 		}
 	}
 
+	if promptFound {
+		i.recordUserPrompt(ctx, firstResponseID, prompt)
+	}
 	i.recordNonInjectedToolUsage(ctx, response)
 
 	if upstreamErr != nil && !respCopy.responseReceived.Load() {

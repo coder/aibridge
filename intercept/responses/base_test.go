@@ -20,22 +20,41 @@ func TestLastUserPrompt(t *testing.T) {
 	tests := []struct {
 		name       string
 		reqPayload []byte
-		expected   string
+		expect     string
 	}{
+		{
+			name:       "input_empty_string",
+			reqPayload: []byte(`{"input": ""}`),
+			expect:     "",
+		},
+		{
+			name:       "input_array_content_empty_string",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": ""}]}`),
+			expect:     "",
+		},
+		{
+			name:       "input_array_content_array_empty_string",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [ { "role": "user", "content": [{"type": "input_text", "text": ""}] } ] }`),
+		},
+		{
+			name:       "input_array_content_array_multiple_inputs",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [ { "role": "user", "content": [{"type": "input_text", "text": "a"}, {"type": "input_text", "text": "b"}] } ] }`),
+			expect:     "a\nb",
+		},
 		{
 			name:       "simple_string_input",
 			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingSimple),
-			expected:   "tell me a joke",
+			expect:     "tell me a joke",
 		},
 		{
 			name:       "array_single_input_string",
 			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingSingleBuiltinTool),
-			expected:   "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
+			expect:     "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
 		},
 		{
 			name:       "array_multiple_items_content_objects",
 			reqPayload: fixtures.Request(t, fixtures.OaiResponsesStreamingCodex),
-			expected:   "hello",
+			expect:     "hello",
 		},
 	}
 
@@ -52,50 +71,82 @@ func TestLastUserPrompt(t *testing.T) {
 				reqPayload: tc.reqPayload,
 			}
 
-			prompt, err := base.lastUserPrompt()
+			prompt, promptFound, err := base.lastUserPrompt(t.Context())
 			require.NoError(t, err)
-			require.Equal(t, tc.expected, prompt)
+			require.Equal(t, tc.expect, prompt)
+			require.True(t, promptFound)
 		})
 	}
 }
 
-func TestLastUserPromptEmptyPrompt(t *testing.T) {
+func TestLastUserPromptNotFound(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil_struct", func(t *testing.T) {
 		t.Parallel()
 
 		var base *responsesInterceptionBase
-		prompt, err := base.lastUserPrompt()
+		prompt, promptFound, err := base.lastUserPrompt(t.Context())
 		require.Error(t, err)
 		require.Empty(t, prompt)
+		require.False(t, promptFound)
 		require.Contains(t, "cannot get last user prompt: nil struct", err.Error())
 	})
 
-	// Other cases where the user prompt might be empty.
+	t.Run("nil_request", func(t *testing.T) {
+		t.Parallel()
+
+		base := responsesInterceptionBase{}
+		prompt, promptFound, err := base.lastUserPrompt(t.Context())
+		require.Error(t, err)
+		require.Empty(t, prompt)
+		require.False(t, promptFound)
+		require.Contains(t, "cannot get last user prompt: nil request struct", err.Error())
+	})
+
+	// Cases where the user prompt is not found / wrong format.
 	tests := []struct {
 		name       string
 		reqPayload []byte
+		expectErr  string
 	}{
 		{
-			name:       "empty_input",
+			name:       "non_existing_input",
+			reqPayload: []byte(`{"model": "gpt-4o"}`),
+		},
+		{
+			name:       "input_empty_array",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": []}`),
+		},
+		{
+			name:       "input_integer",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": 123}`),
+			expectErr:  "unexpected input type",
 		},
 		{
 			name:       "no_user_role",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "assistant", "content": "hello"}]}`),
 		},
 		{
-			name:       "user_with_empty_content",
-			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": ""}]}`),
-		},
-		{
 			name:       "user_with_empty_content_array",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": []}]}`),
 		},
 		{
+			name:       "input_array_integer",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": 123}]}`),
+			expectErr:  "unexpected input content type",
+		},
+		{
 			name:       "user_with_non_input_text_content",
 			reqPayload: []byte(`{"model": "gpt-4o", "input": [{"role": "user", "content": [{"type": "input_image", "url": "http://example.com/img.png"}]}]}`),
+		},
+		{
+			name:       "user_content_not_last",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [ {"role": "user", "content":"input"}, {"role": "assistant", "content": "hello"} ]}`),
+		},
+		{
+			name:       "input_array_content_array_integer",
+			reqPayload: []byte(`{"model": "gpt-4o", "input": [ { "role": "user", "content": [{"type": "input_text", "text": 123}] } ] }`),
 		},
 	}
 
@@ -112,9 +163,15 @@ func TestLastUserPromptEmptyPrompt(t *testing.T) {
 				reqPayload: tc.reqPayload,
 			}
 
-			prompt, err := base.lastUserPrompt()
-			require.NoError(t, err)
+			prompt, promptFound, err := base.lastUserPrompt(t.Context())
+			if tc.expectErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.expectErr)
+			} else {
+				require.NoError(t, err)
+			}
 			require.Empty(t, prompt)
+			require.False(t, promptFound)
 		})
 	}
 }
@@ -123,29 +180,31 @@ func TestRecordPrompt(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		reqPayload   []byte
-		responseID   string
-		wantRecorded bool
-		wantPrompt   string
+		name              string
+		promptWasRecorded bool
+		prompt            string
+		responseID        string
+		wantRecorded      bool
+		wantPrompt        string
 	}{
 		{
 			name:         "records_prompt_successfully",
-			reqPayload:   fixtures.Request(t, fixtures.OaiResponsesBlockingSimple),
+			prompt:       "tell me a joke",
 			responseID:   "resp_123",
 			wantRecorded: true,
 			wantPrompt:   "tell me a joke",
 		},
 		{
-			name:         "skips_recording_on_empty_response_id",
-			reqPayload:   fixtures.Request(t, fixtures.OaiResponsesBlockingSimple),
-			responseID:   "",
-			wantRecorded: false,
+			name:         "records_empty_prompt_successfully",
+			prompt:       "",
+			responseID:   "resp_123",
+			wantRecorded: true,
+			wantPrompt:   "",
 		},
 		{
-			name:         "skips_recording_on_lastUserPrompt_error",
-			reqPayload:   []byte(`{"model": "gpt-4o", "input": []}`),
-			responseID:   "resp_123",
+			name:         "skips_recording_on_empty_response_id",
+			prompt:       "tell me a joke",
+			responseID:   "",
 			wantRecorded: false,
 		},
 	}
@@ -154,21 +213,15 @@ func TestRecordPrompt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := &ResponsesNewParamsWrapper{}
-			err := req.UnmarshalJSON(tc.reqPayload)
-			require.NoError(t, err)
-
 			rec := &testutil.MockRecorder{}
 			id := uuid.New()
 			base := &responsesInterceptionBase{
-				id:         id,
-				req:        req,
-				reqPayload: tc.reqPayload,
-				recorder:   rec,
-				logger:     slog.Make(),
+				id:       id,
+				recorder: rec,
+				logger:   slog.Make(),
 			}
 
-			base.recordUserPrompt(t.Context(), tc.responseID)
+			base.recordUserPrompt(t.Context(), tc.responseID, tc.prompt)
 
 			prompts := rec.RecordedPromptUsages()
 			if tc.wantRecorded {
