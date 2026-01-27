@@ -30,7 +30,11 @@ var copilotOpenErrorResponse = func() []byte {
 	return []byte(`{"error":{"message":"circuit breaker is open","type":"server_error","code":"service_unavailable"}}`)
 }
 
-// Headers that need to be forwarded to Copilot API
+// Headers that need to be forwarded to Copilot API.
+// These were determined through manual testing as there is no reference
+// of the headers in the official documentation.
+// LiteLLM uses the same headers:
+// https://docs.litellm.ai/docs/providers/github_copilot
 var copilotForwardHeaders = []string{
 	"Editor-Version",
 	"Copilot-Integration-Id",
