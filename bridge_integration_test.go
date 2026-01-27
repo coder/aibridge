@@ -26,6 +26,7 @@ import (
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
@@ -1727,6 +1728,162 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 			require.NotNil(t, receivedHeaders)
 			require.Empty(t, receivedHeaders.Get(tc.headerName))
 		})
+	}
+}
+
+func TestActorHeaders(t *testing.T) {
+	t.Parallel()
+
+	actorUsername := "bob"
+
+	cases := []struct {
+		name             string
+		createRequest    createRequestFunc
+		createProviderFn func(url, key string, sendHeaders bool) aibridge.Provider
+		fixture          []byte
+		streaming        bool
+	}{
+		{
+			name:          "openai/v1/chat/completions",
+			createRequest: createOpenAIChatCompletionsReq,
+			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
+				cfg := openaiCfg(url, key)
+				cfg.SendActorHeaders = sendHeaders
+				return provider.NewOpenAI(cfg)
+			},
+			fixture:   fixtures.OaiChatSimple,
+			streaming: true,
+		},
+		{
+			name:          "openai/v1/chat/completions",
+			createRequest: createOpenAIChatCompletionsReq,
+			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
+				cfg := openaiCfg(url, key)
+				cfg.SendActorHeaders = sendHeaders
+				return provider.NewOpenAI(cfg)
+			},
+			fixture:   fixtures.OaiChatSimple,
+			streaming: false,
+		},
+		{
+			name:          "openai/v1/responses",
+			createRequest: createOpenAIResponsesReq,
+			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
+				cfg := openaiCfg(url, key)
+				cfg.SendActorHeaders = sendHeaders
+				return provider.NewOpenAI(cfg)
+			},
+			fixture:   fixtures.OaiResponsesStreamingSimple,
+			streaming: true,
+		},
+		{
+			name:          "openai/v1/responses",
+			createRequest: createOpenAIResponsesReq,
+			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
+				cfg := openaiCfg(url, key)
+				cfg.SendActorHeaders = sendHeaders
+				return provider.NewOpenAI(cfg)
+			},
+			fixture:   fixtures.OaiResponsesBlockingSimple,
+			streaming: false,
+		},
+		{
+			name:          "anthropic/v1/messages",
+			createRequest: createAnthropicMessagesReq,
+			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
+				cfg := anthropicCfg(url, key)
+				cfg.SendActorHeaders = sendHeaders
+				return provider.NewAnthropic(cfg, nil)
+			},
+			fixture:   fixtures.AntSimple,
+			streaming: true,
+		},
+		{
+			name:          "anthropic/v1/messages",
+			createRequest: createAnthropicMessagesReq,
+			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
+				cfg := anthropicCfg(url, key)
+				cfg.SendActorHeaders = sendHeaders
+				return provider.NewAnthropic(cfg, nil)
+			},
+			fixture:   fixtures.AntSimple,
+			streaming: false,
+		},
+	}
+
+	for _, tc := range cases {
+		for _, send := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/streaming=%v/send-headers=%v", tc.name, tc.streaming, send), func(t *testing.T) {
+				t.Parallel()
+
+				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+
+				arc := txtar.Parse(tc.fixture)
+				files := filesMap(arc)
+				reqBody := files[fixtureRequest]
+
+				// Add the stream param to the request.
+				newBody, err := setJSON(reqBody, "stream", tc.streaming)
+				require.NoError(t, err)
+				reqBody = newBody
+
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				t.Cleanup(cancel)
+
+				// Track headers received by the upstream server.
+				var receivedHeaders http.Header
+				srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					receivedHeaders = r.Header.Clone()
+					w.WriteHeader(http.StatusTeapot)
+				}))
+				srv.Config.BaseContext = func(_ net.Listener) context.Context {
+					return ctx
+				}
+				srv.Start()
+				t.Cleanup(srv.Close)
+
+				rec := &testutil.MockRecorder{}
+				provider := tc.createProviderFn(srv.URL, apiKey, send)
+
+				b, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, rec, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+				require.NoError(t, err, "failed to create handler")
+
+				mockSrv := httptest.NewUnstartedServer(b)
+				t.Cleanup(mockSrv.Close)
+
+				metadataKey := "Username"
+				mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+					// Attach an actor to the request context.
+					return aibcontext.AsActor(ctx, userID, recorder.Metadata{
+						metadataKey: actorUsername,
+					})
+				}
+				mockSrv.Start()
+
+				req := tc.createRequest(t, mockSrv.URL, reqBody)
+				client := &http.Client{}
+				resp, err := client.Do(req)
+				require.NoError(t, err)
+				require.NotEmpty(t, receivedHeaders)
+				defer resp.Body.Close()
+
+				// Verify that the actor headers were only received if intended.
+				found := make(map[string][]string)
+				for k, v := range receivedHeaders {
+					k = strings.ToLower(k)
+					if intercept.IsActorHeader(k) {
+						found[k] = v
+					}
+				}
+
+				if send {
+					require.Equal(t, found[strings.ToLower(intercept.ActorIDHeader())], []string{userID})
+					require.Equal(t, found[strings.ToLower(intercept.ActorMetadataHeader(metadataKey))], []string{actorUsername})
+				} else {
+					require.Empty(t, found)
+				}
+			})
+		}
 	}
 }
 

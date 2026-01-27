@@ -8,6 +8,33 @@ const (
 	ProviderCopilot   = "copilot"
 )
 
+type Anthropic struct {
+	BaseURL          string
+	Key              string
+	APIDumpDir       string
+	CircuitBreaker   *CircuitBreaker
+	SendActorHeaders bool
+}
+
+type AWSBedrock struct {
+	Region                     string
+	AccessKey, AccessKeySecret string
+	Model, SmallFastModel      string
+	// If set, requests will be sent to this URL instead of the default AWS Bedrock endpoint
+	// (https://bedrock-runtime.{region}.amazonaws.com).
+	// This is useful for routing requests through a proxy or for testing.
+	BaseURL string
+}
+
+type OpenAI struct {
+	BaseURL          string
+	Key              string
+	APIDumpDir       string
+	CircuitBreaker   *CircuitBreaker
+	SendActorHeaders bool
+  ExtraHeaders     map[string]string
+}
+
 // CircuitBreaker holds configuration for circuit breakers.
 type CircuitBreaker struct {
 	// MaxRequests is the maximum number of requests allowed in half-open state.
@@ -34,31 +61,6 @@ func DefaultCircuitBreaker() CircuitBreaker {
 		Timeout:          30 * time.Second,
 		MaxRequests:      3,
 	}
-}
-
-type Anthropic struct {
-	BaseURL        string
-	Key            string
-	APIDumpDir     string
-	CircuitBreaker *CircuitBreaker
-}
-
-type AWSBedrock struct {
-	Region                     string
-	AccessKey, AccessKeySecret string
-	Model, SmallFastModel      string
-	// If set, requests will be sent to this URL instead of the default AWS Bedrock endpoint
-	// (https://bedrock-runtime.{region}.amazonaws.com).
-	// This is useful for routing requests through a proxy or for testing.
-	BaseURL string
-}
-
-type OpenAI struct {
-	BaseURL        string
-	Key            string
-	APIDumpDir     string
-	CircuitBreaker *CircuitBreaker
-	ExtraHeaders   map[string]string
 }
 
 type Copilot struct {

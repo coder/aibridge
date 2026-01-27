@@ -9,6 +9,8 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
@@ -60,33 +62,38 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	i.disableParallelToolCalls()
 
 	var (
-		response    *responses.Response
-		err         error
-		upstreamErr error
-		respCopy    responseCopier
+		response        *responses.Response
+		upstreamErr     error
+		respCopy        responseCopier
+		firstResponseID string
 	)
 
+	prompt, promptFound, err := i.lastUserPrompt(ctx)
+	if err != nil {
+		i.logger.Warn(ctx, "failed to get user prompt", slog.Error(err))
+	}
 	shouldLoop := true
-	recordPromptOnce := true
+
 	for shouldLoop {
 		srv := i.newResponsesService()
 		respCopy = responseCopier{}
 
 		opts := i.requestOptions(&respCopy)
 		opts = append(opts, option.WithRequestTimeout(time.Second*600))
+		if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
+			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
+		}
+
 		response, upstreamErr = i.newResponse(ctx, srv, opts)
 
 		if upstreamErr != nil || response == nil {
 			break
 		}
 
-		// Record prompt usage on first successful response.
-		if recordPromptOnce {
-			recordPromptOnce = false
-			i.recordUserPrompt(ctx, response.ID)
+		if firstResponseID == "" {
+			firstResponseID = response.ID
 		}
 
-		// Record token usage for each inner loop iteration
 		i.recordTokenUsage(ctx, response)
 
 		// Check if there any injected tools to invoke.
@@ -98,6 +105,9 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 		}
 	}
 
+	if promptFound {
+		i.recordUserPrompt(ctx, firstResponseID, prompt)
+	}
 	i.recordNonInjectedToolUsage(ctx, response)
 
 	if upstreamErr != nil && !respCopy.responseReceived.Load() {
