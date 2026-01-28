@@ -52,6 +52,12 @@ type responsesInterceptionBase struct {
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
 	opts := []option.RequestOption{option.WithBaseURL(i.cfg.BaseURL), option.WithAPIKey(i.cfg.Key)}
 
+	// Add extra headers if configured.
+	// Some providers require additional headers that are not added by the SDK.
+	for key, value := range i.cfg.ExtraHeaders {
+		opts = append(opts, option.WithHeader(key, value))
+	}
+
 	// Add API dump middleware if configured
 	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, config.ProviderOpenAI, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))
