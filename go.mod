@@ -1,6 +1,6 @@
 module github.com/coder/aibridge
 
-go 1.24.6
+go 1.25.6
 
 // Misc libs.
 require (
