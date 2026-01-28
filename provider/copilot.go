@@ -87,6 +87,7 @@ func (p *Copilot) PassthroughRoutes() []string {
 		"/models/",
 		"/agents/",
 		"/mcp/",
+		"/.well-known/",
 	}
 }
 
