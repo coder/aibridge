@@ -122,7 +122,7 @@ func TestMetrics_Interception(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
+			mockAPI := newMockServer(ctx, t, files, nil, nil)
 			t.Cleanup(mockAPI.Close)
 
 			metrics := aibridge.NewMetrics(prometheus.NewRegistry())
@@ -163,7 +163,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	// Setup a mock HTTP server which blocks until the request is marked as inflight then proceeds.
 	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-blockCh
-		mock := newMockServer(ctx, t, files, nil)
+		mock := newMockServer(ctx, t, files, nil, nil)
 		defer mock.Close()
 		mock.Server.Config.Handler.ServeHTTP(w, r)
 	}))
@@ -251,7 +251,7 @@ func TestMetrics_PromptCount(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
-	mockAPI := newMockServer(ctx, t, files, nil)
+	mockAPI := newMockServer(ctx, t, files, nil, nil)
 	t.Cleanup(mockAPI.Close)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
@@ -279,7 +279,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
-	mockAPI := newMockServer(ctx, t, files, nil)
+	mockAPI := newMockServer(ctx, t, files, nil, nil)
 	t.Cleanup(mockAPI.Close)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
@@ -308,7 +308,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	t.Cleanup(cancel)
 
 	// First request returns the tool invocation, the second returns the mocked response to the tool result.
-	mockAPI := newMockServer(ctx, t, files, func(reqCount uint32, resp []byte) []byte {
+	mockAPI := newMockServer(ctx, t, files, nil, func(reqCount uint32, resp []byte) []byte {
 		if reqCount == 1 {
 			return resp
 		}

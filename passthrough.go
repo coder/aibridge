@@ -44,11 +44,15 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 				req.URL.Host = upURL.Host
 
 				// Preserve the stripped path from the incoming request and ensure leading slash.
-				p := r.URL.Path
-				if len(p) == 0 || p[0] != '/' {
-					p = "/" + p
+				req.URL.Path, err = url.JoinPath(upURL.Path, r.URL.Path)
+				if err != nil {
+					logger.Warn(ctx, "failed to join upstream path", slog.Error(err), slog.F("upstreamPath", upURL.Path), slog.F("requestPath", req.URL.Path))
+					req.URL.Path = r.URL.Path // Fallback to just the request path.
 				}
-				req.URL.Path = p
+				if len(req.URL.Path) == 0 || req.URL.Path[0] != '/' {
+					req.URL.Path = "/" + req.URL.Path
+				}
+
 				req.URL.RawPath = ""
 
 				// Preserve query string.
