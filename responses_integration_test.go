@@ -45,6 +45,8 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 		expectPromptRecorded string
 		expectToolRecorded   *recorder.ToolUsageRecord
 		expectTokenUsage     *recorder.TokenUsageRecord
+		userAgent            string
+		expectedClient       string
 	}{
 		{
 			name:                 "blocking_simple",
@@ -61,6 +63,8 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     29,
 				},
 			},
+			userAgent:      "claude-cli/2.0.67 (external, cli)",
+			expectedClient: "Claude Code",
 		},
 		{
 			name:                 "blocking_builtin_tool",
@@ -170,6 +174,8 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     29,
 				},
 			},
+			userAgent:      "Zed/0.219.4+stable.119.abc123 (macos; aarch64)",
+			expectedClient: "Zed",
 		},
 		{
 			name:                 "streaming_codex",
@@ -187,6 +193,8 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     4019,
 				},
 			},
+			userAgent:      "codex_cli_rs/0.87.0 (Mac OS 26.2.0; arm64)",
+			expectedClient: "Codex",
 		},
 		{
 			name:                 "streaming_builtin_tool",
@@ -329,6 +337,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			defer srv.Close()
 
 			req := createOpenAIResponsesReq(t, srv.URL, files[fixtureRequest])
+			req.Header.Set("User-Agent", tc.userAgent)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -347,6 +356,8 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			require.Equal(t, intc.InitiatorID, userID)
 			require.Equal(t, intc.Provider, config.ProviderOpenAI)
 			require.Equal(t, intc.Model, tc.expectModel)
+			require.Equal(t, tc.userAgent, intc.UserAgent)
+			require.Equal(t, tc.expectedClient, intc.Client)
 
 			recordedPrompts := mockRecorder.RecordedPromptUsages()
 			if tc.expectPromptRecorded != "" {
