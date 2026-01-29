@@ -104,3 +104,93 @@ func TestPassthroughRoutesForProviders(t *testing.T) {
 		})
 	}
 }
+
+func TestGuessClient(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		userAgent  string
+		headers    map[string]string
+		wantClient string
+	}{
+		{
+			name:       "claude_code",
+			userAgent:  "claude-cli/2.0.67 (external, cli)",
+			wantClient: "Claude Code",
+		},
+		{
+			name:       "codex_cli",
+			userAgent:  "codex_cli_rs/0.87.0 (Mac OS 26.2.0; arm64) ghostty/1.3.0-main_250877ef",
+			wantClient: "Codex",
+		},
+		{
+			name:       "zed",
+			userAgent:  "Zed/0.219.4+stable.119.abc123 (macos; aarch64)",
+			wantClient: "Zed",
+		},
+		{
+			name:       "github_copilot",
+			userAgent:  "GitHubCopilotChat/0.37.2026011603",
+			wantClient: "GitHubCopilot",
+		},
+		{
+			name:       "kilo_code_user_agent",
+			userAgent:  "kilo-code/5.1.0 (darwin 25.2.0; arm64) node/22.21.1",
+			wantClient: "Kilo Code",
+		},
+		{
+			name:       "kilo_code_originator",
+			headers:    map[string]string{"Originator": "kilo-code"},
+			wantClient: "Kilo Code",
+		},
+		{
+			name:       "roo_code_user_agent",
+			userAgent:  "roo-code/3.45.0 (darwin 25.2.0; arm64) node/22.21.1",
+			wantClient: "Roo Code",
+		},
+		{
+			name:       "roo_code_originator",
+			headers:    map[string]string{"Originator": "roo-code"},
+			wantClient: "Roo Code",
+		},
+		{
+			name:       "cursor_x_cursor_client_version",
+			userAgent:  "connect-es/1.6.1",
+			headers:    map[string]string{"X-Cursor-client-version": "0.50.0"},
+			wantClient: "Cursor",
+		},
+		{
+			name:       "cursor_x_cursor_some_other_header",
+			headers:    map[string]string{"X-Cursor-SomeOtherHeader": "abc123"},
+			wantClient: "Cursor",
+		},
+		{
+			name:       "unknown_client",
+			userAgent:  "Fn/JS 6.9.0",
+			wantClient: "unknown",
+		},
+		{
+			name:       "empty_user_agent",
+			userAgent:  "",
+			wantClient: "unknown",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			req, err := http.NewRequest(http.MethodGet, "", nil)
+			require.NoError(t, err)
+
+			req.Header.Set("User-Agent", tt.userAgent)
+			for key, value := range tt.headers {
+				req.Header.Set(key, value)
+			}
+
+			got := guessClient(req)
+			require.Equal(t, tt.wantClient, got)
+		})
+	}
+}

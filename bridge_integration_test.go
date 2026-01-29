@@ -638,6 +638,8 @@ func TestSimple(t *testing.T) {
 		getResponseIDFunc func(streaming bool, resp *http.Response) (string, error)
 		createRequest     func(*testing.T, string, []byte) *http.Request
 		expectedMsgID     string
+		userAgent         string
+		expectedClient    string
 	}{
 		{
 			name:              config.ProviderAnthropic,
@@ -648,6 +650,8 @@ func TestSimple(t *testing.T) {
 			getResponseIDFunc: getAnthropicResponseID,
 			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
+			userAgent:         "claude-cli/2.0.67 (external, cli)",
+			expectedClient:    "Claude Code",
 		},
 		{
 			name:              config.ProviderOpenAI,
@@ -658,6 +662,8 @@ func TestSimple(t *testing.T) {
 			getResponseIDFunc: getOpenAIResponseID,
 			createRequest:     createOpenAIChatCompletionsReq,
 			expectedMsgID:     "chatcmpl-BwoiPTGRbKkY5rncfaM0s9KtWrq5N",
+			userAgent:         "codex_cli_rs/0.87.0 (Mac OS 26.2.0; arm64)",
+			expectedClient:    "Codex",
 		},
 		{
 			name:              config.ProviderAnthropic + "_baseURL_path",
@@ -668,6 +674,8 @@ func TestSimple(t *testing.T) {
 			getResponseIDFunc: getAnthropicResponseID,
 			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
+			userAgent:         "GitHubCopilotChat/0.37.2026011603",
+			expectedClient:    "GitHubCopilot",
 		},
 		{
 			name:              config.ProviderOpenAI + "_baseURL_path",
@@ -678,6 +686,8 @@ func TestSimple(t *testing.T) {
 			getResponseIDFunc: getOpenAIResponseID,
 			createRequest:     createOpenAIChatCompletionsReq,
 			expectedMsgID:     "chatcmpl-BwoiPTGRbKkY5rncfaM0s9KtWrq5N",
+			userAgent:         "Zed/0.219.4+stable.119.abc123 (macos; aarch64)",
+			expectedClient:    "Zed",
 		},
 	}
 
@@ -726,6 +736,7 @@ func TestSimple(t *testing.T) {
 					mockSrv.Start()
 					// When: calling the "API server" with the fixture's request body.
 					req := tc.createRequest(t, mockSrv.URL, reqBody)
+					req.Header.Set("User-Agent", tc.userAgent)
 					client := &http.Client{}
 					resp, err := client.Do(req)
 					require.NoError(t, err)
@@ -755,6 +766,12 @@ func TestSimple(t *testing.T) {
 					tokenUsages := recorderClient.RecordedTokenUsages()
 					require.GreaterOrEqual(t, len(tokenUsages), 1)
 					require.Equal(t, tokenUsages[0].MsgID, tc.expectedMsgID)
+
+					// Validate user agent and client have been recorded.
+					interceptions := recorderClient.RecordedInterceptions()
+					require.NotEmpty(t, interceptions, "no interceptions recorded")
+					assert.Equal(t, tc.userAgent, interceptions[0].UserAgent)
+					assert.Equal(t, tc.expectedClient, interceptions[0].Client)
 
 					recorderClient.VerifyAllInterceptionsEnded(t)
 				})

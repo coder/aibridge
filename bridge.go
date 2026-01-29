@@ -186,11 +186,13 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
 		if err := rec.RecordInterception(ctx, &recorder.InterceptionRecord{
+			Client:      guessClient(r),
 			ID:          interceptor.ID().String(),
-			Metadata:    actor.Metadata,
 			InitiatorID: actor.ID,
-			Provider:    p.Name(),
+			Metadata:    actor.Metadata,
 			Model:       interceptor.Model(),
+			Provider:    p.Name(),
+			UserAgent:   r.UserAgent(),
 		}); err != nil {
 			span.SetStatus(codes.Error, fmt.Sprintf("failed to record interception: %v", err))
 			logger.Warn(ctx, "failed to record interception", slog.Error(err))
@@ -317,4 +319,34 @@ func mergeContexts(base, other context.Context) context.Context {
 		}
 	}()
 	return ctx
+}
+
+// guessClient attempts to guess the client application from the request headers.
+// Not all clients set proper user agent headers, so this is a best-effort approach.
+// Based on https://github.com/coder/aibridge/issues/20#issuecomment-3769444101.
+func guessClient(r *http.Request) string {
+	userAgent := strings.ToLower(r.UserAgent())
+	originator := r.Header.Get("originator")
+
+	switch {
+	case strings.Contains(userAgent, "claude"):
+		return "Claude Code"
+	case strings.Contains(userAgent, "codex"):
+		return "Codex"
+	case strings.Contains(userAgent, "zed"):
+		return "Zed"
+	case strings.Contains(userAgent, "copilot"):
+		return "GitHubCopilot"
+	case strings.Contains(userAgent, "kilo-code") || strings.Contains(originator, "kilo-code"):
+		return "Kilo Code"
+	case strings.Contains(userAgent, "roo-code") || strings.Contains(originator, "roo-code"):
+		return "Roo Code"
+	default:
+		for key := range r.Header {
+			if strings.Contains(strings.ToLower(key), "x-cursor") {
+				return "Cursor"
+			}
+		}
+	}
+	return "unknown"
 }
