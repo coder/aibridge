@@ -43,7 +43,8 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 			http.Error(w, "failed to join upstream path", http.StatusInternalServerError)
 			return
 		}
-		// Ensure leading slash.
+		// Ensure leading slash, proxied requests should have absolute paths.
+		// JoinPath can return relative paths, eg. when upURL path is empty.
 		if len(reqPath) == 0 || reqPath[0] != '/' {
 			reqPath = "/" + reqPath
 		}
