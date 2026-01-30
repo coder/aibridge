@@ -87,17 +87,12 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
 	defer tracing.EndSpanErr(span, &outErr)
 
-	payload, err := io.ReadAll(r.Body)
-	if err != nil {
-		return nil, fmt.Errorf("read body: %w", err)
-	}
-
 	var interceptor intercept.Interceptor
 
 	switch r.URL.Path {
 	case routeChatCompletions:
 		var req chatcompletions.ChatCompletionNewParamsWrapper
-		if err := json.Unmarshal(payload, &req); err != nil {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 
@@ -108,6 +103,10 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		}
 
 	case routeResponses:
+		payload, err := io.ReadAll(r.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read body: %w", err)
+		}
 		var req responses.ResponsesNewParamsWrapper
 		if err := json.Unmarshal(payload, &req); err != nil {
 			return nil, fmt.Errorf("unmarshal request body: %w", err)

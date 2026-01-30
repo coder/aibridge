@@ -36,6 +36,8 @@ require (
 	go.opentelemetry.io/otel/trace v1.38.0
 )
 
+require golang.org/x/sync v0.16.0
+
 require (
 	github.com/aws/aws-sdk-go-v2 v1.30.3 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.3 // indirect
@@ -90,4 +92,4 @@ require (
 
 replace github.com/anthropics/anthropic-sdk-go v1.13.0 => github.com/dannykopping/anthropic-sdk-go v0.0.0-20251230111224-88a4315810bd
 
-replace github.com/openai/openai-go/v3 => github.com/SasSwart/openai-go/v3 v3.0.0-20260127110800-893f8674bf1d
+replace github.com/openai/openai-go/v3 => github.com/SasSwart/openai-go/v3 v3.0.0-20260130120340-7f5aceda0250
