@@ -110,7 +110,7 @@ func TestTraceAnthropic(t *testing.T) {
 			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
 			require.NoError(t, err)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
+			mockAPI := newMockServer(ctx, t, files, nil, nil)
 			t.Cleanup(mockAPI.Close)
 
 			var bedrockCfg *config.AWSBedrock
@@ -236,7 +236,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
 			require.NoError(t, err)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
+			mockAPI := newMockServer(ctx, t, files, nil, nil)
 			t.Cleanup(mockAPI.Close)
 
 			var bedrockCfg *config.AWSBedrock
@@ -483,7 +483,7 @@ func TestTraceOpenAI(t *testing.T) {
 			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
 			require.NoError(t, err)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
+			mockAPI := newMockServer(ctx, t, files, nil, nil)
 			t.Cleanup(mockAPI.Close)
 			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
@@ -663,7 +663,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 				t.Cleanup(mockAPI.Close)
 				prov = provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
 			} else {
-				mockAPI := newMockServer(ctx, t, files, nil)
+				mockAPI := newMockServer(ctx, t, files, nil, nil)
 				t.Cleanup(mockAPI.Close)
 				prov = provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
 			}

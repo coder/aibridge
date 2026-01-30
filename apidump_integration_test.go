@@ -100,7 +100,7 @@ func TestAPIDump(t *testing.T) {
 			reqBody := files[fixtureRequest]
 
 			// Setup mock upstream server.
-			srv := newMockServer(ctx, t, files, nil)
+			srv := newMockServer(ctx, t, files, nil, nil)
 			t.Cleanup(srv.Close)
 
 			// Create temp dir for API dumps.

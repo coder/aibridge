@@ -321,7 +321,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			t.Cleanup(cancel)
 			ctx = aibcontext.AsActor(ctx, userID, nil)
 
-			mockAPI := newMockServer(ctx, t, files, nil)
+			mockAPI := newMockServer(ctx, t, files, nil, nil)
 			t.Cleanup(mockAPI.Close)
 
 			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
@@ -854,7 +854,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// Setup mock server with response mutator for multi-turn interaction.
-			mockAPI := newMockServer(ctx, t, files, func(reqCount uint32, resp []byte) []byte {
+			mockAPI := newMockServer(ctx, t, files, nil, func(reqCount uint32, resp []byte) []byte {
 				if reqCount == 1 {
 					return resp // First request gets the normal response (with tool call).
 				}
