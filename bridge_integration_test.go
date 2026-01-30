@@ -773,14 +773,16 @@ func TestFallthrough(t *testing.T) {
 
 	testCases := []struct {
 		name          string
+		providerName  string
 		fixture       []byte
 		basePath      string
 		configureFunc func(string, aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge)
 	}{
 		{
-			name:     config.ProviderAnthropic,
-			fixture:  fixtures.AntFallthrough,
-			basePath: "",
+			name:         "ant_empty_base_url_path",
+			providerName: config.ProviderAnthropic,
+			fixture:      fixtures.AntFallthrough,
+			basePath:     "",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
@@ -790,9 +792,10 @@ func TestFallthrough(t *testing.T) {
 			},
 		},
 		{
-			name:     config.ProviderOpenAI,
-			fixture:  fixtures.OaiChatFallthrough,
-			basePath: "",
+			name:         "oai_empty_base_url_path",
+			providerName: config.ProviderOpenAI,
+			fixture:      fixtures.OaiChatFallthrough,
+			basePath:     "",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
@@ -802,9 +805,10 @@ func TestFallthrough(t *testing.T) {
 			},
 		},
 		{
-			name:     config.ProviderAnthropic,
-			fixture:  fixtures.AntFallthrough,
-			basePath: "/api",
+			name:         "ant_some_base_url_path",
+			providerName: config.ProviderAnthropic,
+			fixture:      fixtures.AntFallthrough,
+			basePath:     "/api",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
@@ -814,9 +818,10 @@ func TestFallthrough(t *testing.T) {
 			},
 		},
 		{
-			name:     config.ProviderOpenAI,
-			fixture:  fixtures.OaiChatFallthrough,
-			basePath: "/api",
+			name:         "oai_some_base_url_path",
+			providerName: config.ProviderOpenAI,
+			fixture:      fixtures.OaiChatFallthrough,
+			basePath:     "/api",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
@@ -828,7 +833,7 @@ func TestFallthrough(t *testing.T) {
 	}
 
 	for _, tc := range testCases {
-		t.Run(fmt.Sprintf("%s_%s", tc.name, tc.basePath), func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			arc := txtar.Parse(tc.fixture)
@@ -866,7 +871,7 @@ func TestFallthrough(t *testing.T) {
 			bridgeSrv.Start()
 			t.Cleanup(bridgeSrv.Close)
 
-			req, err := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("%s/%s/v1/models", bridgeSrv.URL, tc.name), nil)
+			req, err := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("%s/%s/v1/models", bridgeSrv.URL, tc.providerName), nil)
 			require.NoError(t, err)
 
 			resp, err := http.DefaultClient.Do(req)
