@@ -14,7 +14,6 @@ import (
 var testTracer = otel.Tracer("bridge_test")
 
 func TestPassthroughRoutes(t *testing.T) {
-
 	t.Parallel()
 
 	upstreamRespBody := "upstream response"
