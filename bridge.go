@@ -101,7 +101,6 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 		for _, path := range prov.PassthroughRoutes() {
 			prefix := fmt.Sprintf("/%s", prov.Name())
 			route := fmt.Sprintf("%s%s", prefix, path)
-
 			mux.HandleFunc(route, http.StripPrefix(prefix, ftr).ServeHTTP)
 		}
 	}
