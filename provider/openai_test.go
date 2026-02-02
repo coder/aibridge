@@ -149,43 +149,43 @@ func generateResponsesPayload(payloadSize int, inputCount int, stream bool) []by
 	return bodyBytes
 }
 
-// func BenchmarkOpenAI_CreateInterceptor_ChatCompletions(b *testing.B) {
-// 	provider := NewOpenAI(config.OpenAI{
-// 		BaseURL: "https://api.openai.com/v1/",
-// 		Key:     "test-key",
-// 	})
+func BenchmarkOpenAI_CreateInterceptor_ChatCompletions(b *testing.B) {
+	provider := NewOpenAI(config.OpenAI{
+		BaseURL: "https://api.openai.com/v1/",
+		Key:     "test-key",
+	})
 
-// 	tracer := noop.NewTracerProvider().Tracer("test")
-// 	messagesPerRequest := 50
-// 	requestCount := 100
-// 	maxConcurrentRequests := 10
-// 	payloadSizes := []int{2000, 10000, 50000, 100000, 2000000}
-// 	for _, payloadSize := range payloadSizes {
-// 		for _, stream := range []bool{true, false} {
-// 			payload := generateChatCompletionsPayload(payloadSize, messagesPerRequest, stream)
-// 			name := fmt.Sprintf("stream=%t/payloadSize=%d/requests=%d", stream, payloadSize, requestCount)
+	tracer := noop.NewTracerProvider().Tracer("test")
+	messagesPerRequest := 50
+	requestCount := 100
+	maxConcurrentRequests := 10
+	payloadSizes := []int{2000, 10000, 50000, 100000, 2000000}
+	for _, payloadSize := range payloadSizes {
+		for _, stream := range []bool{true, false} {
+			payload := generateChatCompletionsPayload(payloadSize, messagesPerRequest, stream)
+			name := fmt.Sprintf("stream=%t/payloadSize=%d/requests=%d", stream, payloadSize, requestCount)
 
-// 			b.Run(name, func(b *testing.B) {
-// 				b.ResetTimer()
-// 				for range b.N {
-// 					eg := errgroup.Group{}
-// 					eg.SetLimit(maxConcurrentRequests)
-// 					for i := 0; i < requestCount; i++ {
-// 						eg.Go(func() error {
-// 							req := httptest.NewRequest(http.MethodPost, routeChatCompletions, bytes.NewReader(payload))
-// 							w := httptest.NewRecorder()
-// 							_, err := provider.CreateInterceptor(w, req, tracer)
-// 							if err != nil {
-// 								return err
-// 							}
-// 							return nil
-// 						})
-// 					}
-// 				}
-// 			})
-// 		}
-// 	}
-// }
+			b.Run(name, func(b *testing.B) {
+				b.ResetTimer()
+				for range b.N {
+					eg := errgroup.Group{}
+					eg.SetLimit(maxConcurrentRequests)
+					for i := 0; i < requestCount; i++ {
+						eg.Go(func() error {
+							req := httptest.NewRequest(http.MethodPost, routeChatCompletions, bytes.NewReader(payload))
+							w := httptest.NewRecorder()
+							_, err := provider.CreateInterceptor(w, req, tracer)
+							if err != nil {
+								return err
+							}
+							return nil
+						})
+					}
+				}
+			})
+		}
+	}
+}
 
 func BenchmarkOpenAI_CreateInterceptor_Responses(b *testing.B) {
 	provider := NewOpenAI(config.OpenAI{
