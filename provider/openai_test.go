@@ -74,6 +74,7 @@ func (*chatCompletionsProvider) buildRequestBody(model string, messages []any, s
 		"stream":   stream,
 	}
 }
+
 func generateConversation(provider providerStrategy, targetSize int, numMessages int) []any {
 	if targetSize <= 0 {
 		return nil
