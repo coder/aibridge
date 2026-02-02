@@ -1,6 +1,8 @@
 package chatcompletions
 
 import (
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
@@ -126,6 +128,44 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 					require.NotNil(t, result)
 					require.Equal(t, tt.expected, *result)
 				}
+			}
+		})
+	}
+}
+
+// generatePayload creates a JSON payload with the specified number of messages.
+// Messages alternate between user and assistant roles to simulate a conversation.
+func generatePayload(messageCount int) []byte {
+	var messages []string
+	for i := range messageCount {
+		role := "user"
+		if i%2 == 1 {
+			role = "assistant"
+		}
+		// Use realistic message content size
+		content := fmt.Sprintf("This is message number %d with some realistic content that might appear in a conversation.", i+1)
+		messages = append(messages, fmt.Sprintf(`{"role": "%s", "content": "%s"}`, role, content))
+	}
+
+	return []byte(fmt.Sprintf(`{
+		"model": "gpt-4",
+		"stream": true,
+		"messages": [%s]
+	}`, strings.Join(messages, ",")))
+}
+
+func BenchmarkChatCompletionNewParamsWrapper_UnmarshalJSON(b *testing.B) {
+	messageCounts := []int{1, 10, 20, 50}
+
+	for _, count := range messageCounts {
+		payload := generatePayload(count)
+
+		b.Run(fmt.Sprintf("messages=%d", count), func(b *testing.B) {
+			b.ReportAllocs()
+			b.ResetTimer()
+			for range b.N {
+				var wrapper ChatCompletionNewParamsWrapper
+				_ = wrapper.UnmarshalJSON(payload)
 			}
 		})
 	}

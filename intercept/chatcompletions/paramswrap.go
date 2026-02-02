@@ -6,6 +6,7 @@ import (
 	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
+	"github.com/tidwall/gjson"
 )
 
 // ChatCompletionNewParamsWrapper exists because the "stream" param is not included in openai.ChatCompletionNewParams.
@@ -27,14 +28,10 @@ func (c *ChatCompletionNewParamsWrapper) UnmarshalJSON(raw []byte) error {
 		return err
 	}
 
-	if stream := utils.ExtractJSONField[bool](raw, "stream"); stream {
-		c.Stream = stream
-		if c.Stream {
-			c.ChatCompletionNewParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{
-				IncludeUsage: openai.Bool(true), // Always include usage when streaming.
-			}
-		} else {
-			c.ChatCompletionNewParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{}
+	c.Stream = gjson.GetBytes(raw, "stream").Bool()
+	if c.Stream {
+		c.ChatCompletionNewParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{
+			IncludeUsage: openai.Bool(true), // Always include usage when streaming.
 		}
 	} else {
 		c.ChatCompletionNewParams.StreamOptions = openai.ChatCompletionStreamOptionsParam{}
