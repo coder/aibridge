@@ -1,0 +1,402 @@
+package responses
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept/apidump"
+	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/metrics"
+	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/tracing"
+	"github.com/coder/quartz"
+	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared/constant"
+	"github.com/tidwall/gjson"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+)
+
+const (
+	requestTimeout = time.Second * 600
+)
+
+type responsesInterceptionBase struct {
+	id         uuid.UUID
+	req        *ResponsesNewParamsWrapper
+	reqPayload []byte
+	cfg        config.OpenAI
+	model      string
+	recorder   recorder.Recorder
+	mcpProxy   mcp.ServerProxier
+	logger     slog.Logger
+	metrics    metrics.Metrics
+	tracer     trace.Tracer
+}
+
+func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
+	opts := []option.RequestOption{option.WithBaseURL(i.cfg.BaseURL), option.WithAPIKey(i.cfg.Key)}
+
+	// Add extra headers if configured.
+	// Some providers require additional headers that are not added by the SDK.
+	for key, value := range i.cfg.ExtraHeaders {
+		opts = append(opts, option.WithHeader(key, value))
+	}
+
+	// Add API dump middleware if configured
+	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, config.ProviderOpenAI, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
+		opts = append(opts, option.WithMiddleware(mw))
+	}
+
+	return responses.NewResponseService(opts...)
+}
+
+func (i *responsesInterceptionBase) ID() uuid.UUID {
+	return i.id
+}
+
+func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	i.logger = logger.With(slog.F("model", i.model))
+	i.recorder = recorder
+	i.mcpProxy = mcpProxy
+}
+
+func (i *responsesInterceptionBase) Model() string {
+	return i.model
+}
+
+func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
+	return []attribute.KeyValue{
+		attribute.String(tracing.RequestPath, r.URL.Path),
+		attribute.String(tracing.InterceptionID, i.id.String()),
+		attribute.String(tracing.InitiatorID, aibcontext.ActorIDFromContext(r.Context())),
+		attribute.String(tracing.Provider, config.ProviderOpenAI),
+		attribute.String(tracing.Model, i.Model()),
+		attribute.Bool(tracing.Streaming, streaming),
+	}
+}
+
+func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.ResponseWriter) error {
+	if i.req == nil {
+		err := errors.New("developer error: req is nil")
+		i.sendCustomErr(ctx, w, http.StatusInternalServerError, err)
+		return err
+	}
+
+	if i.req.Background.Value {
+		err := fmt.Errorf("background requests are currently not supported by AI Bridge")
+		i.sendCustomErr(ctx, w, http.StatusNotImplemented, err)
+		return err
+	}
+
+	return nil
+}
+
+// sendCustomErr sends custom responses.Error error to the client
+// it should only be called before any data is sent back to the client
+func (i *responsesInterceptionBase) sendCustomErr(ctx context.Context, w http.ResponseWriter, code int, err error) {
+	respErr := responses.Error{
+		Code:    strconv.Itoa(code),
+		Message: err.Error(),
+	}
+	if b, err := json.Marshal(respErr); err != nil {
+		i.logger.Warn(ctx, "failed to marshal custom error: ", slog.Error(err))
+	} else {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(code)
+		if _, err := w.Write(b); err != nil {
+			i.logger.Warn(ctx, "failed to send custom error: ", slog.Error(err))
+		}
+	}
+}
+
+func (i *responsesInterceptionBase) requestOptions(respCopy *responseCopier) []option.RequestOption {
+	opts := []option.RequestOption{
+		// Sends original payload to solve json re-encoding issues
+		// eg. Codex CLI produces requests without ID set in reasoning items: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-item-reasoning-id
+		// when re-encoded, ID field is set to empty string which results
+		// in bad request while not sending ID field at all somehow works.
+		option.WithRequestBody("application/json", i.reqPayload),
+
+		// copyMiddleware copies body of original response body to the buffer in responseCopier,
+		// also reference to headers and status code is kept responseCopier.
+		// responseCopier is used by interceptors to forward response as it was received,
+		// eliminating any possibility of JSON re-encoding issues.
+		option.WithMiddleware(respCopy.copyMiddleware),
+	}
+	if !i.req.Stream {
+		opts = append(opts, option.WithRequestTimeout(requestTimeout))
+	}
+	return opts
+}
+
+// lastUserPrompt returns input text with "user" role from last input item
+// or string input value if it is present + bool indicating if input was found or not.
+// If no such input was found empty string + false is returned.
+func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (string, bool, error) {
+	if i == nil {
+		return "", false, errors.New("cannot get last user prompt: nil struct")
+	}
+	if i.req == nil {
+		return "", false, errors.New("cannot get last user prompt: nil request struct")
+	}
+
+	// 'input' field can be a string or array of objects:
+	// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input
+
+	// Check string variant
+	if i.req.Input.OfString.Valid() {
+		return i.req.Input.OfString.Value, true, nil
+	}
+
+	// Fallback to parsing original bytes since golang SDK doesn't properly decode 'Input' field.
+	// If 'type' field of input item is not set it will be omitted from 'Input.OfInputItemList'
+	// It is an optional field according to API: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message
+	// example: fixtures/openai/responses/blocking/builtin_tool.txtar
+	inputItems := gjson.GetBytes(i.reqPayload, "input")
+
+	if !inputItems.IsArray() {
+		if inputItems.Type == gjson.Null {
+			return "", false, nil
+		}
+		return "", false, fmt.Errorf("unexpected input type: %v", inputItems.Type.String())
+	}
+
+	inputItemsArr := inputItems.Array()
+	if len(inputItemsArr) == 0 {
+		return "", false, nil
+	}
+	lastItem := inputItemsArr[len(inputItemsArr)-1]
+
+	// Request was likely not human-initiated.
+	if lastItem.Get("role").Str != string(constant.ValueOf[constant.User]()) {
+		return "", false, nil
+	}
+
+	// content can be a string or array of objects:
+	// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message-content
+	content := lastItem.Get(string(constant.ValueOf[constant.Content]()))
+
+	// non array case, should be string
+	if !content.IsArray() {
+		if content.Type == gjson.String {
+			return content.Str, true, nil
+		}
+		return "", false, fmt.Errorf("unexpected input content type: %v", content.Type.String())
+	}
+
+	var sb strings.Builder
+	promptExists := false
+	for _, c := range content.Array() {
+		// ignore inputs of not `input_text` type
+		if c.Get(string(constant.ValueOf[constant.Type]())).Str != string(constant.ValueOf[constant.InputText]()) {
+			continue
+		}
+
+		text := c.Get(string(constant.ValueOf[constant.Text]()))
+		if text.Type == gjson.String {
+			promptExists = true
+			sb.WriteString(text.Str + "\n")
+		} else {
+			i.logger.Warn(ctx, fmt.Sprintf("unexpected input content array element text type: %v", text.Type))
+		}
+	}
+
+	if !promptExists {
+		return "", false, nil
+	}
+
+	prompt := strings.TrimSuffix(sb.String(), "\n")
+	return prompt, true, nil
+}
+
+func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string, prompt string) {
+	if responseID == "" {
+		i.logger.Warn(ctx, "got empty response ID, skipping prompt recording")
+		return
+	}
+
+	promptUsage := &recorder.PromptUsageRecord{
+		InterceptionID: i.ID().String(),
+		MsgID:          responseID,
+		Prompt:         prompt,
+	}
+	if err := i.recorder.RecordPromptUsage(ctx, promptUsage); err != nil {
+		i.logger.Warn(ctx, "failed to record prompt usage", slog.Error(err))
+	}
+}
+
+func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Context, response *responses.Response) {
+	if response == nil {
+		i.logger.Warn(ctx, "got empty response, skipping tool usage recording")
+		return
+	}
+
+	for _, item := range response.Output {
+		var args recorder.ToolArgs
+
+		// recording other function types to be considered: https://github.com/coder/aibridge/issues/121
+		switch item.Type {
+		case string(constant.ValueOf[constant.FunctionCall]()):
+			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments)
+		case string(constant.ValueOf[constant.CustomToolCall]()):
+			args = item.Input
+		default:
+			continue
+		}
+
+		if err := i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
+			InterceptionID: i.ID().String(),
+			MsgID:          response.ID,
+			Tool:           item.Name,
+			Args:           args,
+			Injected:       false,
+		}); err != nil {
+			i.logger.Warn(ctx, "failed to record tool usage", slog.Error(err), slog.F("tool", item.Name))
+		}
+	}
+}
+
+func (i *responsesInterceptionBase) parseFunctionCallJSONArgs(ctx context.Context, raw string) recorder.ToolArgs {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed != "" {
+		var args recorder.ToolArgs
+		if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
+			i.logger.Warn(ctx, "failed to unmarshal tool args", slog.Error(err))
+		} else {
+			return args
+		}
+	}
+	return trimmed
+}
+
+func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, response *responses.Response) {
+	if response == nil {
+		i.logger.Warn(ctx, "got empty response, skipping token usage recording")
+		return
+	}
+
+	usage := response.Usage
+
+	// Keeping logic consistent with chat completions
+	// Input *includes* the cached tokens, so we subtract them here to reflect actual input token usage.
+	inputNonCacheTokens := usage.InputTokens - usage.InputTokensDetails.CachedTokens
+
+	if err := i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
+		InterceptionID: i.ID().String(),
+		MsgID:          response.ID,
+		Input:          inputNonCacheTokens,
+		Output:         usage.OutputTokens,
+		ExtraTokenTypes: map[string]int64{
+			"input_cached":     usage.InputTokensDetails.CachedTokens,
+			"output_reasoning": usage.OutputTokensDetails.ReasoningTokens,
+			"total_tokens":     usage.TotalTokens,
+		},
+	}); err != nil {
+		i.logger.Warn(ctx, "failed to record token usage", slog.Error(err))
+	}
+}
+
+// responseCopier helper struct to send original response to the client
+type responseCopier struct {
+	buff            deltaBuffer
+	responseStatus  int
+	responseHeaders http.Header
+
+	// responseBody keeps reference to original ReadCloser.
+	// TeeReader in copyMiddleware copies read bytes from
+	// response body (read by SDK) to the buffer. In case
+	// SDK doesns't read everything readAll method reads from
+	// this closer to makes sure whole response body is in the buffer.
+	responseBody io.ReadCloser
+
+	// responseReceived flag is used to determine if AI Bridge needs to write custom error:
+	// - If responseReceived is true, the upstream response is forwarded as-is.
+	// - If responseReceived is false, no response was returned and there is nothing to forward (eg. connection/client error). Custom error will be returned.
+	responseReceived atomic.Bool
+}
+
+func (r *responseCopier) copyMiddleware(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+	resp, err := next(req)
+	if err != nil || resp == nil {
+		return resp, err
+	}
+
+	r.responseReceived.Store(true)
+	r.responseStatus = resp.StatusCode
+	r.responseHeaders = resp.Header
+	resp.Body = io.NopCloser(io.TeeReader(resp.Body, &r.buff))
+	r.responseBody = resp.Body
+	return resp, nil
+}
+
+// readAll reads all data from resp.Body returned by so TeeReader
+// so it appends all read data to the buffer and returns buffer contents.
+func (r *responseCopier) readAll() ([]byte, error) {
+	if r.responseBody == nil {
+		return []byte{}, nil
+	}
+
+	_, err := io.ReadAll(r.responseBody)
+	return r.buff.readDelta(), err
+}
+
+// forwardResp writes whole response as received to ResponseWriter
+func (r *responseCopier) forwardResp(w http.ResponseWriter) error {
+	// no response was received, nothing to forward
+	if !r.responseReceived.Load() {
+		return nil
+	}
+
+	w.Header().Set("Content-Type", r.responseHeaders.Get("Content-Type"))
+	w.WriteHeader(r.responseStatus)
+
+	b, err := r.readAll()
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	if _, err := w.Write(b); err != nil {
+		return fmt.Errorf("failed to write response body: %w", err)
+	}
+	return nil
+}
+
+// deltaBuffer is a thread safe byte buffer
+// supports reading incremental data (added after last read)
+type deltaBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (d *deltaBuffer) Write(p []byte) (int, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.buf.Write(p)
+}
+
+// readDelta returns only the bytes appended
+// after the last readDelta call.
+func (d *deltaBuffer) readDelta() []byte {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	b := bytes.Clone(d.buf.Bytes())
+	d.buf.Reset()
+	return b
+}

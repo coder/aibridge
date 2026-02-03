@@ -1,20 +1,24 @@
 module github.com/coder/aibridge
 
-go 1.24.6
+go 1.25.6
 
 // Misc libs.
 require (
-	cdr.dev/slog v1.6.2-0.20250703074222-9df5e0a6c145
+	cdr.dev/slog/v3 v3.0.0-rc1
+	github.com/coder/quartz v0.3.0
 	github.com/google/uuid v1.6.0
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/mark3labs/mcp-go v0.38.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/sony/gobreaker/v2 v2.3.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tidwall/gjson v1.18.0
+	github.com/tidwall/pretty v1.2.1
 	github.com/tidwall/sjson v1.2.5
 	go.uber.org/goleak v1.3.0
 	go.uber.org/mock v0.6.0
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b
+	golang.org/x/sync v0.16.0
 	golang.org/x/tools v0.36.0
 )
 
@@ -23,7 +27,7 @@ require (
 	github.com/anthropics/anthropic-sdk-go v1.13.0
 	github.com/aws/aws-sdk-go-v2/config v1.27.27
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.27
-	github.com/openai/openai-go/v2 v2.7.0
+	github.com/openai/openai-go/v3 v3.15.0
 )
 
 // Tracing-related libs.
@@ -72,7 +76,6 @@ require (
 	github.com/rivo/uniseg v0.4.4 // indirect
 	github.com/spf13/cast v1.7.1 // indirect
 	github.com/tidwall/match v1.2.0 // indirect
-	github.com/tidwall/pretty v1.2.1 // indirect
 	github.com/wk8/go-ordered-map/v2 v2.1.8 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
@@ -85,3 +88,10 @@ require (
 	google.golang.org/protobuf v1.36.8 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+// Replace sdks with our own optimized forks until relevant upstream PRs are merged.
+// https://github.com/anthropics/anthropic-sdk-go/pull/262
+replace github.com/anthropics/anthropic-sdk-go v1.13.0 => github.com/dannykopping/anthropic-sdk-go v0.0.0-20251230111224-88a4315810bd
+
+// https://github.com/openai/openai-go/pull/602
+replace github.com/openai/openai-go/v3 => github.com/SasSwart/openai-go/v3 v3.0.0-20260202093810-72af3b857f95

@@ -7,18 +7,20 @@ import (
 	"net/url"
 	"time"
 
-	"cdr.dev/slog"
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/metrics"
+	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
 // newPassthroughRouter returns a simple reverse-proxy implementation which will be used when a route is not handled specifically
-// by a [Provider].
-func newPassthroughRouter(provider Provider, logger slog.Logger, metrics *Metrics, tracer trace.Tracer) http.HandlerFunc {
+// by a [intercept.Provider].
+func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if metrics != nil {
-			metrics.PassthroughCount.WithLabelValues(provider.Name(), r.URL.Path, r.Method).Add(1)
+		if m != nil {
+			m.PassthroughCount.WithLabelValues(provider.Name(), r.URL.Path, r.Method).Add(1)
 		}
 
 		ctx, span := tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
@@ -34,19 +36,26 @@ func newPassthroughRouter(provider Provider, logger slog.Logger, metrics *Metric
 			return
 		}
 
+		// Append the request path to the upstream base path.
+		reqPath, err := url.JoinPath(upURL.Path, r.URL.Path)
+		if err != nil {
+			logger.Warn(ctx, "failed to join upstream path", slog.Error(err), slog.F("upstreamPath", upURL.Path), slog.F("requestPath", r.URL.Path))
+			http.Error(w, "failed to join upstream path", http.StatusInternalServerError)
+			return
+		}
+		// Ensure leading slash, proxied requests should have absolute paths.
+		// JoinPath can return relative paths, eg. when upURL path is empty.
+		if len(reqPath) == 0 || reqPath[0] != '/' {
+			reqPath = "/" + reqPath
+		}
+
 		// Build a reverse proxy to the upstream.
 		proxy := &httputil.ReverseProxy{
 			Director: func(req *http.Request) {
 				// Set scheme/host to upstream.
 				req.URL.Scheme = upURL.Scheme
 				req.URL.Host = upURL.Host
-
-				// Preserve the stripped path from the incoming request and ensure leading slash.
-				p := r.URL.Path
-				if len(p) == 0 || p[0] != '/' {
-					p = "/" + p
-				}
-				req.URL.Path = p
+				req.URL.Path = reqPath
 				req.URL.RawPath = ""
 
 				// Preserve query string.
