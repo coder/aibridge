@@ -138,11 +138,15 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 			return nil, fmt.Errorf("unmarshal chat completions request body: %w", err)
 		}
 
+		fmt.Printf("############### DEBUG Before: messages=%d model=%s stream=%v\n", len(req.Messages), req.Model, req.Stream)
+
 		if req.Stream {
 			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, cfg, tracer)
 		} else {
 			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, cfg, tracer)
 		}
+
+		fmt.Printf("############### DEBUG After: messages=%d model=%s stream=%v\n", len(req.Messages), req.Model, req.Stream)
 
 	case routeCopilotResponses:
 		payload, err := io.ReadAll(r.Body)

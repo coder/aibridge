@@ -1,8 +1,6 @@
 module github.com/coder/aibridge/example
 
-go 1.24.6
-
-toolchain go1.24.10
+go 1.25.6
 
 require (
 	cdr.dev/slog v1.6.2-0.20250703074222-9df5e0a6c145

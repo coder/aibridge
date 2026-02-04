@@ -380,6 +380,9 @@ func (i *StreamingInterception) newStream(ctx context.Context, svc openai.ChatCo
 	_, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
+	debugJSON, _ := i.req.MarshalJSON()
+	fmt.Printf("################# DEBUG marshaled wrapper to upstream: %s\n", string(debugJSON))
+
 	return svc.NewStreaming(ctx, i.req.ChatCompletionNewParams, opts...)
 }
 
