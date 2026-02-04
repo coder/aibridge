@@ -2076,6 +2076,35 @@ func newMockServer(ctx context.Context, t *testing.T, files archiveFileMap, requ
 		defer r.Body.Close()
 		require.NoError(t, err)
 
+		// Validate request body based on endpoint.
+		var validationErr error
+		if strings.Contains(r.URL.Path, "/chat/completions") {
+			validationErr = validateOpenAIChatCompletionRequest(body)
+		} else if strings.Contains(r.URL.Path, "/responses") {
+			validationErr = validateOpenAIResponsesRequest(body)
+		} else if strings.Contains(r.URL.Path, "/messages") {
+			validationErr = validateAnthropicMessagesRequest(body)
+		}
+
+		// If validation failed, return error response
+		if validationErr != nil {
+			// Return HTTP error response
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			errResp := map[string]any{
+				"error": map[string]any{
+					"message": fmt.Sprintf("Request #%d validation failed: %v", ms.callCount.Load(), validationErr),
+					"type":    "invalid_request_error",
+				},
+			}
+			json.NewEncoder(w).Encode(errResp)
+
+			// Mark test as failed with detailed message
+			t.Errorf("Request #%d validation failed: %v\n\nRequest body:\n%s",
+				ms.callCount.Load(), validationErr, string(body))
+			return
+		}
+
 		type msg struct {
 			Stream bool `json:"stream"`
 		}
@@ -2133,6 +2162,72 @@ func newMockServer(ctx context.Context, t *testing.T, files archiveFileMap, requ
 
 	ms.Server = srv
 	return ms
+}
+
+// validateOpenAIChatCompletionRequest validates that an OpenAI chat completion request
+// has all required fields. Returns an error if validation fails.
+func validateOpenAIChatCompletionRequest(body []byte) error {
+	var req openai.ChatCompletionNewParams
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("request should unmarshal into ChatCompletionNewParams: %w", err)
+	}
+
+	// Collect all validation errors
+	var errs []string
+	if req.Model == "" {
+		errs = append(errs, "model field is required but empty")
+	}
+	if len(req.Messages) == 0 {
+		errs = append(errs, "messages field is required but empty")
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// validateOpenAIResponsesRequest validates that an OpenAI responses request
+// has all required fields. Returns an error if validation fails.
+func validateOpenAIResponsesRequest(body []byte) error {
+	var reqBody map[string]any
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		return fmt.Errorf("request should be valid JSON: %w", err)
+	}
+
+	// Verify required fields for OpenAI responses
+	// Note: Using map here since there's no specific SDK type for responses endpoint
+	model, ok := reqBody["model"]
+	if !ok || model == "" {
+		return fmt.Errorf("model field is required but missing or empty")
+	}
+	return nil
+}
+
+// validateAnthropicMessagesRequest validates that an Anthropic messages request
+// has all required fields. Returns an error if validation fails.
+func validateAnthropicMessagesRequest(body []byte) error {
+	var req anthropic.MessageNewParams
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("request should unmarshal into MessageNewParams: %w", err)
+	}
+
+	// Collect all validation errors
+	var errs []string
+	if req.Model == "" {
+		errs = append(errs, "model field is required but empty")
+	}
+	if len(req.Messages) == 0 {
+		errs = append(errs, "messages field is required but empty")
+	}
+	if req.MaxTokens == 0 {
+		errs = append(errs, "max_tokens field is required but zero")
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 const mockToolName = "coder_list_workspaces"
