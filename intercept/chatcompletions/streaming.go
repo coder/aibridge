@@ -125,6 +125,9 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
 		}
 
+		// We take control of request body here and pass it to the SDK as a raw byte slice.
+		// This is because the SDK's serialization applies hidden request options that result in
+		// unexpected, breaking behaviour. See https://github.com/coder/aibridge/pull/164
 		body, err := json.Marshal(i.req.ChatCompletionNewParams)
 		if err != nil {
 			return fmt.Errorf("marshal request body: %w", err)
