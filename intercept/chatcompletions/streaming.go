@@ -125,6 +125,16 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
 		}
 
+		// We take control of request body here and pass it to the SDK as a raw byte slice.
+		// This is because the SDK's serialization applies hidden request options that result in
+		// unexpected, breaking behaviour. See https://github.com/coder/aibridge/pull/164
+		body, err := json.Marshal(i.req.ChatCompletionNewParams)
+		if err != nil {
+			return fmt.Errorf("marshal request body: %w", err)
+		}
+		opts = append(opts, option.WithRequestBody("application/json", body))
+		opts = append(opts, option.WithJSONSet("stream", true))
+
 		stream = i.newStream(streamCtx, svc, opts)
 		processor := newStreamProcessor(streamCtx, i.logger.Named("stream-processor"), i.getInjectedToolByName)
 
@@ -380,7 +390,7 @@ func (i *StreamingInterception) newStream(ctx context.Context, svc openai.ChatCo
 	_, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
-	return svc.NewStreaming(ctx, i.req.ChatCompletionNewParams, opts...)
+	return svc.NewStreaming(ctx, openai.ChatCompletionNewParams{}, opts...)
 }
 
 type streamProcessor struct {
