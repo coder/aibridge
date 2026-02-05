@@ -24,6 +24,21 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const (
+	// The duration after which an async recording will be aborted.
+	recordingTimeout = time.Second * 5
+
+	ClientClaude     = "Claude Code"
+	ClientCodex      = "Codex"
+	ClientZed        = "Zed"
+	ClientCopilotVSC = "GitHub Copilot (VS Code)"
+	ClientCopilotCLI = "GitHub Copilot (CLI)"
+	ClientKilo       = "Kilo Code"
+	ClientRoo        = "Roo Code"
+	ClientCursor     = "Cursor"
+	ClientUnknown    = "Unknown"
+)
+
 // RequestBridge is an [http.Handler] which is capable of masquerading as AI providers' APIs;
 // specifically, OpenAI's & Anthropic's at present.
 // RequestBridge intercepts requests to - and responses from - these upstream services to provide
@@ -51,9 +66,6 @@ type RequestBridge struct {
 }
 
 var _ http.Handler = &RequestBridge{}
-
-// The duration after which an async recording will be aborted.
-const recordingTimeout = time.Second * 5
 
 // NewRequestBridge creates a new *[RequestBridge] and registers the HTTP routes defined by the given providers.
 // Any routes which are requested but not registered will be reverse-proxied to the upstream service.
@@ -329,24 +341,24 @@ func guessClient(r *http.Request) string {
 	originator := r.Header.Get("originator")
 
 	switch {
-	case strings.Contains(userAgent, "claude"):
-		return "Claude Code"
-	case strings.Contains(userAgent, "codex"):
-		return "Codex"
-	case strings.Contains(userAgent, "zed"):
-		return "Zed"
-	case strings.Contains(userAgent, "copilot"):
-		return "GitHub Copilot"
-	case strings.Contains(userAgent, "kilo-code") || strings.Contains(originator, "kilo-code"):
-		return "Kilo Code"
-	case strings.Contains(userAgent, "roo-code") || strings.Contains(originator, "roo-code"):
-		return "Roo Code"
-	default:
-		for key := range r.Header {
-			if strings.Contains(strings.ToLower(key), "x-cursor") {
-				return "Cursor"
-			}
-		}
+	case strings.HasPrefix(userAgent, "claude"):
+		return ClientClaude
+	case strings.HasPrefix(userAgent, "codex"):
+		return ClientCodex
+	case strings.HasPrefix(userAgent, "zed/"):
+		return ClientZed
+	case strings.HasPrefix(userAgent, "githubcopilotchat/"):
+		return ClientCopilotVSC
+	case strings.HasPrefix(userAgent, "copilot/"):
+		return ClientCopilotCLI
+	case strings.HasPrefix(userAgent, "kilo-code/") || originator == "kilo-code":
+		return ClientKilo
+	case strings.HasPrefix(userAgent, "roo-code/") || originator == "roo-code":
+		return ClientRoo
+	case strings.HasPrefix(userAgent, "copilot"):
+		return ClientCursor
+	case r.Header.Get("x-cursor-client-version") != "":
+		return ClientCursor
 	}
-	return "unknown"
+	return ClientUnknown
 }

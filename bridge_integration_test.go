@@ -651,7 +651,7 @@ func TestSimple(t *testing.T) {
 			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
 			userAgent:         "claude-cli/2.0.67 (external, cli)",
-			expectedClient:    "Claude Code",
+			expectedClient:    aibridge.ClientClaude,
 		},
 		{
 			name:              config.ProviderOpenAI,
@@ -663,7 +663,7 @@ func TestSimple(t *testing.T) {
 			createRequest:     createOpenAIChatCompletionsReq,
 			expectedMsgID:     "chatcmpl-BwoiPTGRbKkY5rncfaM0s9KtWrq5N",
 			userAgent:         "codex_cli_rs/0.87.0 (Mac OS 26.2.0; arm64)",
-			expectedClient:    "Codex",
+			expectedClient:    aibridge.ClientCodex,
 		},
 		{
 			name:              config.ProviderAnthropic + "_baseURL_path",
@@ -675,7 +675,7 @@ func TestSimple(t *testing.T) {
 			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
 			userAgent:         "GitHubCopilotChat/0.37.2026011603",
-			expectedClient:    "GitHub Copilot",
+			expectedClient:    aibridge.ClientCopilotVSC,
 		},
 		{
 			name:              config.ProviderOpenAI + "_baseURL_path",
@@ -687,7 +687,7 @@ func TestSimple(t *testing.T) {
 			createRequest:     createOpenAIChatCompletionsReq,
 			expectedMsgID:     "chatcmpl-BwoiPTGRbKkY5rncfaM0s9KtWrq5N",
 			userAgent:         "Zed/0.219.4+stable.119.abc123 (macos; aarch64)",
-			expectedClient:    "Zed",
+			expectedClient:    aibridge.ClientZed,
 		},
 	}
 
@@ -769,7 +769,7 @@ func TestSimple(t *testing.T) {
 
 					// Validate user agent and client have been recorded.
 					interceptions := recorderClient.RecordedInterceptions()
-					require.NotEmpty(t, interceptions, "no interceptions recorded")
+					require.Len(t, interceptions, 1, "expected exactly one interception, got: %v", interceptions)
 					assert.Equal(t, tc.userAgent, interceptions[0].UserAgent)
 					assert.Equal(t, tc.expectedClient, interceptions[0].Client)
 

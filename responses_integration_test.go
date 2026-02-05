@@ -64,7 +64,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				},
 			},
 			userAgent:      "claude-cli/2.0.67 (external, cli)",
-			expectedClient: "Claude Code",
+			expectedClient: aibridge.ClientClaude,
 		},
 		{
 			name:                 "blocking_builtin_tool",
@@ -87,7 +87,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     76,
 				},
 			},
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "blocking_cached_input_tokens",
@@ -104,7 +104,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     12077,
 				},
 			},
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "blocking_custom_tool",
@@ -127,7 +127,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     212,
 				},
 			},
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "blocking_conversation",
@@ -144,7 +144,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     164,
 				},
 			},
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "blocking_prev_response_id",
@@ -161,7 +161,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     172,
 				},
 			},
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "streaming_simple",
@@ -180,7 +180,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				},
 			},
 			userAgent:      "Zed/0.219.4+stable.119.abc123 (macos; aarch64)",
-			expectedClient: "Zed",
+			expectedClient: aibridge.ClientZed,
 		},
 		{
 			name:                 "streaming_codex",
@@ -199,7 +199,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				},
 			},
 			userAgent:      "codex_cli_rs/0.87.0 (Mac OS 26.2.0; arm64)",
-			expectedClient: "Codex",
+			expectedClient: aibridge.ClientCodex,
 		},
 		{
 			name:                 "streaming_builtin_tool",
@@ -223,7 +223,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     76,
 				},
 			},
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "streaming_cached_tokens",
@@ -241,7 +241,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     16963,
 				},
 			},
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "streaming_custom_tool",
@@ -265,7 +265,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     404,
 				},
 			},
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "streaming_conversation",
@@ -273,7 +273,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming:            true,
 			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "explain why this is funny.",
-			expectedClient:       "unknown",
+			expectedClient:       aibridge.ClientUnknown,
 		},
 		{
 			name:                 "streaming_prev_response_id",
@@ -291,7 +291,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     225,
 				},
 			},
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "stream_error",
@@ -299,7 +299,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming:            true,
 			expectModel:          "gpt-6.7",
 			expectPromptRecorded: "hello_stream_error",
-			expectedClient:       "unknown",
+			expectedClient:       aibridge.ClientUnknown,
 		},
 		{
 			name:                 "stream_failure",
@@ -307,7 +307,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming:            true,
 			expectModel:          "gpt-6.7",
 			expectPromptRecorded: "hello_stream_failure",
-			expectedClient:       "unknown",
+			expectedClient:       aibridge.ClientUnknown,
 		},
 
 		// Original status code and body is kept even with wrong json format
@@ -315,7 +315,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			name:           "blocking_wrong_format",
 			fixture:        fixtures.OaiResponsesBlockingWrongResponseFormat,
 			expectModel:    "gpt-6.7",
-			expectedClient: "unknown",
+			expectedClient: aibridge.ClientUnknown,
 		},
 		{
 			name:                 "streaming_wrong_format",
@@ -323,7 +323,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			streaming:            true,
 			expectModel:          "gpt-6.7",
 			expectPromptRecorded: "hello_wrong_format",
-			expectedClient:       "unknown",
+			expectedClient:       aibridge.ClientUnknown,
 		},
 	}
 

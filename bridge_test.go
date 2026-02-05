@@ -117,63 +117,68 @@ func TestGuessClient(t *testing.T) {
 		{
 			name:       "claude_code",
 			userAgent:  "claude-cli/2.0.67 (external, cli)",
-			wantClient: "Claude Code",
+			wantClient: ClientClaude,
 		},
 		{
 			name:       "codex_cli",
 			userAgent:  "codex_cli_rs/0.87.0 (Mac OS 26.2.0; arm64) ghostty/1.3.0-main_250877ef",
-			wantClient: "Codex",
+			wantClient: ClientCodex,
 		},
 		{
 			name:       "zed",
 			userAgent:  "Zed/0.219.4+stable.119.abc123 (macos; aarch64)",
-			wantClient: "Zed",
+			wantClient: ClientZed,
 		},
 		{
-			name:       "github_copilot",
+			name:       "github_copilot_vsc",
 			userAgent:  "GitHubCopilotChat/0.37.2026011603",
-			wantClient: "GitHub Copilot",
+			wantClient: ClientCopilotVSC,
+		},
+		{
+			name:       "github_copilot_cli",
+			userAgent:  "copilot/0.0.403 (client/cli linux v24.11.1)",
+			wantClient: ClientCopilotCLI,
 		},
 		{
 			name:       "kilo_code_user_agent",
 			userAgent:  "kilo-code/5.1.0 (darwin 25.2.0; arm64) node/22.21.1",
-			wantClient: "Kilo Code",
+			wantClient: ClientKilo,
 		},
 		{
 			name:       "kilo_code_originator",
 			headers:    map[string]string{"Originator": "kilo-code"},
-			wantClient: "Kilo Code",
+			wantClient: ClientKilo,
 		},
 		{
 			name:       "roo_code_user_agent",
 			userAgent:  "roo-code/3.45.0 (darwin 25.2.0; arm64) node/22.21.1",
-			wantClient: "Roo Code",
+			wantClient: ClientRoo,
 		},
 		{
 			name:       "roo_code_originator",
 			headers:    map[string]string{"Originator": "roo-code"},
-			wantClient: "Roo Code",
+			wantClient: ClientRoo,
 		},
 		{
 			name:       "cursor_x_cursor_client_version",
 			userAgent:  "connect-es/1.6.1",
 			headers:    map[string]string{"X-Cursor-client-version": "0.50.0"},
-			wantClient: "Cursor",
+			wantClient: ClientCursor,
 		},
 		{
 			name:       "cursor_x_cursor_some_other_header",
-			headers:    map[string]string{"X-Cursor-SomeOtherHeader": "abc123"},
-			wantClient: "Cursor",
+			headers:    map[string]string{"x-cursor-client-version": "abc123"},
+			wantClient: ClientCursor,
 		},
 		{
 			name:       "unknown_client",
-			userAgent:  "Fn/JS 6.9.0",
-			wantClient: "unknown",
+			userAgent:  "ccclaude-cli/calude-with-wrong-prefix",
+			wantClient: ClientUnknown,
 		},
 		{
 			name:       "empty_user_agent",
 			userAgent:  "",
-			wantClient: "unknown",
+			wantClient: ClientUnknown,
 		},
 	}
 
