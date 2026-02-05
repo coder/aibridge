@@ -336,7 +336,7 @@ func guessClient(r *http.Request) string {
 	case strings.Contains(userAgent, "zed"):
 		return "Zed"
 	case strings.Contains(userAgent, "copilot"):
-		return "GitHubCopilot"
+		return "GitHub Copilot"
 	case strings.Contains(userAgent, "kilo-code") || strings.Contains(originator, "kilo-code"):
 		return "Kilo Code"
 	case strings.Contains(userAgent, "roo-code") || strings.Contains(originator, "roo-code"):

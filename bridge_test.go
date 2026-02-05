@@ -132,7 +132,7 @@ func TestGuessClient(t *testing.T) {
 		{
 			name:       "github_copilot",
 			userAgent:  "GitHubCopilotChat/0.37.2026011603",
-			wantClient: "GitHubCopilot",
+			wantClient: "GitHub Copilot",
 		},
 		{
 			name:       "kilo_code_user_agent",

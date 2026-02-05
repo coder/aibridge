@@ -675,7 +675,7 @@ func TestSimple(t *testing.T) {
 			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
 			userAgent:         "GitHubCopilotChat/0.37.2026011603",
-			expectedClient:    "GitHubCopilot",
+			expectedClient:    "GitHub Copilot",
 		},
 		{
 			name:              config.ProviderOpenAI + "_baseURL_path",
