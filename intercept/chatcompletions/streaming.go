@@ -159,13 +159,12 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 		if toolCall != nil {
 			// Builtin tools are not intercepted.
-			lastToolCallID = toolCall.ID
 			if i.getInjectedToolByName(toolCall.Name) == nil {
 				_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 					InterceptionID: i.ID().String(),
 					MsgID:          processor.getMsgID(),
 					Tool:           toolCall.Name,
-					ToolCallID:     lastToolCallID,
+					ToolCallID:     toolCall.ID,
 					Args:           i.unmarshalArgs(toolCall.Arguments),
 					Injected:       false,
 				})
@@ -271,13 +270,12 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		}
 
 		id := toolCall.ID
-		lastToolCallID = id
 		args := i.unmarshalArgs(toolCall.Arguments)
 		toolRes, toolErr := tool.Call(streamCtx, args, i.tracer)
 		_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 			InterceptionID:  i.ID().String(),
 			MsgID:           processor.getMsgID(),
-			ToolCallID:      lastToolCallID,
+			ToolCallID:      id,
 			ServerURL:       &tool.ServerURL,
 			Tool:            tool.Name,
 			Args:            args,

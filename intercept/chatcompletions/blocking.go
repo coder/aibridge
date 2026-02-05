@@ -121,11 +121,10 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				if i.mcpProxy != nil && i.mcpProxy.GetTool(toolCall.Function.Name) != nil {
 					pendingToolCalls = append(pendingToolCalls, toolCall)
 				} else {
-					lastToolCallID = toolCall.ID
 					_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 						InterceptionID: i.ID().String(),
 						MsgID:          completion.ID,
-						ToolCallID:     lastToolCallID,
+						ToolCallID:     toolCall.ID,
 						Tool:           toolCall.Function.Name,
 						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
 						Injected:       false,
@@ -161,11 +160,10 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			args := i.unmarshalArgs(tc.Function.Arguments)
 			res, err := tool.Call(ctx, args, i.tracer)
 
-			lastToolCallID = tc.ID
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           completion.ID,
-				ToolCallID:      lastToolCallID,
+				ToolCallID:      tc.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
 				Args:            args,

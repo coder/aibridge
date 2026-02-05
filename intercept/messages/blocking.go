@@ -185,11 +185,10 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 			res, err := tool.Call(ctx, tc.Input, i.tracer)
 
-			lastToolCallID = tc.ID
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           resp.ID,
-				ToolCallID:      lastToolCallID,
+				ToolCallID:      tc.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
 				Args:            tc.Input,
