@@ -772,17 +772,21 @@ func TestFallthrough(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name          string
-		providerName  string
-		fixture       []byte
-		basePath      string
-		configureFunc func(string, aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge)
+		name                 string
+		providerName         string
+		fixture              []byte
+		basePath             string
+		requestPath          string
+		expectedUpstreamPath string
+		configureFunc        func(string, aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge)
 	}{
 		{
-			name:         "ant_empty_base_url_path",
-			providerName: config.ProviderAnthropic,
-			fixture:      fixtures.AntFallthrough,
-			basePath:     "",
+			name:                 "ant_empty_base_url_path",
+			providerName:         config.ProviderAnthropic,
+			fixture:              fixtures.AntFallthrough,
+			basePath:             "",
+			requestPath:          "/anthropic/v1/models",
+			expectedUpstreamPath: "/v1/models",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
@@ -792,10 +796,12 @@ func TestFallthrough(t *testing.T) {
 			},
 		},
 		{
-			name:         "oai_empty_base_url_path",
-			providerName: config.ProviderOpenAI,
-			fixture:      fixtures.OaiChatFallthrough,
-			basePath:     "",
+			name:                 "oai_empty_base_url_path",
+			providerName:         config.ProviderOpenAI,
+			fixture:              fixtures.OaiChatFallthrough,
+			basePath:             "",
+			requestPath:          "/openai/v1/models",
+			expectedUpstreamPath: "/models",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
@@ -805,10 +811,12 @@ func TestFallthrough(t *testing.T) {
 			},
 		},
 		{
-			name:         "ant_some_base_url_path",
-			providerName: config.ProviderAnthropic,
-			fixture:      fixtures.AntFallthrough,
-			basePath:     "/api",
+			name:                 "ant_some_base_url_path",
+			providerName:         config.ProviderAnthropic,
+			fixture:              fixtures.AntFallthrough,
+			basePath:             "/api",
+			requestPath:          "/anthropic/v1/models",
+			expectedUpstreamPath: "/api/v1/models",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
@@ -818,10 +826,12 @@ func TestFallthrough(t *testing.T) {
 			},
 		},
 		{
-			name:         "oai_some_base_url_path",
-			providerName: config.ProviderOpenAI,
-			fixture:      fixtures.OaiChatFallthrough,
-			basePath:     "/api",
+			name:                 "oai_some_base_url_path",
+			providerName:         config.ProviderOpenAI,
+			fixture:              fixtures.OaiChatFallthrough,
+			basePath:             "/api",
+			requestPath:          "/openai/v1/models",
+			expectedUpstreamPath: "/api/models",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
@@ -841,7 +851,7 @@ func TestFallthrough(t *testing.T) {
 
 			files := filesMap(arc)
 			require.Contains(t, files, fixtureResponse)
-			expectedPath := tc.basePath + "/v1/models"
+			expectedPath := tc.expectedUpstreamPath
 
 			var receivedHeaders *http.Header
 			respBody := files[fixtureResponse]
@@ -871,7 +881,7 @@ func TestFallthrough(t *testing.T) {
 			bridgeSrv.Start()
 			t.Cleanup(bridgeSrv.Close)
 
-			req, err := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("%s/%s/v1/models", bridgeSrv.URL, tc.providerName), nil)
+			req, err := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("%s%s", bridgeSrv.URL, tc.requestPath), nil)
 			require.NoError(t, err)
 
 			resp, err := http.DefaultClient.Do(req)

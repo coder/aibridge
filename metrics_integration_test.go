@@ -62,7 +62,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIChatCompletionsReq,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4.1",
-			expectRoute:    "/v1/chat/completions",
+			expectRoute:    "/chat/completions",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -71,7 +71,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIChatCompletionsReq,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4.1",
-			expectRoute:    "/v1/chat/completions",
+			expectRoute:    "/chat/completions",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -80,7 +80,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIResponsesReq,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
-			expectRoute:    "/v1/responses",
+			expectRoute:    "/responses",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -89,7 +89,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIResponsesReq,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
-			expectRoute:    "/v1/responses",
+			expectRoute:    "/responses",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -98,7 +98,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIResponsesReq,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
-			expectRoute:    "/v1/responses",
+			expectRoute:    "/responses",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -107,7 +107,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIResponsesReq,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
-			expectRoute:    "/v1/responses",
+			expectRoute:    "/responses",
 			expectProvider: config.ProviderOpenAI,
 		},
 	}
@@ -238,7 +238,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	count := promtest.ToFloat64(metrics.PassthroughCount.WithLabelValues(
-		config.ProviderOpenAI, "/v1/models", "GET"))
+		config.ProviderOpenAI, "/models", "GET"))
 	require.Equal(t, 1.0, count)
 }
 
