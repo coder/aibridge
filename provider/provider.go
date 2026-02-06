@@ -23,6 +23,10 @@ type Provider interface {
 	// communicating with the upstream provider and formulating a response to be sent to the requesting client.
 	CreateInterceptor(http.ResponseWriter, *http.Request, trace.Tracer) (intercept.Interceptor, error)
 
+	// RoutePrefix returns a prefix on which the provider's bridged and passthroguh routes will be registered.
+	// Must be unique across providers to avoid conflicts.
+	RoutePrefix() string
+
 	// BridgedRoutes returns a slice of [http.ServeMux]-compatible routes which will have special handling.
 	// See https://pkg.go.dev/net/http#hdr-Patterns-ServeMux.
 	BridgedRoutes() []string

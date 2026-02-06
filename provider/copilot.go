@@ -22,8 +22,8 @@ const (
 	copilotBaseURL = "https://api.individual.githubcopilot.com"
 
 	// Copilot exposes an OpenAI-compatible API, including for Anthropic models.
-	routeCopilotChatCompletions = "/copilot/chat/completions"
-	routeCopilotResponses       = "/copilot/responses"
+	routeCopilotChatCompletions = "/chat/completions"
+	routeCopilotResponses       = "/responses"
 )
 
 var copilotOpenErrorResponse = func() []byte {
@@ -72,6 +72,10 @@ func (p *Copilot) Name() string {
 
 func (p *Copilot) BaseURL() string {
 	return p.cfg.BaseURL
+}
+
+func (p *Copilot) RoutePrefix() string {
+	return fmt.Sprintf("/%s", p.Name())
 }
 
 func (p *Copilot) BridgedRoutes() []string {

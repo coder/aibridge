@@ -793,7 +793,8 @@ func TestTracePassthrough(t *testing.T) {
 	assert.Equal(t, spans[0].Name(), "Passthrough")
 	want := []attribute.KeyValue{
 		attribute.String(tracing.PassthroughMethod, "GET"),
-		attribute.String(tracing.PassthroughURL, "/v1/models"),
+		attribute.String(tracing.PassthroughOutURL, upstream.URL+"/models"),
+		attribute.String(tracing.PassthroughURL, upstream.URL+"/models"),
 	}
 	got := slices.SortedFunc(slices.Values(spans[0].Attributes()), cmpAttrKeyVal)
 	require.Equal(t, want, got)

@@ -25,6 +25,7 @@ const (
 	IsBedrock      = "aws_bedrock"
 
 	PassthroughURL    = "passthrough_url"
+	PassthroughOutURL = "passthrough_out_url"
 	PassthroughMethod = "passthrough_method"
 
 	MCPInput      = "mcp_input"

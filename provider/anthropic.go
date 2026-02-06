@@ -24,7 +24,7 @@ type Anthropic struct {
 	bedrockCfg *config.AWSBedrock
 }
 
-const routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
+const routeMessages = "/v1/messages" // https://docs.anthropic.com/en/api/messages
 
 var anthropicOpenErrorResponse = func() []byte {
 	return []byte(`{"type":"error","error":{"type":"overloaded_error","message":"circuit breaker is open"}}`)
@@ -61,6 +61,10 @@ func NewAnthropic(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) *Anthropi
 
 func (p *Anthropic) Name() string {
 	return config.ProviderAnthropic
+}
+
+func (p *Anthropic) RoutePrefix() string {
+	return fmt.Sprintf("/%s", p.Name())
 }
 
 func (p *Anthropic) BridgedRoutes() []string {

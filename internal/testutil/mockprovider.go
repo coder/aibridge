@@ -1,6 +1,7 @@
 package testutil
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/coder/aibridge/config"
@@ -18,6 +19,7 @@ type MockProvider struct {
 
 func (m *MockProvider) Name() string                                 { return m.Name_ }
 func (m *MockProvider) BaseURL() string                              { return m.URL }
+func (m *MockProvider) RoutePrefix() string                          { return fmt.Sprintf("/%s", m.Name_) }
 func (m *MockProvider) BridgedRoutes() []string                      { return m.Bridged }
 func (m *MockProvider) PassthroughRoutes() []string                  { return m.Passthrough }
 func (m *MockProvider) AuthHeader() string                           { return "Authorization" }
