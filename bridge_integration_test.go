@@ -2175,7 +2175,10 @@ func newMockServer(ctx context.Context, t *testing.T, files archiveFileMap, requ
 }
 
 // validateOpenAIChatCompletionRequest validates that an OpenAI chat completion request
-// has all required fields. Returns an error if validation fails.
+// has all required fields.
+// According to OpenAI documentation https://platform.openai.com/docs/api-reference/chat/create,
+// the "model" and "messages" fields are required.
+// Returns an error if validation fails.
 func validateOpenAIChatCompletionRequest(body []byte) error {
 	var req openai.ChatCompletionNewParams
 	if err := json.Unmarshal(body, &req); err != nil {
@@ -2198,24 +2201,43 @@ func validateOpenAIChatCompletionRequest(body []byte) error {
 }
 
 // validateOpenAIResponsesRequest validates that an OpenAI responses request
-// has all required fields. Returns an error if validation fails.
+// has all required fields.
+// According to OpenAI documentation https://platform.openai.com/docs/api-reference/responses/create,
+// no fields are strictly required. However, we check "model" and "input" fields
+// as these should usually be set in request bodies.
+// Returns an error if validation fails.
 func validateOpenAIResponsesRequest(body []byte) error {
 	var reqBody map[string]any
 	if err := json.Unmarshal(body, &reqBody); err != nil {
-		return fmt.Errorf("request should be valid JSON: %w", err)
+		return fmt.Errorf("request should unmarshal into valid JSON: %w", err)
 	}
 
-	// Verify required fields for OpenAI responses
-	// Note: Using map here since there's no specific SDK type for responses endpoint
-	model, ok := reqBody["model"]
-	if !ok || model == "" {
-		return fmt.Errorf("model field is required but missing or empty")
+	// Collect all validation errors
+	var errs []string
+
+	// Validate model field exists
+	model, hasModel := reqBody["model"].(string)
+	if !hasModel || model == "" {
+		errs = append(errs, "model field is required but empty or missing")
+	}
+
+	// Validate input field exists
+	if _, hasInput := reqBody["input"]; !hasInput {
+		errs = append(errs, "input field is required but missing")
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
 	}
 	return nil
 }
 
 // validateAnthropicMessagesRequest validates that an Anthropic messages request
-// has all required fields. Returns an error if validation fails.
+// has all required fields.
+// According to the Anthropic Go SDK https://github.com/anthropics/anthropic-sdk-go,
+// the "model", "messages", and "max_tokens" fields are required, as indicated by
+// the `required` struct tags in MessageNewParams.
+// Returns an error if validation fails.
 func validateAnthropicMessagesRequest(body []byte) error {
 	var req anthropic.MessageNewParams
 	if err := json.Unmarshal(body, &req); err != nil {
