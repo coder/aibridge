@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
@@ -24,7 +25,7 @@ type Anthropic struct {
 	bedrockCfg *config.AWSBedrock
 }
 
-const routeMessages = "/anthropic/v1/messages" // https://docs.anthropic.com/en/api/messages
+const routeMessages = "/v1/messages" // https://docs.anthropic.com/en/api/messages
 
 var anthropicOpenErrorResponse = func() []byte {
 	return []byte(`{"type":"error","error":{"type":"overloaded_error","message":"circuit breaker is open"}}`)
@@ -63,6 +64,10 @@ func (p *Anthropic) Name() string {
 	return config.ProviderAnthropic
 }
 
+func (p *Anthropic) RoutePrefix() string {
+	return fmt.Sprintf("/%s", p.Name())
+}
+
 func (p *Anthropic) BridgedRoutes() []string {
 	return []string{routeMessages}
 }
@@ -81,7 +86,8 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
 	defer tracing.EndSpanErr(span, &outErr)
 
-	switch r.URL.Path {
+	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
+	switch path {
 	case routeMessages:
 		var req messages.MessageNewParamsWrapper
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

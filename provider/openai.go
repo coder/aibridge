@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
@@ -18,8 +19,8 @@ import (
 )
 
 const (
-	routeChatCompletions = "/openai/v1/chat/completions" // https://platform.openai.com/docs/api-reference/chat
-	routeResponses       = "/openai/v1/responses"        // https://platform.openai.com/docs/api-reference/responses
+	routeChatCompletions = "/chat/completions" // https://platform.openai.com/docs/api-reference/chat
+	routeResponses       = "/responses"        // https://platform.openai.com/docs/api-reference/responses
 )
 
 var openAIOpenErrorResponse = func() []byte {
@@ -58,6 +59,12 @@ func (p *OpenAI) Name() string {
 	return config.ProviderOpenAI
 }
 
+func (p *OpenAI) RoutePrefix() string {
+	// Route prefix includes version to match default OpenAI base URL.
+	// More detailed explanation: https://github.com/coder/aibridge/pull/174#discussion_r2782320152
+	return fmt.Sprintf("/%s/v1", p.Name())
+}
+
 func (p *OpenAI) BridgedRoutes() []string {
 	return []string{
 		routeChatCompletions,
@@ -73,11 +80,11 @@ func (p *OpenAI) PassthroughRoutes() []string {
 	return []string{
 		// See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux.
 		// but without non trailing slash route requests to `/v1/conversations` are going to catch all
-		"/v1/conversations",
-		"/v1/conversations/",
-		"/v1/models",
-		"/v1/models/",
-		"/v1/responses/", // Forwards other responses API endpoints, eg: https://platform.openai.com/docs/api-reference/responses/get
+		"/conversations",
+		"/conversations/",
+		"/models",
+		"/models/",
+		"/responses/", // Forwards other responses API endpoints, eg: https://platform.openai.com/docs/api-reference/responses/get
 	}
 }
 
@@ -89,7 +96,8 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 
 	var interceptor intercept.Interceptor
 
-	switch r.URL.Path {
+	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
+	switch path {
 	case routeChatCompletions:
 		var req chatcompletions.ChatCompletionNewParamsWrapper
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
