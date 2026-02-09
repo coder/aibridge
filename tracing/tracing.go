@@ -24,9 +24,9 @@ const (
 	Streaming      = "streaming"
 	IsBedrock      = "aws_bedrock"
 
-	PassthroughURL    = "passthrough_url"
-	PassthroughOutURL = "passthrough_out_url"
-	PassthroughMethod = "passthrough_method"
+	PassthroughURL         = "passthrough_url"
+	PassthroughUpstreamURL = "passthrough_upstream_url"
+	PassthroughMethod      = "passthrough_method"
 
 	MCPInput      = "mcp_input"
 	MCPProxyName  = "mcp_proxy_name"

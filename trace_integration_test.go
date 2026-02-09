@@ -142,7 +142,7 @@ func TestTraceAnthropic(t *testing.T) {
 			}
 
 			attrs := []attribute.KeyValue{
-				attribute.String(tracing.RequestPath, "/v1/messages"),
+				attribute.String(tracing.RequestPath, "/anthropic/v1/messages"),
 				attribute.String(tracing.InterceptionID, intcID),
 				attribute.String(tracing.Provider, config.ProviderAnthropic),
 				attribute.String(tracing.Model, model),
@@ -276,7 +276,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 			}
 
 			attrs := []attribute.KeyValue{
-				attribute.String(tracing.RequestPath, "/v1/messages"),
+				attribute.String(tracing.RequestPath, "/anthropic/v1/messages"),
 				attribute.String(tracing.InterceptionID, intcID),
 				attribute.String(tracing.Provider, config.ProviderAnthropic),
 				attribute.String(tracing.Model, model),
@@ -363,7 +363,7 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 				tool := proxy.ListTools()[0]
 
 				attrs := []attribute.KeyValue{
-					attribute.String(tracing.RequestPath, "/v1/messages"),
+					attribute.String(tracing.RequestPath, "/anthropic/v1/messages"),
 					attribute.String(tracing.InterceptionID, intcID),
 					attribute.String(tracing.Provider, config.ProviderAnthropic),
 					attribute.String(tracing.Model, model),
@@ -394,7 +394,7 @@ func TestTraceOpenAI(t *testing.T) {
 			name:       "trace_openai_chat_streaming",
 			fixture:    fixtures.OaiChatSimple,
 			streaming:  true,
-			expectPath: "/chat/completions",
+			expectPath: "/openai/v1/chat/completions",
 			reqFunc:    createOpenAIChatCompletionsReq,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
@@ -412,7 +412,7 @@ func TestTraceOpenAI(t *testing.T) {
 			fixture:    fixtures.OaiChatSimple,
 			reqFunc:    createOpenAIChatCompletionsReq,
 			streaming:  false,
-			expectPath: "/chat/completions",
+			expectPath: "/openai/v1/chat/completions",
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -428,7 +428,7 @@ func TestTraceOpenAI(t *testing.T) {
 			name:       "trace_openai_responses_streaming",
 			fixture:    fixtures.OaiResponsesStreamingSimple,
 			streaming:  true,
-			expectPath: "/responses",
+			expectPath: "/openai/v1/responses",
 			reqFunc:    createOpenAIResponsesReq,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
@@ -445,7 +445,7 @@ func TestTraceOpenAI(t *testing.T) {
 			name:       "trace_openai_responses_blocking",
 			fixture:    fixtures.OaiResponsesBlockingSimple,
 			streaming:  false,
-			expectPath: "/responses",
+			expectPath: "/openai/v1/responses",
 			reqFunc:    createOpenAIResponsesReq,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
@@ -535,7 +535,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			name:       "trace_openai_chat_streaming_error",
 			fixture:    fixtures.OaiChatMidStreamError,
 			streaming:  true,
-			expectPath: "/chat/completions",
+			expectPath: "/openai/v1/chat/completions",
 			reqFunc:    createOpenAIChatCompletionsReq,
 			expectCode: http.StatusOK,
 			expect: []expectTrace{
@@ -552,7 +552,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			name:       "trace_openai_chat_blocking_error",
 			fixture:    fixtures.OaiChatNonStreamError,
 			streaming:  false,
-			expectPath: "/chat/completions",
+			expectPath: "/openai/v1/chat/completions",
 			reqFunc:    createOpenAIChatCompletionsReq,
 			expectCode: http.StatusInternalServerError,
 			expect: []expectTrace{
@@ -568,7 +568,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			name:       "trace_openai_responses_streaming_error",
 			streaming:  true,
 			fixture:    fixtures.OaiResponsesStreamingWrongResponseFormat,
-			expectPath: "/responses",
+			expectPath: "/openai/v1/responses",
 			reqFunc:    createOpenAIResponsesReq,
 			expectCode: http.StatusOK,
 			expect: []expectTrace{
@@ -585,7 +585,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			name:       "trace_openai_responses_blocking_error",
 			fixture:    fixtures.OaiResponsesBlockingWrongResponseFormat,
 			streaming:  false,
-			expectPath: "/responses",
+			expectPath: "/openai/v1/responses",
 			reqFunc:    createOpenAIResponsesReq,
 			// Fixture returns http 200 response with wrong body
 			// responses forward received response as is so
@@ -606,7 +606,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			fixture:          fixtures.OaiResponsesStreamingHttpErr,
 			streaming:        true,
 			useMockReflector: true,
-			expectPath:       "/responses",
+			expectPath:       "/openai/v1/responses",
 			reqFunc:          createOpenAIResponsesReq,
 			expectCode:       http.StatusTooManyRequests,
 			expect: []expectTrace{
@@ -623,7 +623,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			fixture:          fixtures.OaiResponsesBlockingHttpErr,
 			streaming:        false,
 			useMockReflector: true,
-			expectPath:       "/responses",
+			expectPath:       "/openai/v1/responses",
 			reqFunc:          createOpenAIResponsesReq,
 			expectCode:       http.StatusUnauthorized,
 			expect: []expectTrace{
@@ -746,7 +746,7 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 				tool := proxy.ListTools()[0]
 
 				attrs := []attribute.KeyValue{
-					attribute.String(tracing.RequestPath, "/chat/completions"),
+					attribute.String(tracing.RequestPath, "/openai/v1/chat/completions"),
 					attribute.String(tracing.InterceptionID, intcID),
 					attribute.String(tracing.Provider, config.ProviderOpenAI),
 					attribute.String(tracing.Model, gjson.Get(reqBody, "model").Str),
@@ -799,7 +799,7 @@ func TestTracePassthrough(t *testing.T) {
 	assert.Equal(t, spans[0].Name(), "Passthrough")
 	want := []attribute.KeyValue{
 		attribute.String(tracing.PassthroughMethod, "GET"),
-		attribute.String(tracing.PassthroughOutURL, upstream.URL+"/models"),
+		attribute.String(tracing.PassthroughUpstreamURL, upstream.URL+"/models"),
 		attribute.String(tracing.PassthroughURL, "/models"),
 	}
 	got := slices.SortedFunc(slices.Values(spans[0].Attributes()), cmpAttrKeyVal)

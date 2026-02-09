@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
@@ -85,7 +86,8 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
 	defer tracing.EndSpanErr(span, &outErr)
 
-	switch r.URL.Path {
+	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
+	switch path {
 	case routeMessages:
 		var req messages.MessageNewParamsWrapper
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

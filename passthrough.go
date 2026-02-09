@@ -66,7 +66,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 
 				// Set Host header for upstream.
 				req.Host = upURL.Host
-				span.SetAttributes(attribute.String(tracing.PassthroughOutURL, req.URL.String()))
+				span.SetAttributes(attribute.String(tracing.PassthroughUpstreamURL, req.URL.String()))
 
 				// Copy headers from client.
 				req.Header = r.Header.Clone()

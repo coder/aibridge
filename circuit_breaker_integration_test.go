@@ -85,7 +85,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 		{
 			name:           "OpenAI",
 			expectProvider: config.ProviderOpenAI,
-			expectEndpoint: "/chat/completions",
+			expectEndpoint: "/v1/chat/completions",
 			expectModel:    "gpt-4o",
 			errorBody:      openAIRateLimitError,
 			successBody:    openAISuccessResponse("gpt-4o"),
@@ -268,7 +268,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 		{
 			name:           "OpenAI",
 			expectProvider: config.ProviderOpenAI,
-			expectEndpoint: "/chat/completions",
+			expectEndpoint: "/v1/chat/completions",
 			expectModel:    "gpt-4o",
 			errorBody:      openAIRateLimitError,
 			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
@@ -423,7 +423,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 		{
 			name:           "OpenAI",
 			expectProvider: config.ProviderOpenAI,
-			expectEndpoint: "/chat/completions",
+			expectEndpoint: "/v1/chat/completions",
 			expectModel:    "gpt-4o",
 			errorBody:      openAIRateLimitError,
 			successBody:    openAISuccessResponse("gpt-4o"),

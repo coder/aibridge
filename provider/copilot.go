@@ -135,7 +135,8 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 
 	var interceptor intercept.Interceptor
 
-	switch r.URL.Path {
+	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
+	switch path {
 	case routeCopilotChatCompletions:
 		var req chatcompletions.ChatCompletionNewParamsWrapper
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {

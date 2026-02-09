@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -90,8 +91,17 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range prov.BridgedRoutes() {
 			handler := newInterceptionProcessor(prov, cbs, rec, mcpProxy, logger, m, tracer)
-			route := fmt.Sprintf("%s%s", prov.RoutePrefix(), path)
-			mux.Handle(route, http.StripPrefix(prov.RoutePrefix(), handler))
+			route, err := url.JoinPath(prov.RoutePrefix(), path)
+			if err != nil {
+				logger.Error(ctx, "failed to join path",
+					slog.Error(err),
+					slog.F("provider", providerName),
+					slog.F("prefix", prov.RoutePrefix()),
+					slog.F("path", path),
+				)
+				return nil, fmt.Errorf("failed to configure provider '%v': failed to join bridged path: %w", providerName, err)
+			}
+			mux.Handle(route, handler)
 		}
 
 		// Any requests which passthrough to this will be reverse-proxied to the upstream.
@@ -100,7 +110,16 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 		// configured, so we should just reverse-proxy known-safe routes.
 		ftr := newPassthroughRouter(prov, logger.Named(fmt.Sprintf("passthrough.%s", prov.Name())), m, tracer)
 		for _, path := range prov.PassthroughRoutes() {
-			route := fmt.Sprintf("%s%s", prov.RoutePrefix(), path)
+			route, err := url.JoinPath(prov.RoutePrefix(), path)
+			if err != nil {
+				logger.Error(ctx, "failed to join path",
+					slog.Error(err),
+					slog.F("provider", providerName),
+					slog.F("prefix", prov.RoutePrefix()),
+					slog.F("path", path),
+				)
+				return nil, fmt.Errorf("failed to configure provider '%v': failed to join passed though path: %w", providerName, err)
+			}
 			mux.HandleFunc(route, http.StripPrefix(prov.RoutePrefix(), ftr).ServeHTTP)
 		}
 	}

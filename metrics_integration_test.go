@@ -62,7 +62,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIChatCompletionsReq,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4.1",
-			expectRoute:    "/chat/completions",
+			expectRoute:    "/v1/chat/completions",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -71,7 +71,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIChatCompletionsReq,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4.1",
-			expectRoute:    "/chat/completions",
+			expectRoute:    "/v1/chat/completions",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -80,7 +80,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIResponsesReq,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
-			expectRoute:    "/responses",
+			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -89,7 +89,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIResponsesReq,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
-			expectRoute:    "/responses",
+			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -98,7 +98,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIResponsesReq,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
-			expectRoute:    "/responses",
+			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
 		},
 		{
@@ -107,7 +107,7 @@ func TestMetrics_Interception(t *testing.T) {
 			reqFunc:        createOpenAIResponsesReq,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
-			expectRoute:    "/responses",
+			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
 		},
 	}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
@@ -59,6 +60,8 @@ func (p *OpenAI) Name() string {
 }
 
 func (p *OpenAI) RoutePrefix() string {
+	// Route prefix includes version to match default OpenAI base URL.
+	// More detailed explanation: https://github.com/coder/aibridge/pull/174#discussion_r2782320152
 	return fmt.Sprintf("/%s/v1", p.Name())
 }
 
@@ -93,7 +96,8 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 
 	var interceptor intercept.Interceptor
 
-	switch r.URL.Path {
+	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
+	switch path {
 	case routeChatCompletions:
 		var req chatcompletions.ChatCompletionNewParamsWrapper
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
