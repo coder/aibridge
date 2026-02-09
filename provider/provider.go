@@ -11,7 +11,7 @@ import (
 
 var UnknownRoute = errors.New("unknown route")
 
-// Provider defines routes (bridgerd and passed though) for given provider.
+// Provider defines routes (bridged and passed through) for given provider.
 // Bridged routes are processed by dedicated interceptors.
 //
 // All routes have following pattern:
@@ -21,7 +21,7 @@ var UnknownRoute = errors.New("unknown route")
 // {host} + {aibridge root} + {provider prefix} form the base URL used in tools/clients using AI Bridge (eg. Claude/Codex).
 //
 // When request is bridged, interceptor created based on route processes the request.
-// When request is passed though the {host} + {aibridge root} + {provider prefix} URL part
+// When request is passed through the {host} + {aibridge root} + {provider prefix} URL part
 // is replaced by provider's base URL and request is forwarded.
 // This mirrors behaviour in bridged routes and SDKs used by interceptors.
 //

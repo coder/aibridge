@@ -118,9 +118,9 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 					slog.F("prefix", prov.RoutePrefix()),
 					slog.F("path", path),
 				)
-				return nil, fmt.Errorf("failed to configure provider '%v': failed to join passed though path: %w", providerName, err)
+				return nil, fmt.Errorf("failed to configure provider '%v': failed to join passed through path: %w", providerName, err)
 			}
-			mux.HandleFunc(route, http.StripPrefix(prov.RoutePrefix(), ftr).ServeHTTP)
+			mux.Handle(route, http.StripPrefix(prov.RoutePrefix(), ftr))
 		}
 	}
 
