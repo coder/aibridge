@@ -41,7 +41,7 @@ var UnknownRoute = errors.New("unknown route")
 //
 // !Note!
 // OpenAI and Anthropic use different route patterns.
-// OpenAI includes the version '/v1' in the base url while Antropic does not.
+// OpenAI includes the version '/v1' in the base url while Anthropic does not.
 // More details/examples: https://github.com/coder/aibridge/pull/174#discussion_r2782320152
 type Provider interface {
 	// Name returns the provider's name.

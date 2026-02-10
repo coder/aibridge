@@ -24,6 +24,21 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+const (
+	// The duration after which an async recording will be aborted.
+	recordingTimeout = time.Second * 5
+
+	ClientClaude     = "Claude Code"
+	ClientCodex      = "Codex"
+	ClientZed        = "Zed"
+	ClientCopilotVSC = "GitHub Copilot (VS Code)"
+	ClientCopilotCLI = "GitHub Copilot (CLI)"
+	ClientKilo       = "Kilo Code"
+	ClientRoo        = "Roo Code"
+	ClientCursor     = "Cursor"
+	ClientUnknown    = "Unknown"
+)
+
 // RequestBridge is an [http.Handler] which is capable of masquerading as AI providers' APIs;
 // specifically, OpenAI's & Anthropic's at present.
 // RequestBridge intercepts requests to - and responses from - these upstream services to provide
@@ -51,9 +66,6 @@ type RequestBridge struct {
 }
 
 var _ http.Handler = &RequestBridge{}
-
-// The duration after which an async recording will be aborted.
-const recordingTimeout = time.Second * 5
 
 // NewRequestBridge creates a new *[RequestBridge] and registers the HTTP routes defined by the given providers.
 // Any routes which are requested but not registered will be reverse-proxied to the upstream service.
@@ -186,11 +198,13 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
 		if err := rec.RecordInterception(ctx, &recorder.InterceptionRecord{
+			Client:      guessClient(r),
 			ID:          interceptor.ID().String(),
-			Metadata:    actor.Metadata,
 			InitiatorID: actor.ID,
-			Provider:    p.Name(),
+			Metadata:    actor.Metadata,
 			Model:       interceptor.Model(),
+			Provider:    p.Name(),
+			UserAgent:   r.UserAgent(),
 		}); err != nil {
 			span.SetStatus(codes.Error, fmt.Sprintf("failed to record interception: %v", err))
 			logger.Warn(ctx, "failed to record interception", slog.Error(err))
@@ -317,4 +331,34 @@ func mergeContexts(base, other context.Context) context.Context {
 		}
 	}()
 	return ctx
+}
+
+// guessClient attempts to guess the client application from the request headers.
+// Not all clients set proper user agent headers, so this is a best-effort approach.
+// Based on https://github.com/coder/aibridge/issues/20#issuecomment-3769444101.
+func guessClient(r *http.Request) string {
+	userAgent := strings.ToLower(r.UserAgent())
+	originator := r.Header.Get("originator")
+
+	switch {
+	case strings.HasPrefix(userAgent, "claude"):
+		return ClientClaude
+	case strings.HasPrefix(userAgent, "codex"):
+		return ClientCodex
+	case strings.HasPrefix(userAgent, "zed/"):
+		return ClientZed
+	case strings.HasPrefix(userAgent, "githubcopilotchat/"):
+		return ClientCopilotVSC
+	case strings.HasPrefix(userAgent, "copilot/"):
+		return ClientCopilotCLI
+	case strings.HasPrefix(userAgent, "kilo-code/") || originator == "kilo-code":
+		return ClientKilo
+	case strings.HasPrefix(userAgent, "roo-code/") || originator == "roo-code":
+		return ClientRoo
+	case strings.HasPrefix(userAgent, "copilot"):
+		return ClientCursor
+	case r.Header.Get("x-cursor-client-version") != "":
+		return ClientCursor
+	}
+	return ClientUnknown
 }
