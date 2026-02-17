@@ -28,6 +28,8 @@ const (
 	// The duration after which an async recording will be aborted.
 	recordingTimeout = time.Second * 5
 
+	// Possible values for the "client" field in interception records.
+	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
 	ClientClaude     = "Claude Code"
 	ClientCodex      = "Codex"
 	ClientZed        = "Zed"
@@ -340,6 +342,7 @@ func guessClient(r *http.Request) string {
 	userAgent := strings.ToLower(r.UserAgent())
 	originator := r.Header.Get("originator")
 
+	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
 	switch {
 	case strings.HasPrefix(userAgent, "claude"):
 		return ClientClaude
