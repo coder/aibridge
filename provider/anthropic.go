@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -95,7 +96,7 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 			return nil, fmt.Errorf("read body: %w", err)
 		}
 		var req messages.MessageNewParamsWrapper
-		if err := json.Unmarshal(payload, &req); err != nil {
+		if err := json.NewDecoder(bytes.NewReader(payload)).Decode(&req); err != nil {
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 
