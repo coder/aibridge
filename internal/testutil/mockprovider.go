@@ -25,6 +25,7 @@ func (m *MockProvider) PassthroughRoutes() []string                  { return m.
 func (m *MockProvider) AuthHeader() string                           { return "Authorization" }
 func (m *MockProvider) InjectAuthHeader(h *http.Header)              {}
 func (m *MockProvider) CircuitBreakerConfig() *config.CircuitBreaker { return nil }
+func (m *MockProvider) APIDumpDir() string                           { return "" }
 func (m *MockProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (intercept.Interceptor, error) {
 	if m.InterceptorFunc != nil {
 		return m.InterceptorFunc(w, r, tracer)

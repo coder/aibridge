@@ -127,3 +127,7 @@ func (p *Anthropic) InjectAuthHeader(headers *http.Header) {
 func (p *Anthropic) CircuitBreakerConfig() *config.CircuitBreaker {
 	return p.cfg.CircuitBreaker
 }
+
+func (p *Anthropic) APIDumpDir() string {
+	return p.cfg.APIDumpDir
+}

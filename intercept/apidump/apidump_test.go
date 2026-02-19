@@ -311,3 +311,105 @@ func TestMiddleware_AllSensitiveRequestHeaders(t *testing.T) {
 	require.Contains(t, content, "Proxy-Authorization:")
 	require.Contains(t, content, "X-Amz-Security-Token:")
 }
+
+func TestRoundTripperMiddleware(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty_base_dir_returns_original_transport", func(t *testing.T) {
+		t.Parallel()
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+		inner := http.DefaultTransport
+		rt := NewRoundTripperMiddleware(inner, "", "openai", logger, quartz.NewMock(t))
+		require.Equal(t, inner, rt)
+	})
+
+	t.Run("returns_error_from_inner_round_trip", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+		clk := quartz.NewMock(t)
+
+		innerErr := io.ErrUnexpectedEOF
+		inner := &mockRoundTripper{
+			roundTrip: func(_ *http.Request) (*http.Response, error) {
+				return nil, innerErr
+			},
+		}
+
+		rt := NewRoundTripperMiddleware(inner, tmpDir, "openai", logger, clk)
+
+		req, err := http.NewRequest(http.MethodGet, "https://api.openai.com/v1/models", nil)
+		require.NoError(t, err)
+
+		resp, err := rt.RoundTrip(req)
+		require.ErrorIs(t, err, innerErr)
+		require.Nil(t, resp)
+	})
+
+	t.Run("dumps_request_and_response", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+		clk := quartz.NewMock(t)
+
+		inner := &mockRoundTripper{
+			roundTrip: func(req *http.Request) (*http.Response, error) {
+				// Verify body is still readable after dump
+				body, err := io.ReadAll(req.Body)
+				require.NoError(t, err)
+				require.Equal(t, `{"request": true}`, string(body))
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Proto:      "HTTP/1.1",
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(bytes.NewReader([]byte(`{"response": true}`))),
+				}, nil
+			},
+		}
+
+		rt := NewRoundTripperMiddleware(inner, tmpDir, "openai", logger, clk)
+
+		req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/models", bytes.NewReader([]byte(`{"request": true}`)))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer sk-secret-key-12345")
+
+		resp, err := rt.RoundTrip(req)
+		require.NoError(t, err)
+
+		// Must read and close response body to trigger the streaming dump
+		_, err = io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+
+		// Verify files are in passthrough directory
+		passthroughDir := filepath.Join(tmpDir, "openai", "passthrough")
+		reqDumpPath := findDumpFile(t, passthroughDir, SuffixRequest)
+		reqContent, err := os.ReadFile(reqDumpPath)
+		require.NoError(t, err)
+
+		require.Contains(t, string(reqContent), "POST")
+		require.Contains(t, string(reqContent), `"request": true`)
+		// Sensitive header should be redacted
+		require.NotContains(t, string(reqContent), "sk-secret-key-12345")
+		require.Contains(t, string(reqContent), "Authorization:")
+
+		respDumpPath := findDumpFile(t, passthroughDir, SuffixResponse)
+		respContent, err := os.ReadFile(respDumpPath)
+		require.NoError(t, err)
+
+		require.Contains(t, string(respContent), "200 OK")
+		require.Contains(t, string(respContent), `"response": true`)
+	})
+}
+
+type mockRoundTripper struct {
+	roundTrip func(*http.Request) (*http.Response, error)
+}
+
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return m.roundTrip(req)
+}
