@@ -147,8 +147,13 @@ newStream:
 
 		stream := i.newStream(streamCtx, svc, messages)
 
-		// Scan the request for tool results; we use these to correlate requests together.
-		for _, block := range messages.Messages[len(messages.Messages)-1].Content {
+		// Scan the request for tool results; we use these to correlate
+		// requests together. We iterate backward so we find the last
+		// (most recent) tool result, which correctly identifies the
+		// parent interception.
+		content := messages.Messages[len(messages.Messages)-1].Content
+		for idx := len(content) - 1; idx >= 0; idx-- {
+			block := content[idx]
 			if block.OfToolResult == nil {
 				continue
 			}

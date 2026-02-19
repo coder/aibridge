@@ -37,16 +37,16 @@ const (
 )
 
 type responsesInterceptionBase struct {
-	id            uuid.UUID
-	req           *ResponsesNewParamsWrapper
-	reqPayload    []byte
-	cfg           config.OpenAI
-	model         string
-	recorder      recorder.Recorder
-	mcpProxy      mcp.ServerProxier
-	logger        slog.Logger
-	metrics       metrics.Metrics
-	tracer        trace.Tracer
+	id                    uuid.UUID
+	req                   *ResponsesNewParamsWrapper
+	reqPayload            []byte
+	cfg                   config.OpenAI
+	model                 string
+	recorder              recorder.Recorder
+	mcpProxy              mcp.ServerProxier
+	logger                slog.Logger
+	metrics               metrics.Metrics
+	tracer                trace.Tracer
 	correlatingToolCallID string
 }
 
@@ -85,10 +85,12 @@ func (i *responsesInterceptionBase) CorrelatingToolCallID() string {
 	return i.correlatingToolCallID
 }
 
-// scanForCorrelatingToolCallID scans the request input for function call output items
-// and sets correlatingToolCallID to the CallID of the first one found.
+// scanForCorrelatingToolCallID scans the request input for function call
+// output items and sets correlatingToolCallID to the CallID of the last one
+// found, which correctly identifies the most recent parent interception.
 func (i *responsesInterceptionBase) scanForCorrelatingToolCallID() {
-	for _, item := range i.req.Input.OfInputItemList {
+	for idx := len(i.req.Input.OfInputItemList) - 1; idx >= 0; idx-- {
+		item := i.req.Input.OfInputItemList[idx]
 		if item.OfFunctionCallOutput == nil {
 			continue
 		}
@@ -280,6 +282,7 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 		if err := i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 			InterceptionID: i.ID().String(),
 			MsgID:          response.ID,
+			ToolCallID:     item.CallID,
 			Tool:           item.Name,
 			Args:           args,
 			Injected:       false,

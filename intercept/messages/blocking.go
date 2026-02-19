@@ -87,8 +87,12 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	messages := i.req.MessageNewParams
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
-	// Scan the request for tool results; we use these to correlate requests together.
-	for _, block := range messages.Messages[len(messages.Messages)-1].Content {
+	// Scan the request for tool results; we use these to correlate requests
+	// together. We iterate backward so we find the last (most recent) tool
+	// result, which correctly identifies the parent interception.
+	content := messages.Messages[len(messages.Messages)-1].Content
+	for idx := len(content) - 1; idx >= 0; idx-- {
+		block := content[idx]
 		if block.OfToolResult == nil {
 			continue
 		}

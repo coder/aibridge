@@ -72,10 +72,11 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			expectModel:          "gpt-4.1",
 			expectPromptRecorded: "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
 			expectToolRecorded: &recorder.ToolUsageRecord{
-				MsgID:    "resp_0da6045a8b68fa5200695fa23dcc2c81a19c849f627abf8a31",
-				Tool:     "add",
-				Args:     map[string]any{"a": float64(3), "b": float64(5)},
-				Injected: false,
+				MsgID:      "resp_0da6045a8b68fa5200695fa23dcc2c81a19c849f627abf8a31",
+				Tool:       "add",
+				ToolCallID: "call_CJSaa2u51JG996575oVljuNq",
+				Args:       map[string]any{"a": float64(3), "b": float64(5)},
+				Injected:   false,
 			},
 			expectTokenUsage: &recorder.TokenUsageRecord{
 				MsgID:  "resp_0da6045a8b68fa5200695fa23dcc2c81a19c849f627abf8a31",
@@ -112,10 +113,11 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			expectModel:          "gpt-5",
 			expectPromptRecorded: "Use the code_exec tool to print hello world to the console.",
 			expectToolRecorded: &recorder.ToolUsageRecord{
-				MsgID:    "resp_09c614364030cdf000696942589da081a0af07f5859acb7308",
-				Tool:     "code_exec",
-				Args:     "print(\"hello world\")",
-				Injected: false,
+				MsgID:      "resp_09c614364030cdf000696942589da081a0af07f5859acb7308",
+				Tool:       "code_exec",
+				ToolCallID: "call_haf8njtwrVZ1754Gm6fjAtuA",
+				Args:       "print(\"hello world\")",
+				Injected:   false,
 			},
 			expectTokenUsage: &recorder.TokenUsageRecord{
 				MsgID:  "resp_09c614364030cdf000696942589da081a0af07f5859acb7308",
@@ -208,10 +210,11 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			expectModel:          "gpt-4.1",
 			expectPromptRecorded: "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
 			expectToolRecorded: &recorder.ToolUsageRecord{
-				MsgID:    "resp_0c3fb28cfcf463a500695fa2f0239481a095ec6ce3dfe4d458",
-				Tool:     "add",
-				Args:     map[string]any{"a": float64(3), "b": float64(5)},
-				Injected: false,
+				MsgID:      "resp_0c3fb28cfcf463a500695fa2f0239481a095ec6ce3dfe4d458",
+				Tool:       "add",
+				ToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
+				Args:       map[string]any{"a": float64(3), "b": float64(5)},
+				Injected:   false,
 			},
 			expectTokenUsage: &recorder.TokenUsageRecord{
 				MsgID:  "resp_0c3fb28cfcf463a500695fa2f0239481a095ec6ce3dfe4d458",
@@ -250,10 +253,11 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			expectModel:          "gpt-5",
 			expectPromptRecorded: "Use the code_exec tool to print hello world to the console.",
 			expectToolRecorded: &recorder.ToolUsageRecord{
-				MsgID:    "resp_0c26996bc41c2a0500696942e83634819fb71b2b8ff8a4a76c",
-				Tool:     "code_exec",
-				Args:     "print(\"hello world\")",
-				Injected: false,
+				MsgID:      "resp_0c26996bc41c2a0500696942e83634819fb71b2b8ff8a4a76c",
+				Tool:       "code_exec",
+				ToolCallID: "call_2gSnF58IEhXLwlbnqbm5XKMd",
+				Args:       "print(\"hello world\")",
+				Injected:   false,
 			},
 			expectTokenUsage: &recorder.TokenUsageRecord{
 				MsgID:  "resp_0c26996bc41c2a0500696942e83634819fb71b2b8ff8a4a76c",
