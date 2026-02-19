@@ -35,7 +35,7 @@ type interceptionBase struct {
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
 
-	lastToolUseID string
+	correlatingToolCallID string
 }
 
 func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService {
@@ -65,8 +65,8 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 	i.mcpProxy = mcpProxy
 }
 
-func (i *interceptionBase) LastToolUseID() string {
-	return i.lastToolUseID
+func (i *interceptionBase) CorrelatingToolCallID() string {
+	return i.correlatingToolCallID
 }
 
 func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {

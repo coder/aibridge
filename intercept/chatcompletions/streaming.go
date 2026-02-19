@@ -79,6 +79,15 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 	i.injectTools()
 
+	// Scan the request for tool results; we use these to correlate requests together.
+	for _, msg := range i.req.Messages {
+		if msg.OfTool == nil {
+			continue
+		}
+		i.correlatingToolCallID = msg.OfTool.ToolCallID
+		break
+	}
+
 	// Allow us to interrupt watch via cancel.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()

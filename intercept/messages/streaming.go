@@ -153,7 +153,7 @@ newStream:
 				continue
 			}
 
-			i.lastToolUseID = block.OfToolResult.ToolUseID
+			i.correlatingToolCallID = block.OfToolResult.ToolUseID
 			break
 		}
 

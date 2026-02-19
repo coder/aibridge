@@ -47,7 +47,7 @@ type responsesInterceptionBase struct {
 	logger        slog.Logger
 	metrics       metrics.Metrics
 	tracer        trace.Tracer
-	lastToolUseID string
+	correlatingToolCallID string
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -81,8 +81,20 @@ func (i *responsesInterceptionBase) Model() string {
 	return i.model
 }
 
-func (i *responsesInterceptionBase) LastToolUseID() string {
-	return i.lastToolUseID
+func (i *responsesInterceptionBase) CorrelatingToolCallID() string {
+	return i.correlatingToolCallID
+}
+
+// scanForCorrelatingToolCallID scans the request input for function call output items
+// and sets correlatingToolCallID to the CallID of the first one found.
+func (i *responsesInterceptionBase) scanForCorrelatingToolCallID() {
+	for _, item := range i.req.Input.OfInputItemList {
+		if item.OfFunctionCallOutput == nil {
+			continue
+		}
+		i.correlatingToolCallID = item.OfFunctionCallOutput.CallID
+		return
+	}
 }
 
 func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
