@@ -165,7 +165,7 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
 
 		processReq := httptest.NewRequest(http.MethodPost, routeCopilotChatCompletions, nil)
-		_, err = interceptor.ProcessRequest(w, processReq)
+		err = interceptor.ProcessRequest(w, processReq)
 		require.NoError(t, err)
 
 		// Verify headers were forwarded
@@ -257,7 +257,7 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
 
 		processReq := httptest.NewRequest(http.MethodPost, routeCopilotResponses, nil)
-		_, err = interceptor.ProcessRequest(w, processReq)
+		err = interceptor.ProcessRequest(w, processReq)
 		require.NoError(t, err)
 
 		// Verify headers were forwarded

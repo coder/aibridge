@@ -43,6 +43,8 @@ type interceptionBase struct {
 
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
+
+	lastToolUseID string
 }
 
 func (i *interceptionBase) ID() uuid.UUID {
@@ -69,6 +71,10 @@ func (i *interceptionBase) Model() string {
 	}
 
 	return string(i.req.Model)
+}
+
+func (i *interceptionBase) LastToolUseID() string {
+	return i.lastToolUseID
 }
 
 func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {

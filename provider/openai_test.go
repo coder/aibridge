@@ -218,7 +218,7 @@ func BenchmarkOpenAI_CreateInterceptor_Responses(b *testing.B) {
 							if err != nil {
 								return err
 							}
-							_, err = interceptor.ProcessRequest(w, req)
+							err = interceptor.ProcessRequest(w, req)
 							if err != nil {
 								return err
 							}

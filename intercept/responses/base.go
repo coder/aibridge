@@ -37,16 +37,17 @@ const (
 )
 
 type responsesInterceptionBase struct {
-	id         uuid.UUID
-	req        *ResponsesNewParamsWrapper
-	reqPayload []byte
-	cfg        config.OpenAI
-	model      string
-	recorder   recorder.Recorder
-	mcpProxy   mcp.ServerProxier
-	logger     slog.Logger
-	metrics    metrics.Metrics
-	tracer     trace.Tracer
+	id            uuid.UUID
+	req           *ResponsesNewParamsWrapper
+	reqPayload    []byte
+	cfg           config.OpenAI
+	model         string
+	recorder      recorder.Recorder
+	mcpProxy      mcp.ServerProxier
+	logger        slog.Logger
+	metrics       metrics.Metrics
+	tracer        trace.Tracer
+	lastToolUseID string
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -78,6 +79,10 @@ func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.
 
 func (i *responsesInterceptionBase) Model() string {
 	return i.model
+}
+
+func (i *responsesInterceptionBase) LastToolUseID() string {
+	return i.lastToolUseID
 }
 
 func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {

@@ -50,9 +50,9 @@ func (s *BlockingInterception) Streaming() bool {
 	return false
 }
 
-func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (lastToolCallID string, outErr error) {
+func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
-		return "", fmt.Errorf("developer error: req is nil")
+		return fmt.Errorf("developer error: req is nil")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -81,7 +81,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		err = fmt.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return "", err
+		return err
 	}
 
 	messages := i.req.MessageNewParams
@@ -97,16 +97,16 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			if eventstream.IsConnError(err) {
 				// Can't write a response, just error out.
-				return "", fmt.Errorf("upstream connection closed: %w", err)
+				return fmt.Errorf("upstream connection closed: %w", err)
 			}
 
 			if antErr := getErrorResponse(err); antErr != nil {
 				i.writeUpstreamError(w, antErr)
-				return "", fmt.Errorf("anthropic API error: %w", err)
+				return fmt.Errorf("anthropic API error: %w", err)
 			}
 
 			http.Error(w, "internal error", http.StatusInternalServerError)
-			return "", fmt.Errorf("internal error: %w", err)
+			return fmt.Errorf("internal error: %w", err)
 		}
 
 		if prompt != nil {
@@ -283,26 +283,26 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	}
 
 	if resp == nil {
-		return "", nil
+		return nil
 	}
 
 	// Overwrite response identifier since proxy obscures injected tool call invocations.
 	sj, err := sjson.Set(resp.RawJSON(), "id", i.ID().String())
 	if err != nil {
-		return "", fmt.Errorf("marshal response id failed: %w", err)
+		return fmt.Errorf("marshal response id failed: %w", err)
 	}
 
 	// Overwrite the response's usage with the cumulative usage across any inner loops which invokes injected MCP tools.
 	sj, err = sjson.Set(sj, "usage", cumulativeUsage)
 	if err != nil {
-		return "", fmt.Errorf("marshal response usage failed: %w", err)
+		return fmt.Errorf("marshal response usage failed: %w", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(sj))
 
-	return lastToolCallID, nil
+	return nil
 }
 
 func (i *BlockingInterception) newMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {

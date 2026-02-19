@@ -50,12 +50,12 @@ func (i *BlockingResponsesInterceptor) TraceAttributes(r *http.Request) []attrib
 	return i.responsesInterceptionBase.baseTraceAttributes(r, false)
 }
 
-func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *http.Request) (lastToolCallID string, outErr error) {
+func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
 	defer tracing.EndSpanErr(span, &outErr)
 
 	if err := i.validateRequest(ctx, w); err != nil {
-		return "", err
+		return err
 	}
 
 	i.injectTools()
@@ -113,11 +113,11 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	if upstreamErr != nil && !respCopy.responseReceived.Load() {
 		// no response received from upstream, return custom error
 		i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
-		return "", fmt.Errorf("failed to connect to upstream: %w", upstreamErr)
+		return fmt.Errorf("failed to connect to upstream: %w", upstreamErr)
 	}
 
 	err = respCopy.forwardResp(w)
-	return "", errors.Join(upstreamErr, err)
+	return errors.Join(upstreamErr, err)
 }
 
 func (i *BlockingResponsesInterceptor) newResponse(ctx context.Context, srv responses.ResponseService, opts []option.RequestOption) (_ *responses.Response, outErr error) {

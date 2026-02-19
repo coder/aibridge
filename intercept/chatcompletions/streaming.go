@@ -66,9 +66,9 @@ func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.Key
 // b) if the tool is injected, it will be invoked by the [mcp.ServerProxier] in the remote MCP server, and its
 // results relayed to the SERVER. The response from the server will be handled synchronously, and this loop
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
-func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (lastToolCallID string, outErr error) {
+func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
-		return "", fmt.Errorf("developer error: req is nil")
+		return fmt.Errorf("developer error: req is nil")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -130,7 +130,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		// unexpected, breaking behaviour. See https://github.com/coder/aibridge/pull/164
 		body, err := json.Marshal(i.req.ChatCompletionNewParams)
 		if err != nil {
-			return "", fmt.Errorf("marshal request body: %w", err)
+			return fmt.Errorf("marshal request body: %w", err)
 		}
 		opts = append(opts, option.WithRequestBody("application/json", body))
 		opts = append(opts, option.WithJSONSet("stream", true))
@@ -254,7 +254,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		} else {
 			// response/downstream Stream has not started yet; write error response and exit.
 			i.writeUpstreamError(w, getErrorResponse(stream.Err()))
-			return "", stream.Err()
+			return stream.Err()
 		}
 
 		// No tool call, nothing more to do.
@@ -333,7 +333,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		streamCancel(errors.New("gracefully done"))
 	}
 
-	return lastToolCallID, interceptionErr
+	return interceptionErr
 }
 
 func (i *StreamingInterception) getInjectedToolByName(name string) *mcp.Tool {

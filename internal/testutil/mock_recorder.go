@@ -21,8 +21,11 @@ type MockRecorder struct {
 	tokenUsages      []*recorder.TokenUsageRecord
 	userPrompts      []*recorder.PromptUsageRecord
 	toolUsages       []*recorder.ToolUsageRecord
+	modelThoughts    []*recorder.ModelThoughtRecord
 	interceptionsEnd map[string]time.Time
 }
+
+var _ recorder.Recorder = &MockRecorder{}
 
 func (m *MockRecorder) RecordInterception(ctx context.Context, req *recorder.InterceptionRecord) error {
 	m.mu.Lock()
@@ -65,6 +68,14 @@ func (m *MockRecorder) RecordToolUsage(ctx context.Context, req *recorder.ToolUs
 	return nil
 }
 
+// RecordModelThought implements [recorder.Recorder].
+func (m *MockRecorder) RecordModelThought(ctx context.Context, req *recorder.ModelThoughtRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.modelThoughts = append(m.modelThoughts, req)
+	return nil
+}
+
 // RecordedTokenUsages returns a copy of recorded token usages in a thread-safe manner.
 // Note: This is a shallow clone - the slice is copied but the pointers reference the
 // same underlying records. This is sufficient for our test assertions which only read
@@ -97,6 +108,14 @@ func (m *MockRecorder) RecordedInterceptions() []*recorder.InterceptionRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return slices.Clone(m.interceptions)
+}
+
+// RecordedModelThoughts returns a copy of recorded model thoughts in a thread-safe manner.
+// Note: This is a shallow clone (see RecordedTokenUsages for details).
+func (m *MockRecorder) RecordedModelThoughts() []*recorder.ModelThoughtRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.modelThoughts)
 }
 
 // ToolUsages returns the raw toolUsages slice for direct field access in tests.

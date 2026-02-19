@@ -232,11 +232,8 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		}
 
 		// Process request with circuit breaker protection if configured
-		var lastToolCallID string
 		if err := cbs.Execute(route, interceptor.Model(), w, func(rw http.ResponseWriter) error {
-			var err error
-			lastToolCallID, err = interceptor.ProcessRequest(rw, r)
-			return err
+			return interceptor.ProcessRequest(rw, r)
 		}); err != nil {
 			if m != nil {
 				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID).Add(1)
@@ -250,7 +247,7 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			log.Debug(ctx, "interception ended")
 		}
 
-		asyncRecorder.RecordInterceptionEnded(ctx, &recorder.InterceptionRecordEnded{ID: interceptor.ID().String(), ToolCallID: lastToolCallID})
+		asyncRecorder.RecordInterceptionEnded(ctx, &recorder.InterceptionRecordEnded{ID: interceptor.ID().String(), ToolCallID: interceptor.LastToolUseID()})
 
 		// Ensure all recording have completed before completing request.
 		asyncRecorder.Wait()

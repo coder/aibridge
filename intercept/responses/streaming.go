@@ -57,7 +57,7 @@ func (i *StreamingResponsesInterceptor) TraceAttributes(r *http.Request) []attri
 	return i.responsesInterceptionBase.baseTraceAttributes(r, true)
 }
 
-func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *http.Request) (lastToolCallID string, outErr error) {
+func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
 	defer tracing.EndSpanErr(span, &outErr)
 
@@ -66,7 +66,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
 	if err := i.validateRequest(ctx, w); err != nil {
-		return "", err
+		return err
 	}
 
 	i.injectTools()
@@ -159,7 +159,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 			return nil
 		}()
 		if err != nil {
-			return "", err
+			return err
 		}
 
 		if i.mcpProxy != nil && completedResponse != nil {
@@ -183,16 +183,16 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	// On innerLoop error custom error has been already sent,
 	// exit without emptying respCopy buffer.
 	if innerLoopErr != nil {
-		return "", innerLoopErr
+		return innerLoopErr
 	}
 
 	b, err := respCopy.readAll()
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+		return fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	err = events.Send(ctx, b)
-	return "", errors.Join(err, streamErr)
+	return errors.Join(err, streamErr)
 }
 
 func (i *StreamingResponsesInterceptor) newStream(ctx context.Context, srv responses.ResponseService, opts []option.RequestOption) *ssestream.Stream[responses.ResponseStreamEventUnion] {

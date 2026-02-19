@@ -92,7 +92,7 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 			httpReq := httptest.NewRequest(http.MethodPost, "/chat/completions", nil)
 
 			// Process the request
-			_, err := interceptor.ProcessRequest(w, httpReq)
+			err := interceptor.ProcessRequest(w, httpReq)
 
 			// Verify error was returned
 			require.Error(t, err)

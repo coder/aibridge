@@ -49,9 +49,9 @@ func (s *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyV
 	return s.interceptionBase.baseTraceAttributes(r, false)
 }
 
-func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (lastToolCallID string, outErr error) {
+func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
-		return "", fmt.Errorf("developer error: req is nil")
+		return fmt.Errorf("developer error: req is nil")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -204,20 +204,20 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		if eventstream.IsConnError(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return "", fmt.Errorf("upstream connection closed: %w", err)
+			return fmt.Errorf("upstream connection closed: %w", err)
 		}
 
 		if apiErr := getErrorResponse(err); apiErr != nil {
 			i.writeUpstreamError(w, apiErr)
-			return "", fmt.Errorf("openai API error: %w", err)
+			return fmt.Errorf("openai API error: %w", err)
 		}
 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return "", fmt.Errorf("chat completion failed: %w", err)
+		return fmt.Errorf("chat completion failed: %w", err)
 	}
 
 	if completion == nil {
-		return "", nil
+		return nil
 	}
 
 	// Overwrite response identifier since proxy obscures injected tool call invocations.
@@ -239,7 +239,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	_, _ = w.Write(out)
 
-	return lastToolCallID, nil
+	return nil
 }
 
 func (i *BlockingInterception) newChatCompletion(ctx context.Context, svc openai.ChatCompletionService, opts []option.RequestOption) (_ *openai.ChatCompletion, outErr error) {
