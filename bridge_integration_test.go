@@ -1732,6 +1732,66 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 	}
 }
 
+func TestThinkingAdaptiveIsPreserved(t *testing.T) {
+	t.Parallel()
+
+	arc := txtar.Parse(fixtures.AntSimple)
+	files := filesMap(arc)
+	require.Contains(t, files, fixtureRequest)
+	require.Contains(t, files, fixtureStreamingResponse)
+	require.Contains(t, files, fixtureNonStreamingResponse)
+
+	for _, streaming := range []bool{true, false} {
+		t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
+			t.Parallel()
+
+			// Inject adaptive thinking into the fixture request.
+			reqBody, err := sjson.SetBytes(files[fixtureRequest], "thinking", map[string]string{"type": "adaptive"})
+			require.NoError(t, err)
+			reqBody, err = sjson.SetBytes(reqBody, "stream", streaming)
+			require.NoError(t, err)
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			var receivedRequest []byte
+
+			// Create a mock server that captures the request body sent upstream.
+			srv := newMockServer(ctx, t, files, func(r *http.Request) {
+				raw, err := io.ReadAll(r.Body)
+				require.NoError(t, err)
+				r.Body = io.NopCloser(bytes.NewReader(raw))
+				receivedRequest = raw
+			}, nil)
+			t.Cleanup(srv.Close)
+
+			recorderClient := &testutil.MockRecorder{}
+			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+			providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(srv.URL, apiKey), nil)}
+			bridge, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			require.NoError(t, err)
+
+			bridgeSrv := httptest.NewUnstartedServer(bridge)
+			bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return aibcontext.AsActor(ctx, userID, nil)
+			}
+			bridgeSrv.Start()
+			t.Cleanup(bridgeSrv.Close)
+
+			req := createAnthropicMessagesReq(t, bridgeSrv.URL, reqBody)
+			resp, err := http.DefaultClient.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			_, _ = io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+
+			// Verify the thinking field was preserved in the upstream request.
+			require.NotEmpty(t, receivedRequest)
+			assert.Equal(t, "adaptive", gjson.GetBytes(receivedRequest, "thinking.type").Str)
+		})
+	}
+}
+
 func TestEnvironmentDoNotLeak(t *testing.T) {
 	// NOTE: Cannot use t.Parallel() here because subtests use t.Setenv which requires sequential execution.
 

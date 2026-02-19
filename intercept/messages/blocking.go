@@ -28,10 +28,11 @@ type BlockingInterception struct {
 	interceptionBase
 }
 
-func NewBlockingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, cfg config.Anthropic, bedrockCfg *config.AWSBedrock, tracer trace.Tracer) *BlockingInterception {
+func NewBlockingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, payload []byte, cfg config.Anthropic, bedrockCfg *config.AWSBedrock, tracer trace.Tracer) *BlockingInterception {
 	return &BlockingInterception{interceptionBase: interceptionBase{
 		id:         id,
 		req:        req,
+		payload:    payload,
 		cfg:        cfg,
 		bedrockCfg: bedrockCfg,
 		tracer:     tracer,
