@@ -238,7 +238,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	count := promtest.ToFloat64(metrics.PassthroughCount.WithLabelValues(
-		config.ProviderOpenAI, "/v1/models", "GET"))
+		config.ProviderOpenAI, "/models", "GET"))
 	require.Equal(t, 1.0, count)
 }
 

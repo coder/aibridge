@@ -12,6 +12,7 @@ import (
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 )
 
@@ -24,7 +25,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 		}
 
 		ctx, span := tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
-			attribute.String(tracing.PassthroughURL, r.URL.Path),
+			attribute.String(tracing.PassthroughURL, r.URL.String()),
 			attribute.String(tracing.PassthroughMethod, r.Method),
 		))
 		defer span.End()
@@ -33,6 +34,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 		if err != nil {
 			logger.Warn(ctx, "failed to parse provider base URL", slog.Error(err))
 			http.Error(w, "request error", http.StatusBadGateway)
+			span.SetStatus(codes.Error, "failed to parse provider base URL: "+err.Error())
 			return
 		}
 
@@ -41,6 +43,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 		if err != nil {
 			logger.Warn(ctx, "failed to join upstream path", slog.Error(err), slog.F("upstreamPath", upURL.Path), slog.F("requestPath", r.URL.Path))
 			http.Error(w, "failed to join upstream path", http.StatusInternalServerError)
+			span.SetStatus(codes.Error, "failed to join upstream path: "+err.Error())
 			return
 		}
 		// Ensure leading slash, proxied requests should have absolute paths.
@@ -63,6 +66,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 
 				// Set Host header for upstream.
 				req.Host = upURL.Host
+				span.SetAttributes(attribute.String(tracing.PassthroughUpstreamURL, req.URL.String()))
 
 				// Copy headers from client.
 				req.Header = r.Header.Clone()

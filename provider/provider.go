@@ -11,8 +11,38 @@ import (
 
 var UnknownRoute = errors.New("unknown route")
 
-// Provider describes an AI provider client's behaviour.
-// Provider clients are responsible for interacting with upstream AI providers.
+// Provider defines routes (bridged and passed through) for given provider.
+// Bridged routes are processed by dedicated interceptors.
+//
+// All routes have following pattern:
+//   - https://coder.host.com/api/v2 + /aibridge        + /{provider.RoutePrefix()}  + /{bridged or passthrough route}
+//     {host}                          {aibridge root}    {provider prefix}            {provider route}
+//
+// {host} + {aibridge root} + {provider prefix} form the base URL used in tools/clients using AI Bridge (eg. Claude/Codex).
+//
+// When request is bridged, interceptor created based on route processes the request.
+// When request is passed through the {host} + {aibridge root} + {provider prefix} URL part
+// is replaced by provider's base URL and request is forwarded.
+// This mirrors behaviour in bridged routes and SDKs used by interceptors.
+//
+// Example:
+//
+//   - OpenAI chat completions
+//     AI Bridge base URL (set in Codex): "https://host.coder.com/api/v2/aibridge/openai/v1"
+//     Upstream base URl (set in coder config): http://api.openai.com/v1
+//     Request: Codex -> https://host.coder.com/api/v2/aibridge/openai/v1/chat/completions -> AI Bridge -> http://api.openai.com/v1/chat/completions
+//     url change: 'https://host.coder.com/api/v2/aibridge/openai/v1' -> 'http://api.openai.com/v1' | '/chat/completions' suffix remains the same
+//
+//   - Anthropic messages
+//     AI Bridge base URL (set in Codex): "https://host.coder.com/api/v2/aibridge/anthropic"
+//     Upstream base URl (set in coder config): http://api.anthropic.com
+//     Request: Codex -> https://host.coder.com/api/v2/aibridge/anthropic/v1/messages -> AI Bridge -> http://api.anthropic.com/v1/messages
+//     url change: 'https://host.coder.com/api/v2/aibridge/anthropic' -> 'http://api.anthropic.com' | '/v1/messages' suffix remains the same
+//
+// !Note!
+// OpenAI and Anthropic use different route patterns.
+// OpenAI includes the version '/v1' in the base url while Anthropic does not.
+// More details/examples: https://github.com/coder/aibridge/pull/174#discussion_r2782320152
 type Provider interface {
 	// Name returns the provider's name.
 	Name() string
@@ -22,6 +52,10 @@ type Provider interface {
 	// CreateInterceptor starts a new [Interceptor] which is responsible for intercepting requests,
 	// communicating with the upstream provider and formulating a response to be sent to the requesting client.
 	CreateInterceptor(http.ResponseWriter, *http.Request, trace.Tracer) (intercept.Interceptor, error)
+
+	// RoutePrefix returns a prefix on which the provider's bridged and passthroguh routes will be registered.
+	// Must be unique across providers to avoid conflicts.
+	RoutePrefix() string
 
 	// BridgedRoutes returns a slice of [http.ServeMux]-compatible routes which will have special handling.
 	// See https://pkg.go.dev/net/http#hdr-Patterns-ServeMux.

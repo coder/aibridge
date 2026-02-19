@@ -638,6 +638,8 @@ func TestSimple(t *testing.T) {
 		getResponseIDFunc func(streaming bool, resp *http.Response) (string, error)
 		createRequest     func(*testing.T, string, []byte) *http.Request
 		expectedMsgID     string
+		userAgent         string
+		expectedClient    string
 	}{
 		{
 			name:              config.ProviderAnthropic,
@@ -648,6 +650,8 @@ func TestSimple(t *testing.T) {
 			getResponseIDFunc: getAnthropicResponseID,
 			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
+			userAgent:         "claude-cli/2.0.67 (external, cli)",
+			expectedClient:    aibridge.ClientClaude,
 		},
 		{
 			name:              config.ProviderOpenAI,
@@ -658,6 +662,8 @@ func TestSimple(t *testing.T) {
 			getResponseIDFunc: getOpenAIResponseID,
 			createRequest:     createOpenAIChatCompletionsReq,
 			expectedMsgID:     "chatcmpl-BwoiPTGRbKkY5rncfaM0s9KtWrq5N",
+			userAgent:         "codex_cli_rs/0.87.0 (Mac OS 26.2.0; arm64)",
+			expectedClient:    aibridge.ClientCodex,
 		},
 		{
 			name:              config.ProviderAnthropic + "_baseURL_path",
@@ -668,6 +674,8 @@ func TestSimple(t *testing.T) {
 			getResponseIDFunc: getAnthropicResponseID,
 			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
+			userAgent:         "GitHubCopilotChat/0.37.2026011603",
+			expectedClient:    aibridge.ClientCopilotVSC,
 		},
 		{
 			name:              config.ProviderOpenAI + "_baseURL_path",
@@ -678,6 +686,8 @@ func TestSimple(t *testing.T) {
 			getResponseIDFunc: getOpenAIResponseID,
 			createRequest:     createOpenAIChatCompletionsReq,
 			expectedMsgID:     "chatcmpl-BwoiPTGRbKkY5rncfaM0s9KtWrq5N",
+			userAgent:         "Zed/0.219.4+stable.119.abc123 (macos; aarch64)",
+			expectedClient:    aibridge.ClientZed,
 		},
 	}
 
@@ -726,6 +736,7 @@ func TestSimple(t *testing.T) {
 					mockSrv.Start()
 					// When: calling the "API server" with the fixture's request body.
 					req := tc.createRequest(t, mockSrv.URL, reqBody)
+					req.Header.Set("User-Agent", tc.userAgent)
 					client := &http.Client{}
 					resp, err := client.Do(req)
 					require.NoError(t, err)
@@ -756,6 +767,12 @@ func TestSimple(t *testing.T) {
 					require.GreaterOrEqual(t, len(tokenUsages), 1)
 					require.Equal(t, tokenUsages[0].MsgID, tc.expectedMsgID)
 
+					// Validate user agent and client have been recorded.
+					interceptions := recorderClient.RecordedInterceptions()
+					require.Len(t, interceptions, 1, "expected exactly one interception, got: %v", interceptions)
+					assert.Equal(t, tc.userAgent, interceptions[0].UserAgent)
+					assert.Equal(t, tc.expectedClient, interceptions[0].Client)
+
 					recorderClient.VerifyAllInterceptionsEnded(t)
 				})
 			}
@@ -772,17 +789,21 @@ func TestFallthrough(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name          string
-		providerName  string
-		fixture       []byte
-		basePath      string
-		configureFunc func(string, aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge)
+		name                 string
+		providerName         string
+		fixture              []byte
+		basePath             string
+		requestPath          string
+		expectedUpstreamPath string
+		configureFunc        func(string, aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge)
 	}{
 		{
-			name:         "ant_empty_base_url_path",
-			providerName: config.ProviderAnthropic,
-			fixture:      fixtures.AntFallthrough,
-			basePath:     "",
+			name:                 "ant_empty_base_url_path",
+			providerName:         config.ProviderAnthropic,
+			fixture:              fixtures.AntFallthrough,
+			basePath:             "",
+			requestPath:          "/anthropic/v1/models",
+			expectedUpstreamPath: "/v1/models",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
@@ -792,10 +813,12 @@ func TestFallthrough(t *testing.T) {
 			},
 		},
 		{
-			name:         "oai_empty_base_url_path",
-			providerName: config.ProviderOpenAI,
-			fixture:      fixtures.OaiChatFallthrough,
-			basePath:     "",
+			name:                 "oai_empty_base_url_path",
+			providerName:         config.ProviderOpenAI,
+			fixture:              fixtures.OaiChatFallthrough,
+			basePath:             "",
+			requestPath:          "/openai/v1/models",
+			expectedUpstreamPath: "/models",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
@@ -805,10 +828,12 @@ func TestFallthrough(t *testing.T) {
 			},
 		},
 		{
-			name:         "ant_some_base_url_path",
-			providerName: config.ProviderAnthropic,
-			fixture:      fixtures.AntFallthrough,
-			basePath:     "/api",
+			name:                 "ant_some_base_url_path",
+			providerName:         config.ProviderAnthropic,
+			fixture:              fixtures.AntFallthrough,
+			basePath:             "/api",
+			requestPath:          "/anthropic/v1/models",
+			expectedUpstreamPath: "/api/v1/models",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
@@ -818,10 +843,12 @@ func TestFallthrough(t *testing.T) {
 			},
 		},
 		{
-			name:         "oai_some_base_url_path",
-			providerName: config.ProviderOpenAI,
-			fixture:      fixtures.OaiChatFallthrough,
-			basePath:     "/api",
+			name:                 "oai_some_base_url_path",
+			providerName:         config.ProviderOpenAI,
+			fixture:              fixtures.OaiChatFallthrough,
+			basePath:             "/api",
+			requestPath:          "/openai/v1/models",
+			expectedUpstreamPath: "/api/models",
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
@@ -841,7 +868,7 @@ func TestFallthrough(t *testing.T) {
 
 			files := filesMap(arc)
 			require.Contains(t, files, fixtureResponse)
-			expectedPath := tc.basePath + "/v1/models"
+			expectedPath := tc.expectedUpstreamPath
 
 			var receivedHeaders *http.Header
 			respBody := files[fixtureResponse]
@@ -871,7 +898,7 @@ func TestFallthrough(t *testing.T) {
 			bridgeSrv.Start()
 			t.Cleanup(bridgeSrv.Close)
 
-			req, err := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("%s/%s/v1/models", bridgeSrv.URL, tc.providerName), nil)
+			req, err := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("%s%s", bridgeSrv.URL, tc.requestPath), nil)
 			require.NoError(t, err)
 
 			resp, err := http.DefaultClient.Do(req)
@@ -2076,6 +2103,35 @@ func newMockServer(ctx context.Context, t *testing.T, files archiveFileMap, requ
 		defer r.Body.Close()
 		require.NoError(t, err)
 
+		// Validate request body based on endpoint.
+		var validationErr error
+		if strings.Contains(r.URL.Path, "/chat/completions") {
+			validationErr = validateOpenAIChatCompletionRequest(body)
+		} else if strings.Contains(r.URL.Path, "/responses") {
+			validationErr = validateOpenAIResponsesRequest(body)
+		} else if strings.Contains(r.URL.Path, "/messages") {
+			validationErr = validateAnthropicMessagesRequest(body)
+		}
+
+		// If validation failed, return error response
+		if validationErr != nil {
+			// Return HTTP error response
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			errResp := map[string]any{
+				"error": map[string]any{
+					"message": fmt.Sprintf("Request #%d validation failed: %v", ms.callCount.Load(), validationErr),
+					"type":    "invalid_request_error",
+				},
+			}
+			json.NewEncoder(w).Encode(errResp)
+
+			// Mark test as failed with detailed message
+			t.Errorf("Request #%d validation failed: %v\n\nRequest body:\n%s",
+				ms.callCount.Load(), validationErr, string(body))
+			return
+		}
+
 		type msg struct {
 			Stream bool `json:"stream"`
 		}
@@ -2133,6 +2189,94 @@ func newMockServer(ctx context.Context, t *testing.T, files archiveFileMap, requ
 
 	ms.Server = srv
 	return ms
+}
+
+// validateOpenAIChatCompletionRequest validates that an OpenAI chat completion request
+// has all required fields.
+// According to OpenAI documentation https://platform.openai.com/docs/api-reference/chat/create,
+// the "model" and "messages" fields are required.
+// Returns an error if validation fails.
+func validateOpenAIChatCompletionRequest(body []byte) error {
+	var req openai.ChatCompletionNewParams
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("request should unmarshal into ChatCompletionNewParams: %w", err)
+	}
+
+	// Collect all validation errors
+	var errs []string
+	if req.Model == "" {
+		errs = append(errs, "model field is required but empty")
+	}
+	if len(req.Messages) == 0 {
+		errs = append(errs, "messages field is required but empty")
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// validateOpenAIResponsesRequest validates that an OpenAI responses request
+// has all required fields.
+// According to OpenAI documentation https://platform.openai.com/docs/api-reference/responses/create,
+// no fields are strictly required. However, we check "model" and "input" fields
+// as these should usually be set in request bodies.
+// Returns an error if validation fails.
+func validateOpenAIResponsesRequest(body []byte) error {
+	var reqBody map[string]any
+	if err := json.Unmarshal(body, &reqBody); err != nil {
+		return fmt.Errorf("request should unmarshal into valid JSON: %w", err)
+	}
+
+	// Collect all validation errors
+	var errs []string
+
+	// Validate model field exists
+	model, hasModel := reqBody["model"].(string)
+	if !hasModel || model == "" {
+		errs = append(errs, "model field is required but empty or missing")
+	}
+
+	// Validate input field exists
+	if _, hasInput := reqBody["input"]; !hasInput {
+		errs = append(errs, "input field is required but missing")
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// validateAnthropicMessagesRequest validates that an Anthropic messages request
+// has all required fields.
+// According to the Anthropic Go SDK https://github.com/anthropics/anthropic-sdk-go,
+// the "model", "messages", and "max_tokens" fields are required, as indicated by
+// the `required` struct tags in MessageNewParams.
+// Returns an error if validation fails.
+func validateAnthropicMessagesRequest(body []byte) error {
+	var req anthropic.MessageNewParams
+	if err := json.Unmarshal(body, &req); err != nil {
+		return fmt.Errorf("request should unmarshal into MessageNewParams: %w", err)
+	}
+
+	// Collect all validation errors
+	var errs []string
+	if req.Model == "" {
+		errs = append(errs, "model field is required but empty")
+	}
+	if len(req.Messages) == 0 {
+		errs = append(errs, "messages field is required but empty")
+	}
+	if req.MaxTokens == 0 {
+		errs = append(errs, "max_tokens field is required but zero")
+	}
+
+	if len(errs) > 0 {
+		return fmt.Errorf("validation failed: %s", strings.Join(errs, "; "))
+	}
+	return nil
 }
 
 const mockToolName = "coder_list_workspaces"

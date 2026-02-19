@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,23 @@ import (
 	"github.com/sony/gobreaker/v2"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+)
+
+const (
+	// The duration after which an async recording will be aborted.
+	recordingTimeout = time.Second * 5
+
+	// Possible values for the "client" field in interception records.
+	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
+	ClientClaude     = "Claude Code"
+	ClientCodex      = "Codex"
+	ClientZed        = "Zed"
+	ClientCopilotVSC = "GitHub Copilot (VS Code)"
+	ClientCopilotCLI = "GitHub Copilot (CLI)"
+	ClientKilo       = "Kilo Code"
+	ClientRoo        = "Roo Code"
+	ClientCursor     = "Cursor"
+	ClientUnknown    = "Unknown"
 )
 
 // RequestBridge is an [http.Handler] which is capable of masquerading as AI providers' APIs;
@@ -50,9 +68,6 @@ type RequestBridge struct {
 }
 
 var _ http.Handler = &RequestBridge{}
-
-// The duration after which an async recording will be aborted.
-const recordingTimeout = time.Second * 5
 
 // NewRequestBridge creates a new *[RequestBridge] and registers the HTTP routes defined by the given providers.
 // Any routes which are requested but not registered will be reverse-proxied to the upstream service.
@@ -90,7 +105,17 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 		// Add the known provider-specific routes which are bridged (i.e. intercepted and augmented).
 		for _, path := range prov.BridgedRoutes() {
 			handler := newInterceptionProcessor(prov, cbs, rec, mcpProxy, logger, m, tracer)
-			mux.Handle(path, handler)
+			route, err := url.JoinPath(prov.RoutePrefix(), path)
+			if err != nil {
+				logger.Error(ctx, "failed to join path",
+					slog.Error(err),
+					slog.F("provider", providerName),
+					slog.F("prefix", prov.RoutePrefix()),
+					slog.F("path", path),
+				)
+				return nil, fmt.Errorf("failed to configure provider '%v': failed to join bridged path: %w", providerName, err)
+			}
+			mux.Handle(route, handler)
 		}
 
 		// Any requests which passthrough to this will be reverse-proxied to the upstream.
@@ -99,9 +124,17 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 		// configured, so we should just reverse-proxy known-safe routes.
 		ftr := newPassthroughRouter(prov, logger.Named(fmt.Sprintf("passthrough.%s", prov.Name())), m, tracer)
 		for _, path := range prov.PassthroughRoutes() {
-			prefix := fmt.Sprintf("/%s", prov.Name())
-			route := fmt.Sprintf("%s%s", prefix, path)
-			mux.HandleFunc(route, http.StripPrefix(prefix, ftr).ServeHTTP)
+			route, err := url.JoinPath(prov.RoutePrefix(), path)
+			if err != nil {
+				logger.Error(ctx, "failed to join path",
+					slog.Error(err),
+					slog.F("provider", providerName),
+					slog.F("prefix", prov.RoutePrefix()),
+					slog.F("path", path),
+				)
+				return nil, fmt.Errorf("failed to configure provider '%v': failed to join passed through path: %w", providerName, err)
+			}
+			mux.Handle(route, http.StripPrefix(prov.RoutePrefix(), ftr))
 		}
 	}
 
@@ -167,11 +200,13 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
 		if err := rec.RecordInterception(ctx, &recorder.InterceptionRecord{
+			Client:      guessClient(r),
 			ID:          interceptor.ID().String(),
-			Metadata:    actor.Metadata,
 			InitiatorID: actor.ID,
-			Provider:    p.Name(),
+			Metadata:    actor.Metadata,
 			Model:       interceptor.Model(),
+			Provider:    p.Name(),
+			UserAgent:   r.UserAgent(),
 		}); err != nil {
 			span.SetStatus(codes.Error, fmt.Sprintf("failed to record interception: %v", err))
 			logger.Warn(ctx, "failed to record interception", slog.Error(err))
@@ -301,4 +336,35 @@ func mergeContexts(base, other context.Context) context.Context {
 		}
 	}()
 	return ctx
+}
+
+// guessClient attempts to guess the client application from the request headers.
+// Not all clients set proper user agent headers, so this is a best-effort approach.
+// Based on https://github.com/coder/aibridge/issues/20#issuecomment-3769444101.
+func guessClient(r *http.Request) string {
+	userAgent := strings.ToLower(r.UserAgent())
+	originator := r.Header.Get("originator")
+
+	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
+	switch {
+	case strings.HasPrefix(userAgent, "claude"):
+		return ClientClaude
+	case strings.HasPrefix(userAgent, "codex"):
+		return ClientCodex
+	case strings.HasPrefix(userAgent, "zed/"):
+		return ClientZed
+	case strings.HasPrefix(userAgent, "githubcopilotchat/"):
+		return ClientCopilotVSC
+	case strings.HasPrefix(userAgent, "copilot/"):
+		return ClientCopilotCLI
+	case strings.HasPrefix(userAgent, "kilo-code/") || originator == "kilo-code":
+		return ClientKilo
+	case strings.HasPrefix(userAgent, "roo-code/") || originator == "roo-code":
+		return ClientRoo
+	case strings.HasPrefix(userAgent, "copilot"):
+		return ClientCursor
+	case r.Header.Get("x-cursor-client-version") != "":
+		return ClientCursor
+	}
+	return ClientUnknown
 }

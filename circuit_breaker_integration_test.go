@@ -49,26 +49,26 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 
 	type testCase struct {
 		name           string
-		providerName   string
-		endpoint       string
-		model          string
 		errorBody      string
 		successBody    string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
 		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
+		expectProvider string
+		expectEndpoint string
+		expectModel    string
 	}
 
 	tests := []testCase{
 		{
-			name:         "Anthropic",
-			providerName: config.ProviderAnthropic,
-			endpoint:     "/v1/messages",
-			model:        "claude-sonnet-4-20250514",
-			errorBody:    anthropicRateLimitError,
-			successBody:  anthropicSuccessResponse("claude-sonnet-4-20250514"),
-			requestBody:  `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
+			name:           "Anthropic",
+			expectProvider: config.ProviderAnthropic,
+			expectEndpoint: "/v1/messages",
+			expectModel:    "claude-sonnet-4-20250514",
+			errorBody:      anthropicRateLimitError,
+			successBody:    anthropicSuccessResponse("claude-sonnet-4-20250514"),
+			requestBody:    `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
@@ -83,13 +83,13 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			},
 		},
 		{
-			name:         "OpenAI",
-			providerName: config.ProviderOpenAI,
-			endpoint:     "/v1/chat/completions",
-			model:        "gpt-4o",
-			errorBody:    openAIRateLimitError,
-			successBody:  openAISuccessResponse("gpt-4o"),
-			requestBody:  `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
+			name:           "OpenAI",
+			expectProvider: config.ProviderOpenAI,
+			expectEndpoint: "/v1/chat/completions",
+			expectModel:    "gpt-4o",
+			errorBody:      openAIRateLimitError,
+			successBody:    openAISuccessResponse("gpt-4o"),
+			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
@@ -185,13 +185,13 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, int32(cbConfig.FailureThreshold), upstreamCalls.Load(), "No new upstream call when circuit is open")
 
 			// Verify metrics show circuit is open
-			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
+			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, trips, "CircuitBreakerTrips should be 1")
 
-			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
+			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, state, "CircuitBreakerState should be 1 (open)")
 
-			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
+			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, rejects, "CircuitBreakerRejects should be 1")
 
 			// Phase 3: Wait for timeout to transition to half-open
@@ -207,7 +207,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should reach upstream in half-open state")
 
 			// Verify circuit is now closed
-			state = promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
+			state = promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 0.0, state, "CircuitBreakerState should be 0 (closed) after recovery")
 
 			// Phase 5: Verify circuit is fully functional again
@@ -221,7 +221,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+4, upstreamCalls.Load(), "All requests should reach upstream after circuit closes")
 
 			// Rejects count should not have increased
-			rejects = promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
+			rejects = promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, rejects, "CircuitBreakerRejects should still be 1 (no new rejects)")
 		})
 	}
@@ -234,24 +234,24 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 
 	type testCase struct {
 		name           string
-		providerName   string
-		endpoint       string
-		model          string
 		errorBody      string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
 		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
+		expectProvider string
+		expectEndpoint string
+		expectModel    string
 	}
 
 	tests := []testCase{
 		{
-			name:         "Anthropic",
-			providerName: config.ProviderAnthropic,
-			endpoint:     "/v1/messages",
-			model:        "claude-sonnet-4-20250514",
-			errorBody:    anthropicRateLimitError,
-			requestBody:  `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
+			name:           "Anthropic",
+			expectProvider: config.ProviderAnthropic,
+			expectEndpoint: "/v1/messages",
+			expectModel:    "claude-sonnet-4-20250514",
+			errorBody:      anthropicRateLimitError,
+			requestBody:    `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
@@ -266,12 +266,12 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			},
 		},
 		{
-			name:         "OpenAI",
-			providerName: config.ProviderOpenAI,
-			endpoint:     "/v1/chat/completions",
-			model:        "gpt-4o",
-			errorBody:    openAIRateLimitError,
-			requestBody:  `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
+			name:           "OpenAI",
+			expectProvider: config.ProviderOpenAI,
+			expectEndpoint: "/v1/chat/completions",
+			expectModel:    "gpt-4o",
+			errorBody:      openAIRateLimitError,
+			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
@@ -353,7 +353,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			resp := makeRequest()
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 
-			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
+			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, trips, "CircuitBreakerTrips should be 1")
 
 			// Phase 2: Wait for half-open state
@@ -371,10 +371,10 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should NOT reach upstream when circuit re-opens")
 
 			// Verify metrics: trips should be 2 now (tripped twice)
-			trips = promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
+			trips = promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 2.0, trips, "CircuitBreakerTrips should be 2 after half-open failure")
 
-			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
+			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, state, "CircuitBreakerState should be 1 (open) after half-open failure")
 		})
 	}
@@ -387,26 +387,26 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 
 	type testCase struct {
 		name           string
-		providerName   string
-		endpoint       string
-		model          string
 		errorBody      string
 		successBody    string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
 		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
+		expectProvider string
+		expectEndpoint string
+		expectModel    string
 	}
 
 	tests := []testCase{
 		{
-			name:         "Anthropic",
-			providerName: config.ProviderAnthropic,
-			endpoint:     "/v1/messages",
-			model:        "claude-sonnet-4-20250514",
-			errorBody:    anthropicRateLimitError,
-			successBody:  anthropicSuccessResponse("claude-sonnet-4-20250514"),
-			requestBody:  `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
+			name:           "Anthropic",
+			expectProvider: config.ProviderAnthropic,
+			expectEndpoint: "/v1/messages",
+			expectModel:    "claude-sonnet-4-20250514",
+			errorBody:      anthropicRateLimitError,
+			successBody:    anthropicSuccessResponse("claude-sonnet-4-20250514"),
+			requestBody:    `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
@@ -421,13 +421,13 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			},
 		},
 		{
-			name:         "OpenAI",
-			providerName: config.ProviderOpenAI,
-			endpoint:     "/v1/chat/completions",
-			model:        "gpt-4o",
-			errorBody:    openAIRateLimitError,
-			successBody:  openAISuccessResponse("gpt-4o"),
-			requestBody:  `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
+			name:           "OpenAI",
+			expectProvider: config.ProviderOpenAI,
+			expectEndpoint: "/v1/chat/completions",
+			expectModel:    "gpt-4o",
+			errorBody:      openAIRateLimitError,
+			successBody:    openAISuccessResponse("gpt-4o"),
+			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
@@ -563,7 +563,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				"%d requests should be rejected (ErrTooManyRequests)", totalRequests-maxRequests)
 
 			// Verify rejects metric increased
-			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.providerName, tc.endpoint, tc.model))
+			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, float64(1+totalRequests-maxRequests), rejects,
 				"CircuitBreakerRejects should include half-open rejections")
 		})
