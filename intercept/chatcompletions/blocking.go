@@ -68,6 +68,18 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	i.injectTools()
 
+	// Scan the request for tool results; we use these to correlate requests
+	// together. We iterate backward so we find the last (most recent) tool
+	// result, which correctly identifies the parent interception.
+	for idx := len(i.req.Messages) - 1; idx >= 0; idx-- {
+		msg := i.req.Messages[idx]
+		if msg.OfTool == nil {
+			continue
+		}
+		i.correlatingToolCallID = msg.OfTool.ToolCallID
+		break
+	}
+
 	prompt, err := i.req.lastUserPrompt()
 	if err != nil {
 		logger.Warn(ctx, "failed to retrieve last user prompt", slog.Error(err))

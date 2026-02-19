@@ -88,6 +88,21 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	messages := i.req.MessageNewParams
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
+	// Scan the request for tool results; we use these to correlate requests
+	// together. We iterate backward so we find the last (most recent) tool
+	// result, which correctly identifies the parent interception.
+	if len(messages.Messages) > 0 {
+		content := messages.Messages[len(messages.Messages)-1].Content
+		for idx := len(content) - 1; idx >= 0; idx-- {
+			block := content[idx]
+			if block.OfToolResult == nil {
+				continue
+			}
+			i.correlatingToolCallID = block.OfToolResult.ToolUseID
+			break
+		}
+	}
+
 	var resp *anthropic.Message
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
 	var cumulativeUsage anthropic.Usage

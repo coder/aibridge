@@ -60,6 +60,7 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 
 	i.injectTools()
 	i.disableParallelToolCalls()
+	i.scanForCorrelatingToolCallID()
 
 	var (
 		response        *responses.Response

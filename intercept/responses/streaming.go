@@ -71,6 +71,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	i.injectTools()
 	i.disableParallelToolCalls()
+	i.scanForCorrelatingToolCallID()
 
 	events := eventstream.NewEventStream(ctx, i.logger.Named("sse-sender"), nil)
 	go events.Start(w, r)

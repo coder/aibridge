@@ -25,4 +25,13 @@ type Interceptor interface {
 	Streaming() bool
 	// TraceAttributes returns tracing attributes for this [Interceptor]
 	TraceAttributes(*http.Request) []attribute.KeyValue
+	// CorrelatingToolCallID returns the ID of a tool call result submitted
+	// in the request, if present. This is used to correlate the current
+	// interception back to the previous interception that issued those tool
+	// calls. If multiple tool use results are present, we use the last one
+	// (most recent). Both Anthropic's /v1/messages and OpenAI's /v1/responses
+	// require that ALL tool results are submitted for tool choices returned
+	// by the model, so any single tool call ID is sufficient to identify the
+	// parent interception.
+	CorrelatingToolCallID() string
 }

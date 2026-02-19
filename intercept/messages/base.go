@@ -45,6 +45,8 @@ type interceptionBase struct {
 
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
+
+	correlatingToolCallID string
 }
 
 func (i *interceptionBase) ID() uuid.UUID {
@@ -55,6 +57,10 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 	i.logger = logger
 	i.recorder = recorder
 	i.mcpProxy = mcpProxy
+}
+
+func (i *interceptionBase) CorrelatingToolCallID() string {
+	return i.correlatingToolCallID
 }
 
 func (i *interceptionBase) Model() string {

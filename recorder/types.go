@@ -37,8 +37,9 @@ type InterceptionRecord struct {
 }
 
 type InterceptionRecordEnded struct {
-	ID      string
-	EndedAt time.Time
+	ID                    string
+	EndedAt               time.Time
+	CorrelatingToolCallID string
 }
 
 type TokenUsageRecord struct {
@@ -63,6 +64,7 @@ type PromptUsageRecord struct {
 type ToolUsageRecord struct {
 	InterceptionID  string
 	MsgID, Tool     string
+	ToolCallID      string
 	ServerURL       *string
 	Args            ToolArgs
 	Injected        bool
