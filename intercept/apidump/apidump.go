@@ -41,17 +41,13 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, lo
 	}
 
 	d := &dumper{
-		baseDir:        baseDir,
-		provider:       provider,
-		model:          model,
-		interceptionID: interceptionID,
-		clk:            clk,
-		logger:         logger,
+		dumpPath: interceptDumpPath(baseDir, provider, model, interceptionID, clk),
+		logger:   logger,
 	}
 
 	return func(req *http.Request, next MiddlewareNext) (*http.Response, error) {
 		if err := d.dumpRequest(req); err != nil {
-			logger.Named("apidump").Warn(context.Background(), "failed to dump request", slog.Error(err))
+			logger.Named("apidump").Warn(req.Context(), "failed to dump request", slog.Error(err))
 		}
 
 		// TODO: https://github.com/coder/aibridge/issues/129
@@ -61,7 +57,7 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, lo
 		}
 
 		if err := d.dumpResponse(resp); err != nil {
-			logger.Named("apidump").Warn(context.Background(), "failed to dump response", slog.Error(err))
+			logger.Named("apidump").Warn(req.Context(), "failed to dump response", slog.Error(err))
 		}
 
 		return resp, nil
@@ -69,16 +65,12 @@ func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, lo
 }
 
 type dumper struct {
-	baseDir        string
-	provider       string
-	model          string
-	interceptionID uuid.UUID
-	clk            quartz.Clock
-	logger         slog.Logger
+	dumpPath string
+	logger   slog.Logger
 }
 
 func (d *dumper) dumpRequest(req *http.Request) error {
-	dumpPath := d.path(SuffixRequest)
+	dumpPath := d.dumpPath + SuffixRequest
 	if err := os.MkdirAll(filepath.Dir(dumpPath), 0o755); err != nil {
 		return fmt.Errorf("create dump dir: %w", err)
 	}
@@ -98,25 +90,40 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 
 	// Build raw HTTP request format
 	var buf bytes.Buffer
-	fmt.Fprintf(&buf, "%s %s %s\r\n", req.Method, req.URL.RequestURI(), req.Proto)
+	_, err := fmt.Fprintf(&buf, "%s %s %s\r\n", req.Method, req.URL.RequestURI(), req.Proto)
+	if err != nil {
+		return fmt.Errorf("write request uri: %w", err)
+	}
 	d.writeRedactedHeaders(&buf, req.Header, sensitiveRequestHeaders, map[string]string{
 		"Content-Length": fmt.Sprintf("%d", len(prettyBody)),
 	})
 
-	fmt.Fprintf(&buf, "\r\n")
+	_, err = fmt.Fprintf(&buf, "\r\n")
+	if err != nil {
+		return fmt.Errorf("write request body: %w", err)
+	}
 	buf.Write(prettyBody)
 
 	return os.WriteFile(dumpPath, buf.Bytes(), 0o644)
 }
 
 func (d *dumper) dumpResponse(resp *http.Response) error {
-	dumpPath := d.path(SuffixResponse)
+	dumpPath := d.dumpPath + SuffixResponse
 
 	// Build raw HTTP response headers
 	var headerBuf bytes.Buffer
-	fmt.Fprintf(&headerBuf, "%s %s\r\n", resp.Proto, resp.Status)
-	d.writeRedactedHeaders(&headerBuf, resp.Header, sensitiveResponseHeaders, nil)
-	fmt.Fprintf(&headerBuf, "\r\n")
+	_, err := fmt.Fprintf(&headerBuf, "%s %s\r\n", resp.Proto, resp.Status)
+	if err != nil {
+		return fmt.Errorf("write response status: %w", err)
+	}
+	err = d.writeRedactedHeaders(&headerBuf, resp.Header, sensitiveResponseHeaders, nil)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(&headerBuf, "\r\n")
+	if err != nil {
+		return fmt.Errorf("write response body: %w", err)
+	}
 
 	// Wrap the response body to capture it as it streams
 	if resp.Body != nil {
@@ -141,7 +148,7 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 // for deterministic output.
 // `sensitive` and `overrides` must both supply keys in canoncialized form.
 // See [textproto.MIMEHeader].
-func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitive map[string]struct{}, overrides map[string]string) {
+func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitive map[string]struct{}, overrides map[string]string) error {
 	// Collect all header keys including overrides.
 	headerKeys := make([]string, 0, len(headers)+len(overrides))
 	seen := make(map[string]struct{}, len(headers)+len(overrides))
@@ -163,7 +170,10 @@ func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitiv
 		// If no values exist but we have an override, use that.
 		if len(values) == 0 {
 			if override, ok := overrides[key]; ok {
-				fmt.Fprintf(w, "%s: %s\r\n", key, override)
+				_, err := fmt.Fprintf(w, "%s: %s\r\n", key, override)
+				if err != nil {
+					return fmt.Errorf("write response header override: %w", err)
+				}
 			}
 			continue
 		}
@@ -175,16 +185,64 @@ func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitiv
 			if isSensitive {
 				value = redactHeaderValue(value)
 			}
-			fmt.Fprintf(w, "%s: %s\r\n", key, value)
+			_, err := fmt.Fprintf(w, "%s: %s\r\n", key, value)
+			if err != nil {
+				return fmt.Errorf("write response headers: %w", err)
+			}
 		}
+	}
+	return nil
+}
+
+// interceptDumpPath returns the base file path (without suffix) for an interception dump.
+func interceptDumpPath(baseDir string, provider string, model string, interceptionID uuid.UUID, clk quartz.Clock) string {
+	safeModel := strings.ReplaceAll(model, "/", "-")
+	return filepath.Join(baseDir, provider, safeModel, fmt.Sprintf("%d-%s", clk.Now().UTC().UnixMilli(), interceptionID))
+}
+
+// passthroughDumpPath returns the base file path (without suffix) for a passthrough dump.
+// A random UUID is generated for the filename. "passthrough" is used as the directory name
+// in place of the model.
+func passthroughDumpPath(baseDir string, provider string, clk quartz.Clock) string {
+	return filepath.Join(baseDir, provider, "passthrough", fmt.Sprintf("%d-%s", clk.Now().UTC().UnixMilli(), uuid.New()))
+}
+
+// NewRoundTripperMiddleware returns http.RoundTripper that dumps requests and responses to files.
+// If baseDir is empty, returns the original transport unchanged.
+// Used for logging passed through requests.
+func NewRoundTripperMiddleware(transport http.RoundTripper, baseDir string, provider string, logger slog.Logger, clk quartz.Clock) http.RoundTripper {
+	if baseDir == "" {
+		return transport
+	}
+	return &dumpRoundTripper{
+		inner: transport,
+		dumper: dumper{
+			dumpPath: passthroughDumpPath(baseDir, provider, clk),
+			logger:   logger,
+		},
 	}
 }
 
-// path returns the path to a request/response dump file for a given interception.
-// suffix should be SuffixRequest or SuffixResponse.
-func (d *dumper) path(suffix string) string {
-	safeModel := strings.ReplaceAll(d.model, "/", "-")
-	return filepath.Join(d.baseDir, d.provider, safeModel, fmt.Sprintf("%d-%s%s", d.clk.Now().UTC().UnixMilli(), d.interceptionID, suffix))
+type dumpRoundTripper struct {
+	inner  http.RoundTripper
+	dumper dumper
+}
+
+func (rt *dumpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if err := rt.dumper.dumpRequest(req); err != nil {
+		rt.dumper.logger.Named("apidump").Warn(req.Context(), "failed to dump passthrough request", slog.Error(err))
+	}
+
+	resp, err := rt.inner.RoundTrip(req)
+	if err != nil {
+		return resp, err
+	}
+
+	if err := rt.dumper.dumpResponse(resp); err != nil {
+		rt.dumper.logger.Named("apidump").Warn(req.Context(), "failed to dump passthrough response", slog.Error(err))
+	}
+
+	return resp, nil
 }
 
 // prettyPrintJSON returns indented JSON if body is valid JSON, otherwise returns body as-is.

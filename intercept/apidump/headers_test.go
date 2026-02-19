@@ -101,12 +101,8 @@ func TestWriteRedactedHeaders(t *testing.T) {
 	t.Parallel()
 
 	d := &dumper{
-		baseDir:        "/tmp",
-		provider:       "test",
-		model:          "test",
-		interceptionID: uuid.New(),
-		clk:            quartz.NewMock(t),
-		logger:         slog.Make(),
+		dumpPath: interceptDumpPath("/tmp", "test", "test", uuid.New(), quartz.NewMock(t)),
+		logger:   slog.Make(),
 	}
 
 	tests := []struct {
