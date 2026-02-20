@@ -94,9 +94,12 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 	if err != nil {
 		return fmt.Errorf("write request uri: %w", err)
 	}
-	d.writeRedactedHeaders(&buf, req.Header, sensitiveRequestHeaders, map[string]string{
+	err = d.writeRedactedHeaders(&buf, req.Header, sensitiveRequestHeaders, map[string]string{
 		"Content-Length": fmt.Sprintf("%d", len(prettyBody)),
 	})
+	if err != nil {
+		return fmt.Errorf("write request headers: %w", err)
+	}
 
 	_, err = fmt.Fprintf(&buf, "\r\n")
 	if err != nil {
@@ -118,7 +121,7 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 	}
 	err = d.writeRedactedHeaders(&headerBuf, resp.Header, sensitiveResponseHeaders, nil)
 	if err != nil {
-		return err
+		return fmt.Errorf("write response headers: %w", err)
 	}
 	_, err = fmt.Fprintf(&headerBuf, "\r\n")
 	if err != nil {
