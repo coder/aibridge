@@ -252,12 +252,15 @@ func prettyPrintJSON(body []byte) []byte {
 	if len(body) == 0 {
 		return body
 	}
-	result := pretty.Pretty(body)
-	// pretty.Pretty returns a truncated/modified result for invalid JSON,
-	// so check if the result is valid JSON; if not, return the original.
-	if !json.Valid(result) {
-		return body
+
+	result := body
+	if json.Valid(body) {
+		result = pretty.Pretty(body)
 	}
-	// Trim trailing newline added by pretty.Pretty.
-	return bytes.TrimSuffix(result, []byte("\n"))
+
+	// Add trailing newline if missing.
+	if !bytes.HasSuffix(result, []byte("\n")) {
+		result = append(result, []byte("\n")...)
+	}
+	return result
 }

@@ -233,12 +233,25 @@ func TestPrettyPrintJSON(t *testing.T) {
 		{
 			name:     "valid JSON",
 			input:    []byte(`{"key":"value"}`),
-			expected: "{\n  \"key\": \"value\"\n}",
+			expected: "{\n  \"key\": \"value\"\n}\n",
 		},
 		{
 			name:     "invalid JSON returns as-is",
 			input:    []byte("not json"),
-			expected: "not json",
+			expected: "not json\n",
+		},
+		// see: https://github.com/tidwall/pretty/blob/9090695766b652478676cc3e55bc3187056b1ff0/pretty.go#L117
+		// for input starting with "t" it would change it to "true", eg. "t_rest_of_the_string_is_discarded" -> "true"
+		// similar for inputs startrting with "f" and "n"
+		{
+			name:     "invalid JSON edge case t",
+			input:    []byte("test"),
+			expected: "test\n",
+		},
+		{
+			name:     "invalid JSON edge case f",
+			input:    []byte("f"),
+			expected: "f\n",
 		},
 	}
 
