@@ -23,6 +23,7 @@ import (
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/quartz"
+	"github.com/tidwall/sjson"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
@@ -32,8 +33,9 @@ import (
 )
 
 type interceptionBase struct {
-	id  uuid.UUID
-	req *MessageNewParamsWrapper
+	id      uuid.UUID
+	req     *MessageNewParamsWrapper
+	payload []byte
 
 	cfg        aibconfig.Anthropic
 	bedrockCfg *aibconfig.AWSBedrock
@@ -115,6 +117,12 @@ func (i *interceptionBase) injectTools() {
 	// any cache invalidation when prepended.
 	i.req.Tools = append(injectedTools, i.req.Tools...)
 
+	var err error
+	i.payload, err = sjson.SetBytes(i.payload, "tools", i.req.Tools)
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to set inject tools in request payload", slog.Error(err))
+	}
+
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
 	// https://github.com/coder/aibridge/issues/2
 	toolChoiceType := i.req.ToolChoice.GetType()
@@ -139,6 +147,10 @@ func (i *interceptionBase) injectTools() {
 		i.req.ToolChoice.OfTool.DisableParallelToolUse = anthropic.Bool(true)
 	case string(constant.ValueOf[constant.None]()):
 		// No-op; if tool_choice=none then tools are not used at all.
+	}
+	i.payload, err = sjson.SetBytes(i.payload, "tool_choice", i.req.ToolChoice)
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to set tool_choice in request payload", slog.Error(err))
 	}
 }
 
@@ -170,6 +182,8 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 		i.augmentRequestForBedrock()
 	}
 
+	// Must be after any request augmentation, eg. i.augmentRequestForBedrock() and i.injectTools()
+	opts = append(opts, option.WithRequestBody("application/json", i.payload))
 	return anthropic.NewMessageService(opts...), nil
 }
 
@@ -228,6 +242,12 @@ func (i *interceptionBase) augmentRequestForBedrock() {
 	}
 
 	i.req.MessageNewParams.Model = anthropic.Model(i.Model())
+
+	var err error
+	i.payload, err = sjson.SetBytes(i.payload, "model", i.Model())
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to set model in request payload for Bedrock", slog.Error(err))
+	}
 }
 
 // writeUpstreamError marshals and writes a given error.

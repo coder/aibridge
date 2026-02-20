@@ -1,8 +1,10 @@
 package provider
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strings"
@@ -89,16 +91,20 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
 	switch path {
 	case routeMessages:
+		payload, err := io.ReadAll(r.Body)
+		if err != nil {
+			return nil, fmt.Errorf("read body: %w", err)
+		}
 		var req messages.MessageNewParamsWrapper
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			return nil, fmt.Errorf("failed to unmarshal request: %w", err)
+		if err := json.NewDecoder(bytes.NewReader(payload)).Decode(&req); err != nil {
+			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 
 		var interceptor intercept.Interceptor
 		if req.Stream {
-			interceptor = messages.NewStreamingInterceptor(id, &req, p.cfg, p.bedrockCfg, tracer)
+			interceptor = messages.NewStreamingInterceptor(id, &req, payload, p.cfg, p.bedrockCfg, tracer)
 		} else {
-			interceptor = messages.NewBlockingInterceptor(id, &req, p.cfg, p.bedrockCfg, tracer)
+			interceptor = messages.NewBlockingInterceptor(id, &req, payload, p.cfg, p.bedrockCfg, tracer)
 		}
 		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
