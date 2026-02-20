@@ -2,10 +2,12 @@ package apidump
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"cdr.dev/slog/v3"
@@ -367,55 +369,94 @@ func TestRoundTripperMiddleware(t *testing.T) {
 		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 		clk := quartz.NewMock(t)
 
+		req1Body := `first request`
+		req2Body := `{"request": 2}`
+		req2BodyPretty := "{\n  \"request\": 2\n}\n"
+
+		callCount := 0
 		inner := &mockRoundTripper{
 			roundTrip: func(req *http.Request) (*http.Response, error) {
 				// Verify body is still readable after dump
 				body, err := io.ReadAll(req.Body)
 				require.NoError(t, err)
-				require.Equal(t, `{"request": true}`, string(body))
+				callCount++
+				if callCount == 1 {
+					require.Equal(t, req1Body, string(body))
+				} else {
+					require.Equal(t, req2Body, string(body))
+				}
 
 				return &http.Response{
 					StatusCode: http.StatusOK,
 					Status:     "200 OK",
 					Proto:      "HTTP/1.1",
 					Header:     http.Header{"Content-Type": []string{"application/json"}},
-					Body:       io.NopCloser(bytes.NewReader([]byte(`{"response": true}`))),
+					Body:       io.NopCloser(bytes.NewReader([]byte(fmt.Sprintf(`{"call": %d}"`, callCount)))),
 				}, nil
 			},
 		}
 
 		rt := NewRoundTripperMiddleware(inner, tmpDir, "openai", logger, clk)
 
-		req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/models", bytes.NewReader([]byte(`{"request": true}`)))
+		req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/models", bytes.NewReader([]byte(req1Body)))
 		require.NoError(t, err)
 		req.Header.Set("Authorization", "Bearer sk-secret-key-12345")
-
 		resp, err := rt.RoundTrip(req)
 		require.NoError(t, err)
-
-		// Must read and close response body to trigger the streaming dump
 		_, err = io.ReadAll(resp.Body)
 		require.NoError(t, err)
 		require.NoError(t, resp.Body.Close())
 
-		// Verify files are in passthrough directory
+		// Second request should create new req/resp files
+		req2, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/models", bytes.NewReader([]byte(req2Body)))
+		require.NoError(t, err)
+		resp2, err := rt.RoundTrip(req2)
+		require.NoError(t, err)
+		_, err = io.ReadAll(resp2.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp2.Body.Close())
+
+		// Validate request files contents
 		passthroughDir := filepath.Join(tmpDir, "openai", "passthrough")
-		reqDumpPath := findDumpFile(t, passthroughDir, SuffixRequest)
-		reqContent, err := os.ReadFile(reqDumpPath)
+		reqPattern := filepath.Join(passthroughDir, "*"+SuffixRequest)
+		reqMatches, err := filepath.Glob(reqPattern)
 		require.NoError(t, err)
+		require.Len(t, reqMatches, 2, "expected exactly two %s files in %s", SuffixRequest, passthroughDir)
 
-		require.Contains(t, string(reqContent), "POST")
-		require.Contains(t, string(reqContent), `"request": true`)
+		reqContents := make([]string, 0, len(reqMatches))
+		for _, reqDumpPath := range reqMatches {
+			reqContent, readErr := os.ReadFile(reqDumpPath)
+			require.NoError(t, readErr)
+			reqContents = append(reqContents, string(reqContent))
+		}
+
+		sort.Strings(reqContents)
+		require.Contains(t, reqContents[0], req1Body+"\n")
+		require.Contains(t, reqContents[1], req2BodyPretty)
 		// Sensitive header should be redacted
-		require.NotContains(t, string(reqContent), "sk-secret-key-12345")
-		require.Contains(t, string(reqContent), "Authorization:")
+		require.NotContains(t, reqContents[0], "sk-secret-key-12345")
+		require.NotContains(t, reqContents[1], "sk-secret-key-12345")
+		require.Contains(t, reqContents[0], "Authorization:")
+		require.NotContains(t, reqContents[1], "Authorization:")
 
-		respDumpPath := findDumpFile(t, passthroughDir, SuffixResponse)
-		respContent, err := os.ReadFile(respDumpPath)
+		// Validate response files contents
+		respPattern := filepath.Join(passthroughDir, "*"+SuffixResponse)
+		respMatches, err := filepath.Glob(respPattern)
 		require.NoError(t, err)
+		require.Len(t, respMatches, 2, "expected exactly two %s files in %s", SuffixResponse, passthroughDir)
 
-		require.Contains(t, string(respContent), "200 OK")
-		require.Contains(t, string(respContent), `"response": true`)
+		respContents := make([]string, 0, len(respMatches))
+		for _, respDumpPath := range respMatches {
+			respContent, readErr := os.ReadFile(respDumpPath)
+			require.NoError(t, readErr)
+			respContents = append(respContents, string(respContent))
+		}
+
+		sort.Strings(respContents)
+		require.Contains(t, respContents[0], "200 OK")
+		require.Contains(t, respContents[0], `{"call": 1}"`)
+		require.Contains(t, respContents[1], "200 OK")
+		require.Contains(t, respContents[1], `{"call": 2}"`)
 	})
 }
 
