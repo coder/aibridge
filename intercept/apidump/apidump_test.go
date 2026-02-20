@@ -2,10 +2,12 @@ package apidump
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"testing"
 
 	"cdr.dev/slog/v3"
@@ -233,12 +235,25 @@ func TestPrettyPrintJSON(t *testing.T) {
 		{
 			name:     "valid JSON",
 			input:    []byte(`{"key":"value"}`),
-			expected: "{\n  \"key\": \"value\"\n}",
+			expected: "{\n  \"key\": \"value\"\n}\n",
 		},
 		{
 			name:     "invalid JSON returns as-is",
 			input:    []byte("not json"),
-			expected: "not json",
+			expected: "not json\n",
+		},
+		// see: https://github.com/tidwall/pretty/blob/9090695766b652478676cc3e55bc3187056b1ff0/pretty.go#L117
+		// for input starting with "t" it would change it to "true", eg. "t_rest_of_the_string_is_discarded" -> "true"
+		// similar for inputs startrting with "f" and "n"
+		{
+			name:     "invalid JSON edge case t",
+			input:    []byte("test"),
+			expected: "test\n",
+		},
+		{
+			name:     "invalid JSON edge case f",
+			input:    []byte("f"),
+			expected: "f\n",
 		},
 	}
 
@@ -310,4 +325,145 @@ func TestMiddleware_AllSensitiveRequestHeaders(t *testing.T) {
 	require.Contains(t, content, "Cookie:")
 	require.Contains(t, content, "Proxy-Authorization:")
 	require.Contains(t, content, "X-Amz-Security-Token:")
+}
+
+func TestRoundTripperMiddleware(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty_base_dir_returns_original_transport", func(t *testing.T) {
+		t.Parallel()
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+		inner := http.DefaultTransport
+		rt := NewRoundTripperMiddleware(inner, "", "openai", logger, quartz.NewMock(t))
+		require.Equal(t, inner, rt)
+	})
+
+	t.Run("returns_error_from_inner_round_trip", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+		clk := quartz.NewMock(t)
+
+		innerErr := io.ErrUnexpectedEOF
+		inner := &mockRoundTripper{
+			roundTrip: func(_ *http.Request) (*http.Response, error) {
+				return nil, innerErr
+			},
+		}
+
+		rt := NewRoundTripperMiddleware(inner, tmpDir, "openai", logger, clk)
+
+		req, err := http.NewRequest(http.MethodGet, "https://api.openai.com/v1/models", nil)
+		require.NoError(t, err)
+
+		resp, err := rt.RoundTrip(req)
+		require.ErrorIs(t, err, innerErr)
+		require.Nil(t, resp)
+	})
+
+	t.Run("dumps_request_and_response", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+		clk := quartz.NewMock(t)
+
+		req1Body := `first request`
+		req2Body := `{"request": 2}`
+		req2BodyPretty := "{\n  \"request\": 2\n}\n"
+
+		callCount := 0
+		inner := &mockRoundTripper{
+			roundTrip: func(req *http.Request) (*http.Response, error) {
+				// Verify body is still readable after dump
+				body, err := io.ReadAll(req.Body)
+				require.NoError(t, err)
+				callCount++
+				if callCount == 1 {
+					require.Equal(t, req1Body, string(body))
+				} else {
+					require.Equal(t, req2Body, string(body))
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Proto:      "HTTP/1.1",
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(bytes.NewReader([]byte(fmt.Sprintf(`{"call": %d}"`, callCount)))),
+				}, nil
+			},
+		}
+
+		rt := NewRoundTripperMiddleware(inner, tmpDir, "openai", logger, clk)
+
+		req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/models", bytes.NewReader([]byte(req1Body)))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer sk-secret-key-12345")
+		resp, err := rt.RoundTrip(req)
+		require.NoError(t, err)
+		_, err = io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+
+		// Second request should create new req/resp files
+		req2, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/models", bytes.NewReader([]byte(req2Body)))
+		require.NoError(t, err)
+		resp2, err := rt.RoundTrip(req2)
+		require.NoError(t, err)
+		_, err = io.ReadAll(resp2.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp2.Body.Close())
+
+		// Validate request files contents
+		passthroughDir := filepath.Join(tmpDir, "openai", "passthrough")
+		reqPattern := filepath.Join(passthroughDir, "*"+SuffixRequest)
+		reqMatches, err := filepath.Glob(reqPattern)
+		require.NoError(t, err)
+		require.Len(t, reqMatches, 2, "expected exactly two %s files in %s", SuffixRequest, passthroughDir)
+
+		reqContents := make([]string, 0, len(reqMatches))
+		for _, reqDumpPath := range reqMatches {
+			reqContent, readErr := os.ReadFile(reqDumpPath)
+			require.NoError(t, readErr)
+			reqContents = append(reqContents, string(reqContent))
+		}
+
+		sort.Strings(reqContents)
+		require.Contains(t, reqContents[0], req1Body+"\n")
+		require.Contains(t, reqContents[1], req2BodyPretty)
+		// Sensitive header should be redacted
+		require.NotContains(t, reqContents[0], "sk-secret-key-12345")
+		require.NotContains(t, reqContents[1], "sk-secret-key-12345")
+		require.Contains(t, reqContents[0], "Authorization:")
+		require.NotContains(t, reqContents[1], "Authorization:")
+
+		// Validate response files contents
+		respPattern := filepath.Join(passthroughDir, "*"+SuffixResponse)
+		respMatches, err := filepath.Glob(respPattern)
+		require.NoError(t, err)
+		require.Len(t, respMatches, 2, "expected exactly two %s files in %s", SuffixResponse, passthroughDir)
+
+		respContents := make([]string, 0, len(respMatches))
+		for _, respDumpPath := range respMatches {
+			respContent, readErr := os.ReadFile(respDumpPath)
+			require.NoError(t, readErr)
+			respContents = append(respContents, string(respContent))
+		}
+
+		sort.Strings(respContents)
+		require.Contains(t, respContents[0], "200 OK")
+		require.Contains(t, respContents[0], `{"call": 1}"`)
+		require.Contains(t, respContents[1], "200 OK")
+		require.Contains(t, respContents[1], `{"call": 2}"`)
+	})
+}
+
+type mockRoundTripper struct {
+	roundTrip func(*http.Request) (*http.Response, error)
+}
+
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return m.roundTrip(req)
 }

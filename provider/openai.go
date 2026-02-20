@@ -152,3 +152,7 @@ func (p *OpenAI) InjectAuthHeader(headers *http.Header) {
 func (p *OpenAI) CircuitBreakerConfig() *config.CircuitBreaker {
 	return p.circuitBreaker
 }
+
+func (p *OpenAI) APIDumpDir() string {
+	return p.cfg.APIDumpDir
+}
