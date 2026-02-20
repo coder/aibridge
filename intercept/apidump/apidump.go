@@ -218,22 +218,30 @@ func NewRoundTripperMiddleware(transport http.RoundTripper, baseDir string, prov
 		return transport
 	}
 	return &dumpRoundTripper{
-		inner: transport,
-		dumper: dumper{
-			dumpPath: passthroughDumpPath(baseDir, provider, clk),
-			logger:   logger,
-		},
+		inner:    transport,
+		baseDir:  baseDir,
+		provider: provider,
+		clk:      clk,
+		logger:   logger,
 	}
 }
 
 type dumpRoundTripper struct {
-	inner  http.RoundTripper
-	dumper dumper
+	inner    http.RoundTripper
+	baseDir  string
+	provider string
+	clk      quartz.Clock
+	logger   slog.Logger
 }
 
 func (rt *dumpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
-	if err := rt.dumper.dumpRequest(req); err != nil {
-		rt.dumper.logger.Named("apidump").Warn(req.Context(), "failed to dump passthrough request", slog.Error(err))
+	dumper := dumper{
+		dumpPath: passthroughDumpPath(rt.baseDir, rt.provider, rt.clk),
+		logger:   rt.logger,
+	}
+
+	if err := dumper.dumpRequest(req); err != nil {
+		dumper.logger.Named("apidump").Warn(req.Context(), "failed to dump passthrough request", slog.Error(err))
 	}
 
 	resp, err := rt.inner.RoundTrip(req)
@@ -241,8 +249,8 @@ func (rt *dumpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 		return resp, err
 	}
 
-	if err := rt.dumper.dumpResponse(resp); err != nil {
-		rt.dumper.logger.Named("apidump").Warn(req.Context(), "failed to dump passthrough response", slog.Error(err))
+	if err := dumper.dumpResponse(resp); err != nil {
+		dumper.logger.Named("apidump").Warn(req.Context(), "failed to dump passthrough response", slog.Error(err))
 	}
 
 	return resp, nil
