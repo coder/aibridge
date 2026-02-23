@@ -280,7 +280,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			}
 		}
 
-		// Sync the raw payload with updated messages so that payloadBodyOption()
+		// Sync the raw payload with updated messages so that withBody()
 		// sends the updated payload on the next iteration.
 		if err := i.syncPayloadMessages(messages.Messages); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)

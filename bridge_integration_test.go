@@ -1227,7 +1227,7 @@ func openaiChatToolResultValidator(t *testing.T) func(*http.Request) {
 		assistantMsg := messages[len(messages)-2]
 		require.Equal(t, "assistant", assistantMsg.Get("role").Str,
 			"penultimate message must be from the assistant")
-		require.Greater(t, len(assistantMsg.Get("tool_calls").Array()), 0,
+		require.NotEmpty(t, len(assistantMsg.Get("tool_calls").Array()),
 			"assistant message must contain a tool_calls array")
 
 		toolResultMsg := messages[len(messages)-1]

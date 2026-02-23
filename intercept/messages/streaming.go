@@ -389,7 +389,7 @@ newStream:
 						}
 					}
 
-					// Sync the raw payload with updated messages so that payloadBodyOption()
+					// Sync the raw payload with updated messages so that withBody()
 					// sends the updated payload on the next iteration.
 					if syncErr := i.syncPayloadMessages(messages.Messages); syncErr != nil {
 						lastErr = fmt.Errorf("sync payload for agentic loop: %w", syncErr)

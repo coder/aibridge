@@ -194,7 +194,7 @@ func (i *interceptionBase) withBody() option.RequestOption {
 
 // syncPayloadMessages updates the raw payload's "messages" field to match the given messages.
 // This must be called before the next API request in the agentic loop so that
-// payloadBodyOption() picks up the updated messages.
+// withBody() picks up the updated messages.
 func (i *interceptionBase) syncPayloadMessages(messages []anthropic.MessageParam) error {
 	var err error
 	i.payload, err = sjson.SetBytes(i.payload, "messages", messages)
