@@ -79,17 +79,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 	i.injectTools()
 
-	// Scan the request for tool results; we use these to correlate requests
-	// together. We iterate backward so we find the last (most recent) tool
-	// result, which correctly identifies the parent interception.
-	for idx := len(i.req.Messages) - 1; idx >= 0; idx-- {
-		msg := i.req.Messages[idx]
-		if msg.OfTool == nil {
-			continue
-		}
-		i.correlatingToolCallID = msg.OfTool.ToolCallID
-		break
-	}
+	i.scanForCorrelatingToolCallID()
 
 	// Allow us to interrupt watch via cancel.
 	ctx, cancel := context.WithCancel(ctx)
@@ -185,10 +175,12 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 				_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 					InterceptionID: i.ID().String(),
 					MsgID:          processor.getMsgID(),
+					ToolCallID:     toolCall.ID,
 					Tool:           toolCall.Name,
 					Args:           i.unmarshalArgs(toolCall.Arguments),
 					Injected:       false,
 				})
+
 				toolCall = nil
 			} else {
 				// When the provider responds with only tool calls (no text content),
@@ -296,12 +288,14 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 			InterceptionID:  i.ID().String(),
 			MsgID:           processor.getMsgID(),
+			ToolCallID:      id,
 			ServerURL:       &tool.ServerURL,
 			Tool:            tool.Name,
 			Args:            args,
 			Injected:        true,
 			InvocationError: toolErr,
 		})
+
 
 		// Reset.
 		toolCall = nil

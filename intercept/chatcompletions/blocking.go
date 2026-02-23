@@ -68,17 +68,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	i.injectTools()
 
-	// Scan the request for tool results; we use these to correlate requests
-	// together. We iterate backward so we find the last (most recent) tool
-	// result, which correctly identifies the parent interception.
-	for idx := len(i.req.Messages) - 1; idx >= 0; idx-- {
-		msg := i.req.Messages[idx]
-		if msg.OfTool == nil {
-			continue
-		}
-		i.correlatingToolCallID = msg.OfTool.ToolCallID
-		break
-	}
+	i.scanForCorrelatingToolCallID()
 
 	prompt, err := i.req.lastUserPrompt()
 	if err != nil {
@@ -136,10 +126,12 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 					_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 						InterceptionID: i.ID().String(),
 						MsgID:          completion.ID,
+						ToolCallID:     toolCall.ID,
 						Tool:           toolCall.Function.Name,
 						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
 						Injected:       false,
 					})
+
 				}
 			}
 		}
@@ -173,12 +165,14 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           completion.ID,
+				ToolCallID:      tc.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
 				Args:            args,
 				Injected:        true,
 				InvocationError: err,
 			})
+
 
 			if err != nil {
 				// Always provide a tool result even if the tool call failed

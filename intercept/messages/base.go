@@ -63,6 +63,25 @@ func (i *interceptionBase) CorrelatingToolCallID() string {
 	return i.correlatingToolCallID
 }
 
+// scanForCorrelatingToolCallID scans the last message's content
+// blocks for tool result blocks and sets correlatingToolCallID
+// to the ToolUseID of the last one found, which correctly
+// identifies the most recent parent interception.
+func (i *interceptionBase) scanForCorrelatingToolCallID() {
+	if len(i.req.Messages) == 0 {
+		return
+	}
+	content := i.req.Messages[len(i.req.Messages)-1].Content
+	for idx := len(content) - 1; idx >= 0; idx-- {
+		block := content[idx]
+		if block.OfToolResult == nil {
+			continue
+		}
+		i.correlatingToolCallID = block.OfToolResult.ToolUseID
+		return
+	}
+}
+
 func (i *interceptionBase) Model() string {
 	if i.req == nil {
 		return "coder-aibridge-unknown"

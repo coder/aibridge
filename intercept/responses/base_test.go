@@ -14,6 +14,89 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestScanForCorrelatingToolCallID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    []oairesponses.ResponseInputItemUnionParam
+		expected string
+	}{
+		{
+			name:     "no input items",
+			input:    nil,
+			expected: "",
+		},
+		{
+			name: "no function_call_output items",
+			input: []oairesponses.ResponseInputItemUnionParam{
+				{
+					OfMessage: &oairesponses.EasyInputMessageParam{
+						Role: "user",
+					},
+				},
+			},
+			expected: "",
+		},
+		{
+			name: "single function_call_output",
+			input: []oairesponses.ResponseInputItemUnionParam{
+				{
+					OfMessage: &oairesponses.EasyInputMessageParam{
+						Role: "user",
+					},
+				},
+				{
+					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
+						CallID: "call_abc",
+					},
+				},
+			},
+			expected: "call_abc",
+		},
+		{
+			name: "multiple function_call_outputs returns last",
+			input: []oairesponses.ResponseInputItemUnionParam{
+				{
+					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
+						CallID: "call_first",
+					},
+				},
+				{
+					OfMessage: &oairesponses.EasyInputMessageParam{
+						Role: "user",
+					},
+				},
+				{
+					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
+						CallID: "call_second",
+					},
+				},
+			},
+			expected: "call_second",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			base := &responsesInterceptionBase{
+				req: &ResponsesNewParamsWrapper{
+					ResponseNewParams: oairesponses.ResponseNewParams{
+						Input: oairesponses.ResponseNewParamsInputUnion{
+							OfInputItemList: tc.input,
+						},
+					},
+				},
+			}
+
+			base.scanForCorrelatingToolCallID()
+			require.Equal(t, tc.expected, base.CorrelatingToolCallID())
+		})
+	}
+}
+
 func TestLastUserPrompt(t *testing.T) {
 	t.Parallel()
 

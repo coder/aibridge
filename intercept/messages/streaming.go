@@ -148,22 +148,7 @@ newStream:
 
 		stream := i.newStream(streamCtx, svc, messages)
 
-		// Scan the request for tool results; we use these to correlate
-		// requests together. We iterate backward so we find the last
-		// (most recent) tool result, which correctly identifies the
-		// parent interception.
-		if len(messages.Messages) > 0 {
-			content := messages.Messages[len(messages.Messages)-1].Content
-			for idx := len(content) - 1; idx >= 0; idx-- {
-				block := content[idx]
-				if block.OfToolResult == nil {
-					continue
-				}
-
-				i.correlatingToolCallID = block.OfToolResult.ToolUseID
-				break
-			}
-		}
+		i.scanForCorrelatingToolCallID()
 
 		var message anthropic.Message
 		var lastToolName string
@@ -315,12 +300,14 @@ newStream:
 						_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 							InterceptionID:  i.ID().String(),
 							MsgID:           message.ID,
+							ToolCallID:      id,
 							ServerURL:       &tool.ServerURL,
 							Tool:            tool.Name,
 							Args:            input,
 							Injected:        true,
 							InvocationError: err,
 						})
+
 
 						if err != nil {
 							// Always provide a tool_result even if the tool call failed
@@ -428,10 +415,12 @@ newStream:
 							_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 								InterceptionID: i.ID().String(),
 								MsgID:          message.ID,
+								ToolCallID:     variant.ID,
 								Tool:           variant.Name,
 								Args:           variant.Input,
 								Injected:       false,
 							})
+
 						}
 					}
 				}

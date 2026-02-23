@@ -69,6 +69,21 @@ func (i *interceptionBase) CorrelatingToolCallID() string {
 	return i.correlatingToolCallID
 }
 
+// scanForCorrelatingToolCallID scans the request messages for tool
+// result messages and sets correlatingToolCallID to the ToolCallID
+// of the last one found, which correctly identifies the most recent
+// parent interception.
+func (i *interceptionBase) scanForCorrelatingToolCallID() {
+	for idx := len(i.req.Messages) - 1; idx >= 0; idx-- {
+		msg := i.req.Messages[idx]
+		if msg.OfTool == nil {
+			continue
+		}
+		i.correlatingToolCallID = msg.OfTool.ToolCallID
+		return
+	}
+}
+
 func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),

@@ -88,20 +88,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	messages := i.req.MessageNewParams
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
-	// Scan the request for tool results; we use these to correlate requests
-	// together. We iterate backward so we find the last (most recent) tool
-	// result, which correctly identifies the parent interception.
-	if len(messages.Messages) > 0 {
-		content := messages.Messages[len(messages.Messages)-1].Content
-		for idx := len(content) - 1; idx >= 0; idx-- {
-			block := content[idx]
-			if block.OfToolResult == nil {
-				continue
-			}
-			i.correlatingToolCallID = block.OfToolResult.ToolUseID
-			break
-		}
-	}
+	i.scanForCorrelatingToolCallID()
 
 	var resp *anthropic.Message
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
@@ -167,10 +154,12 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          resp.ID,
+				ToolCallID:     toolUse.ID,
 				Tool:           toolUse.Name,
 				Args:           toolUse.Input,
 				Injected:       false,
 			})
+
 		}
 
 		// If no injected tool calls, we're done.
@@ -203,12 +192,14 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           resp.ID,
+				ToolCallID:      tc.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
 				Args:            tc.Input,
 				Injected:        true,
 				InvocationError: err,
 			})
+
 
 			if err != nil {
 				// Always provide a tool_result even if the tool call failed

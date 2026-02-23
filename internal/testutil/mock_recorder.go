@@ -6,7 +6,6 @@ import (
 	"slices"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/coder/aibridge/recorder"
 	"github.com/stretchr/testify/require"
@@ -21,7 +20,7 @@ type MockRecorder struct {
 	tokenUsages      []*recorder.TokenUsageRecord
 	userPrompts      []*recorder.PromptUsageRecord
 	toolUsages       []*recorder.ToolUsageRecord
-	interceptionsEnd map[string]time.Time
+	interceptionsEnd map[string]*recorder.InterceptionRecordEnded
 }
 
 func (m *MockRecorder) RecordInterception(ctx context.Context, req *recorder.InterceptionRecord) error {
@@ -35,12 +34,12 @@ func (m *MockRecorder) RecordInterceptionEnded(ctx context.Context, req *recorde
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.interceptionsEnd == nil {
-		m.interceptionsEnd = make(map[string]time.Time)
+		m.interceptionsEnd = make(map[string]*recorder.InterceptionRecordEnded)
 	}
 	if !slices.ContainsFunc(m.interceptions, func(intc *recorder.InterceptionRecord) bool { return intc.ID == req.ID }) {
 		return fmt.Errorf("id not found")
 	}
-	m.interceptionsEnd[req.ID] = req.EndedAt
+	m.interceptionsEnd[req.ID] = req
 	return nil
 }
 
@@ -105,6 +104,14 @@ func (m *MockRecorder) ToolUsages() []*recorder.ToolUsageRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.toolUsages
+}
+
+// RecordedInterceptionEnd returns the stored InterceptionRecordEnded for the
+// given interception ID, or nil if not found.
+func (m *MockRecorder) RecordedInterceptionEnd(id string) *recorder.InterceptionRecordEnded {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.interceptionsEnd[id]
 }
 
 // VerifyAllInterceptionsEnded verifies all recorded interceptions have been marked as completed.

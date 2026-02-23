@@ -12,6 +12,87 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestScanForCorrelatingToolCallID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		messages []anthropic.MessageParam
+		expected string
+	}{
+		{
+			name:     "no messages",
+			messages: nil,
+			expected: "",
+		},
+		{
+			name: "last message has no tool_result blocks",
+			messages: []anthropic.MessageParam{
+				anthropic.NewUserMessage(anthropic.NewTextBlock("hello")),
+			},
+			expected: "",
+		},
+		{
+			name: "single tool_result block",
+			messages: []anthropic.MessageParam{
+				anthropic.NewUserMessage(
+					anthropic.ContentBlockParamUnion{
+						OfToolResult: &anthropic.ToolResultBlockParam{
+							ToolUseID: "toolu_abc",
+							Content: []anthropic.ToolResultBlockParamContentUnion{
+								{OfText: &anthropic.TextBlockParam{Text: "result"}},
+							},
+						},
+					},
+				),
+			},
+			expected: "toolu_abc",
+		},
+		{
+			name: "multiple tool_result blocks returns last",
+			messages: []anthropic.MessageParam{
+				anthropic.NewUserMessage(
+					anthropic.ContentBlockParamUnion{
+						OfToolResult: &anthropic.ToolResultBlockParam{
+							ToolUseID: "toolu_first",
+							Content: []anthropic.ToolResultBlockParamContentUnion{
+								{OfText: &anthropic.TextBlockParam{Text: "first"}},
+							},
+						},
+					},
+					anthropic.NewTextBlock("some text"),
+					anthropic.ContentBlockParamUnion{
+						OfToolResult: &anthropic.ToolResultBlockParam{
+							ToolUseID: "toolu_second",
+							Content: []anthropic.ToolResultBlockParamContentUnion{
+								{OfText: &anthropic.TextBlockParam{Text: "second"}},
+							},
+						},
+					},
+				),
+			},
+			expected: "toolu_second",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			base := &interceptionBase{
+				req: &MessageNewParamsWrapper{
+					MessageNewParams: anthropic.MessageNewParams{
+						Messages: tc.messages,
+					},
+				},
+			}
+
+			base.scanForCorrelatingToolCallID()
+			require.Equal(t, tc.expected, base.CorrelatingToolCallID())
+		})
+	}
+}
+
 func TestAWSBedrockValidation(t *testing.T) {
 	t.Parallel()
 
