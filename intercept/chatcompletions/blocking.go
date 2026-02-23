@@ -131,7 +131,6 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
 						Injected:       false,
 					})
-
 				}
 			}
 		}
@@ -172,7 +171,6 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Injected:        true,
 				InvocationError: err,
 			})
-
 
 			if err != nil {
 				// Always provide a tool result even if the tool call failed

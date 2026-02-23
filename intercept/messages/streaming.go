@@ -308,7 +308,6 @@ newStream:
 							InvocationError: err,
 						})
 
-
 						if err != nil {
 							// Always provide a tool_result even if the tool call failed
 							messages.Messages = append(messages.Messages,
@@ -420,7 +419,6 @@ newStream:
 								Args:           variant.Input,
 								Injected:       false,
 							})
-
 						}
 					}
 				}

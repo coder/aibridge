@@ -296,7 +296,6 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 			InvocationError: toolErr,
 		})
 
-
 		// Reset.
 		toolCall = nil
 
