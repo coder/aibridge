@@ -279,6 +279,13 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				messages.Messages = append(messages.Messages, anthropic.NewUserMessage(toolResult))
 			}
 		}
+
+		// Sync the raw payload with updated messages so that payloadBodyOption()
+		// sends the updated payload on the next iteration.
+		if err := i.syncPayloadMessages(messages.Messages); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return fmt.Errorf("sync payload for agentic loop: %w", err)
+		}
 	}
 
 	if resp == nil {
@@ -308,5 +315,5 @@ func (i *BlockingInterception) newMessage(ctx context.Context, svc anthropic.Mes
 	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer tracing.EndSpanErr(span, &outErr)
 
-	return svc.New(ctx, msgParams)
+	return svc.New(ctx, msgParams, i.withBody())
 }

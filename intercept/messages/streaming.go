@@ -389,6 +389,13 @@ newStream:
 						}
 					}
 
+					// Sync the raw payload with updated messages so that payloadBodyOption()
+					// sends the updated payload on the next iteration.
+					if syncErr := i.syncPayloadMessages(messages.Messages); syncErr != nil {
+						lastErr = fmt.Errorf("sync payload for agentic loop: %w", syncErr)
+						break
+					}
+
 					// Causes a new stream to be run with updated messages.
 					isFirst = false
 					continue newStream
@@ -551,5 +558,5 @@ func (s *StreamingInterception) newStream(ctx context.Context, svc anthropic.Mes
 	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
-	return svc.NewStreaming(ctx, messages)
+	return svc.NewStreaming(ctx, messages, s.withBody())
 }
