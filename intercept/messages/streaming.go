@@ -131,6 +131,8 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 	messages := i.req.MessageNewParams
 
+	i.scanForCorrelatingToolCallID()
+
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
 	var cumulativeUsage anthropic.Usage
 
@@ -147,8 +149,6 @@ newStream:
 		}
 
 		stream := i.newStream(streamCtx, svc, messages)
-
-		i.scanForCorrelatingToolCallID()
 
 		var message anthropic.Message
 		var lastToolName string
