@@ -966,7 +966,7 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, configureFn, createAnthropicMessagesReq)
+			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, configureFn, createAnthropicMessagesReq, anthropicToolResultValidator(t))
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := recorderClient.RecordedToolUsages()
@@ -1056,7 +1056,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			}
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq)
+			recorderClient, mcpCalls, _, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, configureFn, createOpenAIChatCompletionsReq, openaiChatToolResultValidator(t))
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := recorderClient.RecordedToolUsages()
@@ -1147,9 +1147,99 @@ func TestOpenAIInjectedTools(t *testing.T) {
 	}
 }
 
+// anthropicToolResultValidator returns a request validator that asserts the second
+// upstream request contains the assistant's tool_use and user's tool_result messages
+// appended by the inner agentic loop. If the raw payload is not kept in sync with
+// the structured messages, the second request will be identical to the first.
+func anthropicToolResultValidator(t *testing.T) func(*http.Request) {
+	t.Helper()
+
+	var reqNum atomic.Uint32
+	return func(r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+
+		if reqNum.Add(1) != 2 {
+			return
+		}
+
+		messages := gjson.GetBytes(raw, "messages").Array()
+
+		// After the agentic loop the messages must contain at minimum:
+		//   [0]   original user message
+		//   [N-2] assistant message with tool_use content block
+		//   [N-1] user message with tool_result content block
+		require.GreaterOrEqual(t, len(messages), 3,
+			"second upstream request must contain the original message, assistant tool_use, and user tool_result")
+
+		assistantMsg := messages[len(messages)-2]
+		require.Equal(t, "assistant", assistantMsg.Get("role").Str,
+			"penultimate message must be from the assistant")
+		var hasToolUse bool
+		for _, block := range assistantMsg.Get("content").Array() {
+			if block.Get("type").Str == "tool_use" {
+				hasToolUse = true
+				break
+			}
+		}
+		require.True(t, hasToolUse, "assistant message must contain a tool_use content block")
+
+		toolResultMsg := messages[len(messages)-1]
+		require.Equal(t, "user", toolResultMsg.Get("role").Str,
+			"last message must be a user message carrying the tool_result")
+		var hasToolResult bool
+		for _, block := range toolResultMsg.Get("content").Array() {
+			if block.Get("type").Str == "tool_result" {
+				hasToolResult = true
+				break
+			}
+		}
+		require.True(t, hasToolResult, "user message must contain a tool_result content block")
+	}
+}
+
+// openaiChatToolResultValidator returns a request validator that asserts the second
+// upstream request contains the assistant's tool_calls and a role=tool result message
+// appended by the inner agentic loop.
+func openaiChatToolResultValidator(t *testing.T) func(*http.Request) {
+	t.Helper()
+
+	var reqNum atomic.Uint32
+	return func(r *http.Request) {
+		raw, err := io.ReadAll(r.Body)
+		require.NoError(t, err)
+		r.Body = io.NopCloser(bytes.NewReader(raw))
+
+		if reqNum.Add(1) != 2 {
+			return
+		}
+
+		messages := gjson.GetBytes(raw, "messages").Array()
+
+		// After the agentic loop the messages must contain at minimum:
+		//   [0]   original user message
+		//   [N-2] assistant message with tool_calls array
+		//   [N-1] message with role=tool
+		require.GreaterOrEqual(t, len(messages), 3,
+			"second upstream request must contain the original message, assistant tool_calls, and tool result")
+
+		assistantMsg := messages[len(messages)-2]
+		require.Equal(t, "assistant", assistantMsg.Get("role").Str,
+			"penultimate message must be from the assistant")
+		require.NotEmpty(t, len(assistantMsg.Get("tool_calls").Array()),
+			"assistant message must contain a tool_calls array")
+
+		toolResultMsg := messages[len(messages)-1]
+		require.Equal(t, "tool", toolResultMsg.Get("role").Str,
+			"last message must have role=tool")
+		require.NotEmpty(t, toolResultMsg.Get("tool_call_id").Str,
+			"tool result message must have a tool_call_id")
+	}
+}
+
 // setupInjectedToolTest abstracts the common aspects required for the Test*InjectedTools tests.
-// Kinda fugly right now, we can refactor this later.
-func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configureFn configureFunc, createRequestFn func(*testing.T, string, []byte) *http.Request) (*testutil.MockRecorder, *callAccumulator, map[string]mcp.ServerProxier, *http.Response) {
+func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configureFn configureFunc, createRequestFn func(*testing.T, string, []byte) *http.Request, requestValidatorFn func(*http.Request)) (*testutil.MockRecorder, *callAccumulator, map[string]mcp.ServerProxier, *http.Response) {
 	t.Helper()
 
 	arc := txtar.Parse(fixture)
@@ -1174,7 +1264,7 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 	t.Cleanup(cancel)
 
 	// Setup mock server with response mutator for multi-turn interaction.
-	mockSrv := newMockServer(ctx, t, files, nil, func(reqCount uint32, resp []byte) []byte {
+	mockSrv := newMockServer(ctx, t, files, requestValidatorFn, func(reqCount uint32, resp []byte) []byte {
 		if reqCount == 1 {
 			return resp // First request gets the normal response (with tool call).
 		}

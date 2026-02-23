@@ -182,9 +182,26 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 		i.augmentRequestForBedrock()
 	}
 
-	// Must be after any request augmentation, eg. i.augmentRequestForBedrock() and i.injectTools()
-	opts = append(opts, option.WithRequestBody("application/json", i.payload))
 	return anthropic.NewMessageService(opts...), nil
+}
+
+// withBody returns a per-request option that sends the current i.payload as the
+// request body. This is called for each API request so that the latest payload (including
+// any messages appended during the agentic tool loop) is always sent.
+func (i *interceptionBase) withBody() option.RequestOption {
+	return option.WithRequestBody("application/json", i.payload)
+}
+
+// syncPayloadMessages updates the raw payload's "messages" field to match the given messages.
+// This must be called before the next API request in the agentic loop so that
+// withBody() picks up the updated messages.
+func (i *interceptionBase) syncPayloadMessages(messages []anthropic.MessageParam) error {
+	var err error
+	i.payload, err = sjson.SetBytes(i.payload, "messages", messages)
+	if err != nil {
+		return fmt.Errorf("sync payload messages: %w", err)
+	}
+	return nil
 }
 
 func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
