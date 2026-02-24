@@ -15,17 +15,18 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
-	"golang.org/x/tools/txtar"
 )
 
 // expect 'count' amount of traces named 'name' with status 'status'
@@ -88,14 +89,9 @@ func TestTraceAnthropic(t *testing.T) {
 		},
 	}
 
-	arc := txtar.Parse(fixtures.AntSingleBuiltinTool)
+	files := fixtures.ParseFiles(t, fixtures.AntSingleBuiltinTool)
 
-	files := filesMap(arc)
-	require.Contains(t, files, fixtureRequest)
-	require.Contains(t, files, fixtureStreamingResponse)
-	require.Contains(t, files, fixtureNonStreamingResponse)
-
-	fixtureReqBody := files[fixtureRequest]
+	fixtureReqBody := files.Request()
 
 	for _, tc := range cases {
 		t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), tc.streaming), func(t *testing.T) {
@@ -107,19 +103,17 @@ func TestTraceAnthropic(t *testing.T) {
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
-			require.NoError(t, err)
-
-			mockAPI := newMockServer(ctx, t, files, nil, nil)
-			t.Cleanup(mockAPI.Close)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
 
 			var bedrockCfg *config.AWSBedrock
 			if tc.bedrock {
-				bedrockCfg = testBedrockCfg(mockAPI.URL)
+				bedrockCfg = testBedrockCfg(upstream.URL)
 			}
-			provider := provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
+			provider := provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
+			reqBody, err := sjson.SetBytes(fixtureReqBody, "stream", tc.streaming)
+			require.NoError(t, err)
 			req := createAnthropicMessagesReq(t, srv.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
@@ -179,27 +173,35 @@ func TestTraceAnthropicErr(t *testing.T) {
 	}
 
 	cases := []struct {
-		name      string
-		streaming bool
-		bedrock   bool
-		expect    []expectTrace
+		name       string
+		fixture    []byte
+		streaming  bool
+		bedrock    bool
+		expectCode int // expected status code for non-streaming responses
+		expect     []expectTrace
 	}{
 		{
-			name:   "anthr_non_streaming_err",
-			expect: expectNonStream,
+			name:       "anthr_non_streaming_err",
+			fixture:    fixtures.AntNonStreamError,
+			expectCode: http.StatusBadRequest,
+			expect:     expectNonStream,
 		},
 		{
 			name:      "anthr_streaming_err",
+			fixture:   fixtures.AntMidStreamError,
 			streaming: true,
 			expect:    expectStreaming,
 		},
 		{
-			name:    "bedrock_non_streaming_err",
-			bedrock: true,
-			expect:  expectNonStream,
+			name:       "bedrock_non_streaming_err",
+			fixture:    fixtures.AntNonStreamError,
+			bedrock:    true,
+			expectCode: http.StatusBadRequest,
+			expect:     expectNonStream,
 		},
 		{
 			name:      "bedrock_streaming_err",
+			fixture:   fixtures.AntMidStreamError,
 			streaming: true,
 			bedrock:   true,
 			expect:    expectStreaming,
@@ -211,41 +213,23 @@ func TestTraceAnthropicErr(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			var arc *txtar.Archive
-			if tc.streaming {
-				arc = txtar.Parse(fixtures.AntMidStreamError)
-			} else {
-				arc = txtar.Parse(fixtures.AntNonStreamError)
-			}
-
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureRequest)
-			if tc.streaming {
-				require.Contains(t, files, fixtureStreamingResponse)
-			} else {
-				require.Contains(t, files, fixtureNonStreamingResponse)
-			}
-
-			fixtureReqBody := files[fixtureRequest]
-
 			sr := tracetest.NewSpanRecorder()
 			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
-			require.NoError(t, err)
-
-			mockAPI := newMockServer(ctx, t, files, nil, nil)
-			t.Cleanup(mockAPI.Close)
+			files := fixtures.ParseFiles(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
 
 			var bedrockCfg *config.AWSBedrock
 			if tc.bedrock {
-				bedrockCfg = testBedrockCfg(mockAPI.URL)
+				bedrockCfg = testBedrockCfg(upstream.URL)
 			}
-			provider := provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), bedrockCfg)
+			provider := provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
+			reqBody, err := sjson.SetBytes(files.Request(), "stream", tc.streaming)
+			require.NoError(t, err)
 			req := createAnthropicMessagesReq(t, srv.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
@@ -253,7 +237,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 			if tc.streaming {
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 			} else {
-				require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
+				require.Equal(t, tc.expectCode, resp.StatusCode)
 			}
 			defer resp.Body.Close()
 			srv.Close()
@@ -465,31 +449,18 @@ func TestTraceOpenAI(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			arc := txtar.Parse(tc.fixture)
-
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureRequest)
-			if tc.streaming {
-				require.Contains(t, files, fixtureStreamingResponse)
-			} else {
-				require.Contains(t, files, fixtureNonStreamingResponse)
-			}
-
-			fixtureReqBody := files[fixtureRequest]
-
 			sr := tracetest.NewSpanRecorder()
 			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
-			require.NoError(t, err)
-
-			mockAPI := newMockServer(ctx, t, files, nil, nil)
-			t.Cleanup(mockAPI.Close)
-			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+			files := fixtures.ParseFiles(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+			provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
 
+			reqBody, err := sjson.SetBytes(files.Request(), "stream", tc.streaming)
+			require.NoError(t, err)
 			req := tc.reqFunc(t, srv.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
@@ -522,14 +493,14 @@ func TestTraceOpenAI(t *testing.T) {
 
 func TestTraceOpenAIErr(t *testing.T) {
 	cases := []struct {
-		name             string
-		fixture          []byte
-		streaming        bool
-		useMockReflector bool
-		expectPath       string
-		reqFunc          func(t *testing.T, baseURL string, input []byte) *http.Request
-		expect           []expectTrace
-		expectCode       int
+		name          string
+		fixture       []byte
+		streaming     bool
+		allowOverflow bool
+		expectPath    string
+		reqFunc       func(t *testing.T, baseURL string, input []byte) *http.Request
+		expect        []expectTrace
+		expectCode    int
 	}{
 		{
 			name:       "trace_openai_chat_streaming_error",
@@ -554,7 +525,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			streaming:  false,
 			expectPath: "/openai/v1/chat/completions",
 			reqFunc:    createOpenAIChatCompletionsReq,
-			expectCode: http.StatusInternalServerError,
+			expectCode: http.StatusBadRequest,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -602,13 +573,14 @@ func TestTraceOpenAIErr(t *testing.T) {
 			},
 		},
 		{
-			name:             "trace_openai_responses_streaming_http_error",
-			fixture:          fixtures.OaiResponsesStreamingHttpErr,
-			streaming:        true,
-			useMockReflector: true,
-			expectPath:       "/openai/v1/responses",
-			reqFunc:          createOpenAIResponsesReq,
-			expectCode:       http.StatusTooManyRequests,
+			name:          "trace_openai_responses_streaming_http_error",
+			fixture:       fixtures.OaiResponsesStreamingHttpErr,
+			streaming:     true,
+			allowOverflow: true, // 429 error causes retries
+
+			expectPath: "/openai/v1/responses",
+			reqFunc:    createOpenAIResponsesReq,
+			expectCode: http.StatusTooManyRequests,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -619,13 +591,13 @@ func TestTraceOpenAIErr(t *testing.T) {
 			},
 		},
 		{
-			name:             "trace_openai_responses_blocking_http_error",
-			fixture:          fixtures.OaiResponsesBlockingHttpErr,
-			streaming:        false,
-			useMockReflector: true,
-			expectPath:       "/openai/v1/responses",
-			reqFunc:          createOpenAIResponsesReq,
-			expectCode:       http.StatusUnauthorized,
+			name:      "trace_openai_responses_blocking_http_error",
+			fixture:   fixtures.OaiResponsesBlockingHttpErr,
+			streaming: false,
+
+			expectPath: "/openai/v1/responses",
+			reqFunc:    createOpenAIResponsesReq,
+			expectCode: http.StatusUnauthorized,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -642,42 +614,20 @@ func TestTraceOpenAIErr(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			files := filesMap(txtar.Parse(tc.fixture))
-			require.Contains(t, files, fixtureRequest)
-			if tc.streaming {
-				require.Contains(t, files, fixtureStreamingResponse)
-			} else {
-				require.Contains(t, files, fixtureNonStreamingResponse)
-			}
-
-			fixtureReqBody := files[fixtureRequest]
-
 			sr := tracetest.NewSpanRecorder()
 			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			reqBody, err := setJSON(fixtureReqBody, "stream", tc.streaming)
-			require.NoError(t, err)
+			files := fixtures.ParseFiles(t, tc.fixture)
 
-			var respBody []byte
-			if tc.streaming {
-				respBody = files[fixtureStreamingResponse]
-			} else {
-				respBody = files[fixtureNonStreamingResponse]
-			}
-			var prov *provider.OpenAI
-			if tc.useMockReflector {
-				mockAPI := newMockHTTPReflector(ctx, t, respBody)
-				t.Cleanup(mockAPI.Close)
-				prov = provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
-			} else {
-				mockAPI := newMockServer(ctx, t, files, nil, nil)
-				t.Cleanup(mockAPI.Close)
-				prov = provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
-			}
+			mockAPI := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+			mockAPI.AllowOverflow = tc.allowOverflow
+			prov := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
 			srv, recorder := newTestSrv(t, ctx, prov, nil, tracer)
 
+			reqBody, err := sjson.SetBytes(files.Request(), "stream", tc.streaming)
+			require.NoError(t, err)
 			req := tc.reqFunc(t, srv.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
@@ -766,15 +716,9 @@ func TestOpenAIInjectedToolsTrace(t *testing.T) {
 func TestTracePassthrough(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.OaiChatFallthrough)
-	files := filesMap(arc)
+	files := fixtures.ParseFiles(t, fixtures.OaiChatFallthrough)
 
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(files[fixtureResponse])
-	}))
-	t.Cleanup(upstream.Close)
+	upstream := testutil.NewMockUpstream(t, t.Context(), testutil.NewFixtureResponse(files))
 
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))

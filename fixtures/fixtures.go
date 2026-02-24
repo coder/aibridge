@@ -126,15 +126,56 @@ var (
 	OaiResponsesStreamingWrongResponseFormat []byte
 )
 
-func Request(t *testing.T, fixture []byte) []byte {
+// Archive file name constants matching the file names used in txtar fixtures.
+const (
+	fileRequest              = "request"
+	fileStreamingResponse    = "streaming"
+	fileNonStreamingResponse = "non-streaming"
+	fileStreamingToolCall    = "streaming/tool-call"
+	fileNonStreamingToolCall = "non-streaming/tool-call"
+)
+
+// Files maps txtar archive file names to their contents.
+type Files map[string][]byte
+
+func (f Files) Request() []byte {
+	return f[fileRequest]
+}
+
+func (f Files) Streaming() []byte {
+	return f[fileStreamingResponse]
+}
+
+func (f Files) NonStreaming() []byte {
+	return f[fileNonStreamingResponse]
+}
+
+func (f Files) StreamingToolCall() []byte {
+	return f[fileStreamingToolCall]
+}
+
+func (f Files) NonStreamingToolCall() []byte {
+	return f[fileNonStreamingToolCall]
+}
+
+// ParseFiles parses raw txtar data into a Files map.
+func ParseFiles(t *testing.T, data []byte) Files {
 	t.Helper()
 
-	archive := txtar.Parse(fixture)
-	for _, f := range archive.Files {
-		if f.Name == "request" {
-			return f.Data
-		}
+	archive := txtar.Parse(data)
+	if len(archive.Files) == 0 {
+		return nil
 	}
-	t.Fatal("request not found in fixture")
-	return []byte{}
+
+	out := make(Files, len(archive.Files))
+	for _, f := range archive.Files {
+		out[f.Name] = f.Data
+	}
+	return out
+}
+
+// Request extracts the "request" fixture from raw txtar data.
+func Request(t *testing.T, fixture []byte) []byte {
+	t.Helper()
+	return ParseFiles(t, fixture).Request()
 }

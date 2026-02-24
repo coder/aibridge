@@ -23,7 +23,6 @@ import (
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
-	"golang.org/x/tools/txtar"
 )
 
 func TestMetrics_Interception(t *testing.T) {
@@ -37,6 +36,7 @@ func TestMetrics_Interception(t *testing.T) {
 		expectModel    string
 		expectRoute    string
 		expectProvider string
+		allowOverflow  bool // error fixtures may cause retries
 	}{
 		{
 			name:           "ant_simple",
@@ -55,6 +55,7 @@ func TestMetrics_Interception(t *testing.T) {
 			expectModel:    "claude-sonnet-4-0",
 			expectRoute:    "/v1/messages",
 			expectProvider: config.ProviderAnthropic,
+			allowOverflow:  true,
 		},
 		{
 			name:           "oai_chat_simple",
@@ -73,6 +74,7 @@ func TestMetrics_Interception(t *testing.T) {
 			expectModel:    "gpt-4.1",
 			expectRoute:    "/v1/chat/completions",
 			expectProvider: config.ProviderOpenAI,
+			allowOverflow:  true,
 		},
 		{
 			name:           "oai_responses_blocking_simple",
@@ -91,6 +93,7 @@ func TestMetrics_Interception(t *testing.T) {
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
+			allowOverflow:  true,
 		},
 		{
 			name:           "oai_responses_streaming_simple",
@@ -109,6 +112,7 @@ func TestMetrics_Interception(t *testing.T) {
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
+			allowOverflow:  true,
 		},
 	}
 
@@ -116,25 +120,23 @@ func TestMetrics_Interception(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			arc := txtar.Parse(tc.fixture)
-			files := filesMap(arc)
-
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			mockAPI := newMockServer(ctx, t, files, nil, nil)
-			t.Cleanup(mockAPI.Close)
+			files := fixtures.ParseFiles(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+			upstream.AllowOverflow = tc.allowOverflow
 
 			metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 			var prov aibridge.Provider
 			if tc.expectProvider == config.ProviderAnthropic {
-				prov = provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), nil)
+				prov = provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)
 			} else {
-				prov = provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+				prov = provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 			}
 			srv, _ := newTestSrv(t, ctx, prov, metrics, testTracer)
 
-			req := tc.reqFunc(t, srv.URL, files[fixtureRequest])
+			req := tc.reqFunc(t, srv.URL, files.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -152,8 +154,7 @@ func TestMetrics_Interception(t *testing.T) {
 func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.AntSimple)
-	files := filesMap(arc)
+	files := fixtures.ParseFiles(t, fixtures.AntSimple)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
@@ -161,16 +162,9 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	blockCh := make(chan struct{})
 
 	// Setup a mock HTTP server which blocks until the request is marked as inflight then proceeds.
-	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		<-blockCh
-		mock := newMockServer(ctx, t, files, nil, nil)
-		defer mock.Close()
-		mock.Server.Config.Handler.ServeHTTP(w, r)
 	}))
-	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return ctx
-	}
-	srv.Start()
 	t.Cleanup(srv.Close)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
@@ -181,7 +175,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		req := createAnthropicMessagesReq(t, bridgeSrv.URL, files[fixtureRequest])
+		req := createAnthropicMessagesReq(t, bridgeSrv.URL, files.Request())
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
@@ -215,14 +209,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.OaiChatFallthrough)
-	files := filesMap(arc)
-
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(files[fixtureResponse])
-	}))
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	t.Cleanup(upstream.Close)
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
@@ -245,20 +232,17 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 func TestMetrics_PromptCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.OaiChatSimple)
-	files := filesMap(arc)
-
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
-	mockAPI := newMockServer(ctx, t, files, nil, nil)
-	t.Cleanup(mockAPI.Close)
+	files := fixtures.ParseFiles(t, fixtures.OaiChatSimple)
+	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
-	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
+	req := createOpenAIChatCompletionsReq(t, srv.URL, files.Request())
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -273,20 +257,17 @@ func TestMetrics_PromptCount(t *testing.T) {
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.OaiChatSingleBuiltinTool)
-	files := filesMap(arc)
-
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
-	mockAPI := newMockServer(ctx, t, files, nil, nil)
-	t.Cleanup(mockAPI.Close)
+	files := fixtures.ParseFiles(t, fixtures.OaiChatSingleBuiltinTool)
+	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
-	req := createOpenAIChatCompletionsReq(t, srv.URL, files[fixtureRequest])
+	req := createOpenAIChatCompletionsReq(t, srv.URL, files.Request())
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -301,25 +282,17 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	arc := txtar.Parse(fixtures.AntSingleInjectedTool)
-	files := filesMap(arc)
-
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
 	// First request returns the tool invocation, the second returns the mocked response to the tool result.
-	mockAPI := newMockServer(ctx, t, files, nil, func(reqCount uint32, resp []byte) []byte {
-		if reqCount == 1 {
-			return resp
-		}
-		return files[fixtureNonStreamingToolResponse]
-	})
-	t.Cleanup(mockAPI.Close)
+	files := fixtures.ParseFiles(t, fixtures.AntSingleInjectedTool)
+	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files), testutil.NewFixtureToolResponse(files))
 
 	recorder := &testutil.MockRecorder{}
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := provider.NewAnthropic(anthropicCfg(mockAPI.URL, apiKey), nil)
+	provider := provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)
 
 	// Setup mocked MCP server & tools.
 	mcpProxiers, _ := setupMCPServerProxiesForTest(t, testTracer)
@@ -336,7 +309,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	srv.Start()
 	t.Cleanup(srv.Close)
 
-	req := createAnthropicMessagesReq(t, srv.URL, files[fixtureRequest])
+	req := createAnthropicMessagesReq(t, srv.URL, files.Request())
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -345,7 +318,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 
 	// Wait until full roundtrip has completed.
 	require.Eventually(t, func() bool {
-		return mockAPI.callCount.Load() == 2
+		return upstream.Calls.Load() == 2
 	}, time.Second*10, time.Millisecond*50)
 
 	require.Len(t, recorder.ToolUsages(), 1)
