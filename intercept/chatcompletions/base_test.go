@@ -3,6 +3,7 @@ package chatcompletions
 import (
 	"testing"
 
+	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/require"
 )
@@ -13,12 +14,12 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 	tests := []struct {
 		name     string
 		messages []openai.ChatCompletionMessageParamUnion
-		expected string
+		expected *string
 	}{
 		{
 			name:     "no messages",
 			messages: nil,
-			expected: "",
+			expected: nil,
 		},
 		{
 			name: "no tool messages",
@@ -26,7 +27,7 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 				openai.UserMessage("hello"),
 				openai.AssistantMessage("hi there"),
 			},
-			expected: "",
+			expected: nil,
 		},
 		{
 			name: "single tool message",
@@ -34,7 +35,7 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 				openai.UserMessage("hello"),
 				openai.ToolMessage("result", "call_abc"),
 			},
-			expected: "call_abc",
+			expected: utils.PtrTo("call_abc"),
 		},
 		{
 			name: "multiple tool messages returns last",
@@ -44,7 +45,7 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 				openai.AssistantMessage("thinking"),
 				openai.ToolMessage("second result", "call_second"),
 			},
-			expected: "call_second",
+			expected: utils.PtrTo("call_second"),
 		},
 	}
 

@@ -9,6 +9,7 @@ import (
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/utils"
 	"github.com/google/uuid"
 	oairesponses "github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/require"
@@ -20,12 +21,12 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 	tests := []struct {
 		name     string
 		input    []oairesponses.ResponseInputItemUnionParam
-		expected string
+		expected *string
 	}{
 		{
 			name:     "no input items",
 			input:    nil,
-			expected: "",
+			expected: nil,
 		},
 		{
 			name: "no function_call_output items",
@@ -36,7 +37,7 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 					},
 				},
 			},
-			expected: "",
+			expected: nil,
 		},
 		{
 			name: "single function_call_output",
@@ -52,7 +53,7 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 					},
 				},
 			},
-			expected: "call_abc",
+			expected: utils.PtrTo("call_abc"),
 		},
 		{
 			name: "multiple function_call_outputs returns last",
@@ -73,7 +74,7 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 					},
 				},
 			},
-			expected: "call_second",
+			expected: utils.PtrTo("call_second"),
 		},
 	}
 

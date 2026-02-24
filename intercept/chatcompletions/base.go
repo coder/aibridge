@@ -66,15 +66,15 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 // CorrelatingToolCallID scans the request messages for tool result
 // messages and returns the ToolCallID of the last one found, which
 // correctly identifies the most recent parent interception.
-func (i *interceptionBase) CorrelatingToolCallID() string {
+func (i *interceptionBase) CorrelatingToolCallID() *string {
 	for idx := len(i.req.Messages) - 1; idx >= 0; idx-- {
 		msg := i.req.Messages[idx]
 		if msg.OfTool == nil {
 			continue
 		}
-		return msg.OfTool.ToolCallID
+		return &msg.OfTool.ToolCallID
 	}
-	return ""
+	return nil
 }
 
 func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {

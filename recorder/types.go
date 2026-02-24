@@ -39,7 +39,7 @@ type InterceptionRecord struct {
 type InterceptionRecordEnded struct {
 	ID                    string
 	EndedAt               time.Time
-	CorrelatingToolCallID string
+	CorrelatingToolCallID *string
 }
 
 type TokenUsageRecord struct {

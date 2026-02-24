@@ -8,6 +8,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/utils"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 )
@@ -18,19 +19,19 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 	tests := []struct {
 		name     string
 		messages []anthropic.MessageParam
-		expected string
+		expected *string
 	}{
 		{
 			name:     "no messages",
 			messages: nil,
-			expected: "",
+			expected: nil,
 		},
 		{
 			name: "last message has no tool_result blocks",
 			messages: []anthropic.MessageParam{
 				anthropic.NewUserMessage(anthropic.NewTextBlock("hello")),
 			},
-			expected: "",
+			expected: nil,
 		},
 		{
 			name: "single tool_result block",
@@ -46,7 +47,7 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 					},
 				),
 			},
-			expected: "toolu_abc",
+			expected: utils.PtrTo("toolu_abc"),
 		},
 		{
 			name: "multiple tool_result blocks returns last",
@@ -71,7 +72,7 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 					},
 				),
 			},
-			expected: "toolu_second",
+			expected: utils.PtrTo("toolu_second"),
 		},
 	}
 

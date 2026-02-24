@@ -33,5 +33,5 @@ type Interceptor interface {
 	// require that ALL tool results are submitted for tool choices returned
 	// by the model, so any single tool call ID is sufficient to identify the
 	// parent interception.
-	CorrelatingToolCallID() string
+	CorrelatingToolCallID() *string
 }

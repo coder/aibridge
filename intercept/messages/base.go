@@ -60,9 +60,9 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 // CorrelatingToolCallID scans the last message's content blocks for
 // tool result blocks and returns the ToolUseID of the last one found,
 // which correctly identifies the most recent parent interception.
-func (i *interceptionBase) CorrelatingToolCallID() string {
+func (i *interceptionBase) CorrelatingToolCallID() *string {
 	if len(i.req.Messages) == 0 {
-		return ""
+		return nil
 	}
 	content := i.req.Messages[len(i.req.Messages)-1].Content
 	for idx := len(content) - 1; idx >= 0; idx-- {
@@ -70,9 +70,9 @@ func (i *interceptionBase) CorrelatingToolCallID() string {
 		if block.OfToolResult == nil {
 			continue
 		}
-		return block.OfToolResult.ToolUseID
+		return &block.OfToolResult.ToolUseID
 	}
-	return ""
+	return nil
 }
 
 func (i *interceptionBase) Model() string {
