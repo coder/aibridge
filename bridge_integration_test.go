@@ -64,16 +64,19 @@ func TestAnthropicMessages(t *testing.T) {
 			streaming            bool
 			expectedInputTokens  int
 			expectedOutputTokens int
+			expectedToolCallID   string
 		}{
 			{
 				streaming:            true,
 				expectedInputTokens:  2,
 				expectedOutputTokens: 66,
+				expectedToolCallID:   "toolu_01RX68weRSquLx6HUTj65iBo",
 			},
 			{
 				streaming:            false,
 				expectedInputTokens:  5,
 				expectedOutputTokens: 84,
+				expectedToolCallID:   "toolu_01AusGgY5aKFhzWrFBv9JfHq",
 			},
 		}
 
@@ -134,6 +137,7 @@ func TestAnthropicMessages(t *testing.T) {
 				toolUsages := recorderClient.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
 				assert.Equal(t, "Read", toolUsages[0].Tool)
+				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
 				require.IsType(t, json.RawMessage{}, toolUsages[0].Args)
 				var args map[string]any
 				require.NoError(t, json.Unmarshal(toolUsages[0].Args.(json.RawMessage), &args))
@@ -278,16 +282,19 @@ func TestOpenAIChatCompletions(t *testing.T) {
 		cases := []struct {
 			streaming                                 bool
 			expectedInputTokens, expectedOutputTokens int
+			expectedToolCallID                        string
 		}{
 			{
 				streaming:            true,
 				expectedInputTokens:  60,
 				expectedOutputTokens: 15,
+				expectedToolCallID:   "call_HjeqP7YeRkoNj0de9e3U4X4B",
 			},
 			{
 				streaming:            false,
 				expectedInputTokens:  60,
 				expectedOutputTokens: 15,
+				expectedToolCallID:   "call_KjzAbhiZC6nk81tQzL7pwlpc",
 			},
 		}
 
@@ -347,6 +354,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				toolUsages := recorderClient.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
 				assert.Equal(t, "read_file", toolUsages[0].Tool)
+				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
 				require.IsType(t, map[string]any{}, toolUsages[0].Args)
 				require.Contains(t, toolUsages[0].Args, "path")
 				assert.Equal(t, "README.md", toolUsages[0].Args.(map[string]any)["path"])
