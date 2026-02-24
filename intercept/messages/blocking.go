@@ -88,8 +88,6 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	messages := i.req.MessageNewParams
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
-	i.scanForCorrelatingToolCallID()
-
 	var resp *anthropic.Message
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
 	var cumulativeUsage anthropic.Usage

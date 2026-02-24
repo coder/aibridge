@@ -68,8 +68,6 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	i.injectTools()
 
-	i.scanForCorrelatingToolCallID()
-
 	prompt, err := i.req.lastUserPrompt()
 	if err != nil {
 		logger.Warn(ctx, "failed to retrieve last user prompt", slog.Error(err))

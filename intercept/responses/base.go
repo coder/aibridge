@@ -37,17 +37,16 @@ const (
 )
 
 type responsesInterceptionBase struct {
-	id                    uuid.UUID
-	req                   *ResponsesNewParamsWrapper
-	reqPayload            []byte
-	cfg                   config.OpenAI
-	model                 string
-	recorder              recorder.Recorder
-	mcpProxy              mcp.ServerProxier
-	logger                slog.Logger
-	metrics               metrics.Metrics
-	tracer                trace.Tracer
-	correlatingToolCallID string
+	id         uuid.UUID
+	req        *ResponsesNewParamsWrapper
+	reqPayload []byte
+	cfg        config.OpenAI
+	model      string
+	recorder   recorder.Recorder
+	mcpProxy   mcp.ServerProxier
+	logger     slog.Logger
+	metrics    metrics.Metrics
+	tracer     trace.Tracer
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -81,22 +80,18 @@ func (i *responsesInterceptionBase) Model() string {
 	return i.model
 }
 
+// CorrelatingToolCallID scans the request input for function call
+// output items and returns the CallID of the last one found, which
+// correctly identifies the most recent parent interception.
 func (i *responsesInterceptionBase) CorrelatingToolCallID() string {
-	return i.correlatingToolCallID
-}
-
-// scanForCorrelatingToolCallID scans the request input for function call
-// output items and sets correlatingToolCallID to the CallID of the last one
-// found, which correctly identifies the most recent parent interception.
-func (i *responsesInterceptionBase) scanForCorrelatingToolCallID() {
 	for idx := len(i.req.Input.OfInputItemList) - 1; idx >= 0; idx-- {
 		item := i.req.Input.OfInputItemList[idx]
 		if item.OfFunctionCallOutput == nil {
 			continue
 		}
-		i.correlatingToolCallID = item.OfFunctionCallOutput.CallID
-		return
+		return item.OfFunctionCallOutput.CallID
 	}
+	return ""
 }
 
 func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {

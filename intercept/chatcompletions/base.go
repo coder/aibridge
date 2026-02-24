@@ -34,8 +34,6 @@ type interceptionBase struct {
 
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
-
-	correlatingToolCallID string
 }
 
 func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService {
@@ -65,23 +63,18 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 	i.mcpProxy = mcpProxy
 }
 
+// CorrelatingToolCallID scans the request messages for tool result
+// messages and returns the ToolCallID of the last one found, which
+// correctly identifies the most recent parent interception.
 func (i *interceptionBase) CorrelatingToolCallID() string {
-	return i.correlatingToolCallID
-}
-
-// scanForCorrelatingToolCallID scans the request messages for tool
-// result messages and sets correlatingToolCallID to the ToolCallID
-// of the last one found, which correctly identifies the most recent
-// parent interception.
-func (i *interceptionBase) scanForCorrelatingToolCallID() {
 	for idx := len(i.req.Messages) - 1; idx >= 0; idx-- {
 		msg := i.req.Messages[idx]
 		if msg.OfTool == nil {
 			continue
 		}
-		i.correlatingToolCallID = msg.OfTool.ToolCallID
-		return
+		return msg.OfTool.ToolCallID
 	}
+	return ""
 }
 
 func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {

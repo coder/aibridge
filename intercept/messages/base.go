@@ -45,8 +45,6 @@ type interceptionBase struct {
 
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
-
-	correlatingToolCallID string
 }
 
 func (i *interceptionBase) ID() uuid.UUID {
@@ -59,17 +57,12 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 	i.mcpProxy = mcpProxy
 }
 
+// CorrelatingToolCallID scans the last message's content blocks for
+// tool result blocks and returns the ToolUseID of the last one found,
+// which correctly identifies the most recent parent interception.
 func (i *interceptionBase) CorrelatingToolCallID() string {
-	return i.correlatingToolCallID
-}
-
-// scanForCorrelatingToolCallID scans the last message's content
-// blocks for tool result blocks and sets correlatingToolCallID
-// to the ToolUseID of the last one found, which correctly
-// identifies the most recent parent interception.
-func (i *interceptionBase) scanForCorrelatingToolCallID() {
 	if len(i.req.Messages) == 0 {
-		return
+		return ""
 	}
 	content := i.req.Messages[len(i.req.Messages)-1].Content
 	for idx := len(content) - 1; idx >= 0; idx-- {
@@ -77,9 +70,9 @@ func (i *interceptionBase) scanForCorrelatingToolCallID() {
 		if block.OfToolResult == nil {
 			continue
 		}
-		i.correlatingToolCallID = block.OfToolResult.ToolUseID
-		return
+		return block.OfToolResult.ToolUseID
 	}
+	return ""
 }
 
 func (i *interceptionBase) Model() string {

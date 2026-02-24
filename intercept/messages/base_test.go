@@ -87,7 +87,6 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 				},
 			}
 
-			base.scanForCorrelatingToolCallID()
 			require.Equal(t, tc.expected, base.CorrelatingToolCallID())
 		})
 	}

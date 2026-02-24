@@ -79,8 +79,6 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 	i.injectTools()
 
-	i.scanForCorrelatingToolCallID()
-
 	// Allow us to interrupt watch via cancel.
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
