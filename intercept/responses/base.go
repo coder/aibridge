@@ -80,18 +80,17 @@ func (i *responsesInterceptionBase) Model() string {
 	return i.model
 }
 
-// CorrelatingToolCallID scans the request input for function call
-// output items and returns the CallID of the last one found, which
-// correctly identifies the most recent parent interception.
 func (i *responsesInterceptionBase) CorrelatingToolCallID() *string {
-	for idx := len(i.req.Input.OfInputItemList) - 1; idx >= 0; idx-- {
-		item := i.req.Input.OfInputItemList[idx]
-		if item.OfFunctionCallOutput == nil {
-			continue
-		}
-		return &item.OfFunctionCallOutput.CallID
+	if len(i.req.Input.OfInputItemList) == 0 {
+		return nil
 	}
-	return nil
+
+	// The tool result should be the last input message.
+	item := i.req.Input.OfInputItemList[len(i.req.Input.OfInputItemList)-1]
+	if item.OfFunctionCallOutput == nil {
+		return nil
+	}
+	return &item.OfFunctionCallOutput.CallID
 }
 
 func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {

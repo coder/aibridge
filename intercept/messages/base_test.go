@@ -74,6 +74,22 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 			},
 			expected: utils.PtrTo("toolu_second"),
 		},
+		{
+			name: "last message is not a tool result",
+			messages: []anthropic.MessageParam{
+				anthropic.NewUserMessage(
+					anthropic.ContentBlockParamUnion{
+						OfToolResult: &anthropic.ToolResultBlockParam{
+							ToolUseID: "toolu_first",
+							Content: []anthropic.ToolResultBlockParamContentUnion{
+								{OfText: &anthropic.TextBlockParam{Text: "first"}},
+							},
+						},
+					}),
+				anthropic.NewUserMessage(anthropic.NewTextBlock("some text")),
+			},
+			expected: nil,
+		},
 	}
 
 	for _, tc := range tests {

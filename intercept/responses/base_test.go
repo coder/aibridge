@@ -76,6 +76,22 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 			},
 			expected: utils.PtrTo("call_second"),
 		},
+		{
+			name: "last input is not a tool result",
+			input: []oairesponses.ResponseInputItemUnionParam{
+				{
+					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
+						CallID: "call_first",
+					},
+				},
+				{
+					OfMessage: &oairesponses.EasyInputMessageParam{
+						Role: "user",
+					},
+				},
+			},
+			expected: nil,
+		},
 	}
 
 	for _, tc := range tests {

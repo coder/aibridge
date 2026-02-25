@@ -47,6 +47,15 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 			},
 			expected: utils.PtrTo("call_second"),
 		},
+		{
+			name: "last message is not a tool message",
+			messages: []openai.ChatCompletionMessageParamUnion{
+				openai.UserMessage("hello"),
+				openai.ToolMessage("first result", "call_first"),
+				openai.AssistantMessage("thinking"),
+			},
+			expected: nil,
+		},
 	}
 
 	for _, tc := range tests {

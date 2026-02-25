@@ -63,18 +63,17 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 	i.mcpProxy = mcpProxy
 }
 
-// CorrelatingToolCallID scans the request messages for tool result
-// messages and returns the ToolCallID of the last one found, which
-// correctly identifies the most recent parent interception.
 func (i *interceptionBase) CorrelatingToolCallID() *string {
-	for idx := len(i.req.Messages) - 1; idx >= 0; idx-- {
-		msg := i.req.Messages[idx]
-		if msg.OfTool == nil {
-			continue
-		}
-		return &msg.OfTool.ToolCallID
+	if len(i.req.Messages) == 0 {
+		return nil
 	}
-	return nil
+
+	// The tool result should be the last input message.
+	msg := i.req.Messages[len(i.req.Messages)-1]
+	if msg.OfTool == nil {
+		return nil
+	}
+	return &msg.OfTool.ToolCallID
 }
 
 func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
