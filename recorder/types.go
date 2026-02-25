@@ -26,20 +26,20 @@ type ToolArgs any
 type Metadata map[string]any
 
 type InterceptionRecord struct {
-	Client      string
-	ID          string
-	InitiatorID string
-	Metadata    Metadata
-	Model       string
-	Provider    string
-	StartedAt   time.Time
-	UserAgent   string
+	Client                string
+	ID                    string
+	InitiatorID           string
+	Metadata              Metadata
+	Model                 string
+	Provider              string
+	StartedAt             time.Time
+	UserAgent             string
+	CorrelatingToolCallID *string
 }
 
 type InterceptionRecordEnded struct {
-	ID                    string
-	EndedAt               time.Time
-	CorrelatingToolCallID *string
+	ID      string
+	EndedAt time.Time
 }
 
 type TokenUsageRecord struct {
