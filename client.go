@@ -5,31 +5,35 @@ import (
 	"strings"
 )
 
+type Client string
+
 const (
 	// Possible values for the "client" field in interception records.
 	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
-	ClientClaude     = "Claude Code"
-	ClientCodex      = "Codex"
-	ClientZed        = "Zed"
-	ClientCopilotVSC = "GitHub Copilot (VS Code)"
-	ClientCopilotCLI = "GitHub Copilot (CLI)"
-	ClientKilo       = "Kilo Code"
-	ClientRoo        = "Roo Code"
-	ClientCursor     = "Cursor"
-	ClientUnknown    = "Unknown"
+	ClientClaudeCode Client = "Claude Code"
+	ClientCodex      Client = "Codex"
+	ClientZed        Client = "Zed"
+	ClientCopilotVSC Client = "GitHub Copilot (VS Code)"
+	ClientCopilotCLI Client = "GitHub Copilot (CLI)"
+	ClientKilo       Client = "Kilo Code"
+	ClientRoo        Client = "Roo Code"
+	ClientCursor     Client = "Cursor"
+	ClientUnknown    Client = "Unknown"
 )
 
 // guessClient attempts to guess the client application from the request headers.
 // Not all clients set proper user agent headers, so this is a best-effort approach.
 // Based on https://github.com/coder/aibridge/issues/20#issuecomment-3769444101.
-func guessClient(r *http.Request) string {
+func guessClient(r *http.Request) Client {
+	headers := r.Header.Clone()
+
 	userAgent := strings.ToLower(r.UserAgent())
-	originator := r.Header.Get("originator")
+	originator := headers.Get("originator")
 
 	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
 	switch {
 	case strings.HasPrefix(userAgent, "claude"):
-		return ClientClaude
+		return ClientClaudeCode
 	case strings.HasPrefix(userAgent, "codex"):
 		return ClientCodex
 	case strings.HasPrefix(userAgent, "zed/"):
@@ -44,7 +48,7 @@ func guessClient(r *http.Request) string {
 		return ClientRoo
 	case strings.HasPrefix(userAgent, "copilot"):
 		return ClientCursor
-	case r.Header.Get("x-cursor-client-version") != "":
+	case headers.Get("x-cursor-client-version") != "":
 		return ClientCursor
 	}
 	return ClientUnknown

@@ -14,12 +14,12 @@ func TestGuessClient(t *testing.T) {
 		name       string
 		userAgent  string
 		headers    map[string]string
-		wantClient string
+		wantClient Client
 	}{
 		{
 			name:       "claude_code",
 			userAgent:  "claude-cli/2.0.67 (external, cli)",
-			wantClient: ClientClaude,
+			wantClient: ClientClaudeCode,
 		},
 		{
 			name:       "codex_cli",

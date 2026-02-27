@@ -549,7 +549,7 @@ func TestSimple(t *testing.T) {
 		createRequest     func(*testing.T, string, []byte) *http.Request
 		expectedMsgID     string
 		userAgent         string
-		expectedClient    string
+		expectedClient    aibridge.Client
 	}{
 		{
 			name:              config.ProviderAnthropic,
@@ -561,7 +561,7 @@ func TestSimple(t *testing.T) {
 			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
 			userAgent:         "claude-cli/2.0.67 (external, cli)",
-			expectedClient:    aibridge.ClientClaude,
+			expectedClient:    aibridge.ClientClaudeCode,
 		},
 		{
 			name:              config.ProviderOpenAI,
@@ -671,7 +671,7 @@ func TestSimple(t *testing.T) {
 					interceptions := recorderClient.RecordedInterceptions()
 					require.Len(t, interceptions, 1, "expected exactly one interception, got: %v", interceptions)
 					assert.Equal(t, tc.userAgent, interceptions[0].UserAgent)
-					assert.Equal(t, tc.expectedClient, interceptions[0].Client)
+					assert.Equal(t, string(tc.expectedClient), interceptions[0].Client)
 
 					recorderClient.VerifyAllInterceptionsEnded(t)
 				})
