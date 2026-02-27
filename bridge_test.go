@@ -115,6 +115,11 @@ func TestGuessClient(t *testing.T) {
 		wantClient string
 	}{
 		{
+			name:       "mux",
+			userAgent:  "mux/0.19.0-next.2.gcceff159 ai-sdk/openai/3.0.36 ai-sdk/provider-utils/4.0.15 runtime/node.js/22",
+			wantClient: ClientMux,
+		},
+		{
 			name:       "claude_code",
 			userAgent:  "claude-cli/2.0.67 (external, cli)",
 			wantClient: ClientClaude,
