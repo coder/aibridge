@@ -25,7 +25,6 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/tools/txtar"
 )
 
 func openaiCfgWithAPIDump(url, key, dumpDir string) config.OpenAI {
@@ -92,16 +91,9 @@ func TestAPIDump(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			arc := txtar.Parse(tc.fixture)
-			files := filesMap(arc)
-			require.Contains(t, files, fixtureRequest)
-			require.Contains(t, files, fixtureNonStreamingResponse)
-
-			reqBody := files[fixtureRequest]
-
 			// Setup mock upstream server.
-			srv := newMockServer(ctx, t, files, nil, nil)
-			t.Cleanup(srv.Close)
+			fix := fixtures.Parse(t, tc.fixture)
+			srv := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 			// Create temp dir for API dumps.
 			dumpDir := t.TempDir()
@@ -117,7 +109,7 @@ func TestAPIDump(t *testing.T) {
 			}
 			mockSrv.Start()
 
-			req := tc.createRequestFunc(t, mockSrv.URL, reqBody)
+			req := tc.createRequestFunc(t, mockSrv.URL, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -163,7 +155,7 @@ func TestAPIDump(t *testing.T) {
 			require.NoError(t, err)
 
 			// Compare requests semantically (key order may differ).
-			require.JSONEq(t, string(dumpBody), string(reqBody), "request body JSON should match semantically")
+			require.JSONEq(t, string(dumpBody), string(fix.Request()), "request body JSON should match semantically")
 
 			// Verify response dump contains expected HTTP response format.
 			respDumpData, err := os.ReadFile(respDumpFile)
@@ -177,7 +169,7 @@ func TestAPIDump(t *testing.T) {
 			require.NoError(t, err)
 
 			// Compare responses semantically (key order may differ).
-			expectedRespBody := files[fixtureNonStreamingResponse]
+			expectedRespBody := fix.NonStreaming()
 			require.JSONEq(t, string(expectedRespBody), string(dumpRespBody), "response body JSON should match semantically")
 
 			recorderClient.VerifyAllInterceptionsEnded(t)

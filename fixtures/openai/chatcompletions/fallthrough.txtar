@@ -1,6 +1,6 @@
 API endpoints not explicitly handled will fallthrough to upstream via reverse-proxy.
 
--- response --
+-- non-streaming --
 {
   "object": "list",
   "data": [

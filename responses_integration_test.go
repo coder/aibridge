@@ -26,7 +26,6 @@ import (
 	"github.com/coder/aibridge/recorder"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/require"
-	"golang.org/x/tools/txtar"
 )
 
 type keyVal struct {
@@ -331,26 +330,18 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			files := filesMap(txtar.Parse(tc.fixture))
-			require.Contains(t, files, fixtureRequest)
-			fixtResp := fixtureNonStreamingResponse
-			if tc.streaming {
-				fixtResp = fixtureStreamingResponse
-			}
-			require.Contains(t, files, fixtResp)
-
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 			ctx = aibcontext.AsActor(ctx, userID, nil)
 
-			mockAPI := newMockServer(ctx, t, files, nil, nil)
-			t.Cleanup(mockAPI.Close)
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
-			provider := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+			provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 			srv, mockRecorder := newTestSrv(t, ctx, provider, nil, testTracer)
 			defer srv.Close()
 
-			req := createOpenAIResponsesReq(t, srv.URL, files[fixtureRequest])
+			req := createOpenAIResponsesReq(t, srv.URL, fix.Request())
 			req.Header.Set("User-Agent", tc.userAgent)
 			client := &http.Client{}
 
@@ -359,10 +350,13 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			got, err := io.ReadAll(resp.Body)
-			srv.Close()
 
 			require.NoError(t, err)
-			require.Equal(t, string(files[fixtResp]), string(got))
+			if tc.streaming {
+				require.Equal(t, string(fix.Streaming()), string(got))
+			} else {
+				require.Equal(t, string(fix.NonStreaming()), string(got))
+			}
 
 			interceptions := mockRecorder.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
@@ -865,31 +859,13 @@ func TestResponsesInjectedTool(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			files := filesMap(txtar.Parse(tc.fixture))
-			require.Contains(t, files, fixtureRequest)
-			if tc.streaming {
-				require.Contains(t, files, fixtureStreamingResponse)
-				require.Contains(t, files, fixtureStreamingToolResponse)
-			} else {
-				require.Contains(t, files, fixtureNonStreamingResponse)
-				require.Contains(t, files, fixtureNonStreamingToolResponse)
-			}
-
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			// Setup mock server with response mutator for multi-turn interaction.
-			mockAPI := newMockServer(ctx, t, files, nil, func(reqCount uint32, resp []byte) []byte {
-				if reqCount == 1 {
-					return resp // First request gets the normal response (with tool call).
-				}
-				// Second request gets the tool response.
-				if tc.streaming {
-					return files[fixtureStreamingToolResponse]
-				}
-				return files[fixtureNonStreamingToolResponse]
-			})
-			t.Cleanup(mockAPI.Close)
+			// Setup mock server for multi-turn interaction.
+			// First request → tool call response, second → tool response.
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix), testutil.NewFixtureToolResponse(fix))
 
 			// Setup MCP server proxies (with mock tools).
 			mcpProxiers, mcpCalls := setupMCPServerProxiesForTest(t, testTracer)
@@ -899,7 +875,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 			mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
 			require.NoError(t, mcpMgr.Init(ctx))
 
-			prov := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
+			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 			mockRecorder := &testutil.MockRecorder{}
 			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 
@@ -913,7 +889,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 			srv.Start()
 			t.Cleanup(srv.Close)
 
-			req := createOpenAIResponsesReq(t, srv.URL, files[fixtureRequest])
+			req := createOpenAIResponsesReq(t, srv.URL, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -924,7 +900,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 
 			// Wait for both requests to be made (inner agentic loop).
 			require.Eventually(t, func() bool {
-				return mockAPI.callCount.Load() == 2
+				return upstream.Calls.Load() == 2
 			}, time.Second*10, time.Millisecond*50)
 
 			// Verify the injected tool was invoked via MCP.
@@ -956,9 +932,9 @@ func TestResponsesInjectedTool(t *testing.T) {
 
 			// Verify the response is the final tool response (after agentic loop).
 			if tc.streaming {
-				require.Equal(t, string(files[fixtureStreamingToolResponse]), string(body))
+				require.Equal(t, string(fix.StreamingToolCall()), string(body))
 			} else {
-				require.Equal(t, string(files[fixtureNonStreamingToolResponse]), string(body))
+				require.Equal(t, string(fix.NonStreamingToolCall()), string(body))
 			}
 		})
 	}
