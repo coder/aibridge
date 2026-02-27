@@ -84,8 +84,8 @@ func TestAnthropicMessages(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 				t.Cleanup(cancel)
 
-				files := fixtures.ParseFiles(t, fixtures.AntSingleBuiltinTool)
-				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
+				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 				recorderClient := &testutil.MockRecorder{}
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
@@ -101,7 +101,7 @@ func TestAnthropicMessages(t *testing.T) {
 				mockSrv.Start()
 
 				// Make API call to aibridge for Anthropic /v1/messages
-				reqBody, err := sjson.SetBytes(files.Request(), "stream", tc.streaming)
+				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
 				req := createAnthropicMessagesReq(t, mockSrv.URL, reqBody)
 				client := &http.Client{}
@@ -202,8 +202,8 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 				t.Cleanup(cancel)
 
-				files := fixtures.ParseFiles(t, fixtures.AntSingleBuiltinTool)
-				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
+				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 				// We define region here to validate that with Region & BaseURL defined, the latter takes precedence.
 				bedrockCfg := &config.AWSBedrock{
@@ -231,7 +231,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 
 				// Make API call to aibridge for Anthropic /v1/messages, which will be routed via AWS Bedrock.
 				// We override the AWS Bedrock client to route requests through our mock server.
-				reqBody, err := sjson.SetBytes(files.Request(), "stream", streaming)
+				reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 				require.NoError(t, err)
 				req := createAnthropicMessagesReq(t, mockBridgeSrv.URL, reqBody)
 				client := &http.Client{}
@@ -298,8 +298,8 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 				t.Cleanup(cancel)
 
-				files := fixtures.ParseFiles(t, fixtures.OaiChatSingleBuiltinTool)
-				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+				fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
+				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 				recorderClient := &testutil.MockRecorder{}
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -315,7 +315,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				mockSrv.Start()
 
 				// Make API call to aibridge for OpenAI /v1/chat/completions
-				reqBody, err := sjson.SetBytes(files.Request(), "stream", tc.streaming)
+				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
 				req := createOpenAIChatCompletionsReq(t, mockSrv.URL, reqBody)
 
@@ -389,8 +389,8 @@ func TestOpenAIChatCompletions(t *testing.T) {
 
 				// Setup mock server for multi-turn interaction.
 				// First request → tool call response, second → tool response.
-				files := fixtures.ParseFiles(t, tc.fixture)
-				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files), testutil.NewFixtureToolResponse(files))
+				fix := fixtures.Parse(t, tc.fixture)
+				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix), testutil.NewFixtureToolResponse(fix))
 
 				recorderClient := &testutil.MockRecorder{}
 
@@ -412,7 +412,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				mockSrv.Start()
 
 				// Add the stream param to the request.
-				reqBody, err := sjson.SetBytes(files.Request(), "stream", true)
+				reqBody, err := sjson.SetBytes(fix.Request(), "stream", true)
 				require.NoError(t, err)
 				req := createOpenAIChatCompletionsReq(t, mockSrv.URL, reqBody)
 
@@ -604,8 +604,8 @@ func TestSimple(t *testing.T) {
 					ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 					t.Cleanup(cancel)
 
-					files := fixtures.ParseFiles(t, tc.fixture)
-					upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+					fix := fixtures.Parse(t, tc.fixture)
+					upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 					recorderClient := &testutil.MockRecorder{}
 
@@ -620,7 +620,7 @@ func TestSimple(t *testing.T) {
 					mockSrv.Start()
 
 					// When: calling the "API server" with the fixture's request body.
-					reqBody, err := sjson.SetBytes(files.Request(), "stream", streaming)
+					reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 					require.NoError(t, err)
 					req := tc.createRequest(t, mockSrv.URL, reqBody)
 					req.Header.Set("User-Agent", tc.userAgent)
@@ -750,8 +750,8 @@ func TestFallthrough(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			files := fixtures.ParseFiles(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, t.Context(), testutil.NewFixtureResponse(files))
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, t.Context(), testutil.NewFixtureResponse(fix))
 			recorderClient := &testutil.MockRecorder{}
 			provider, bridge := tc.configureFunc(upstream.URL+tc.basePath, recorderClient)
 
@@ -785,7 +785,7 @@ func TestFallthrough(t *testing.T) {
 			var got any
 			var exp any
 			require.NoError(t, json.Unmarshal(gotBytes, &got))
-			require.NoError(t, json.Unmarshal(files.NonStreaming(), &exp))
+			require.NoError(t, json.Unmarshal(fix.NonStreaming(), &exp))
 			require.EqualValues(t, exp, got)
 		})
 	}
@@ -1094,12 +1094,12 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
-	files := fixtures.ParseFiles(t, fixture)
+	fix := fixtures.Parse(t, fixture)
 
 	// Setup mock server for multi-turn interaction.
 	// First request → tool call response, second → tool response.
-	firstResp := testutil.NewFixtureResponse(files)
-	toolResp := testutil.NewFixtureToolResponse(files)
+	firstResp := testutil.NewFixtureResponse(fix)
+	toolResp := testutil.NewFixtureToolResponse(fix)
 	toolResp.OnRequest = toolRequestValidatorFn
 	upstream := testutil.NewMockUpstream(t, ctx, firstResp, toolResp)
 
@@ -1123,7 +1123,7 @@ func setupInjectedToolTest(t *testing.T, fixture []byte, streaming bool, configu
 	t.Cleanup(bridgeSrv.Close)
 
 	// Add the stream param to the request.
-	reqBody, err := sjson.SetBytes(files.Request(), "stream", streaming)
+	reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 	require.NoError(t, err)
 
 	req := createRequestFn(t, bridgeSrv.URL, reqBody)
@@ -1206,8 +1206,8 @@ func TestErrorHandling(t *testing.T) {
 
 						// Setup mock server. Error fixtures contain raw HTTP
 						// responses that may cause the bridge to retry.
-						files := fixtures.ParseFiles(t, tc.fixture)
-						mockSrv := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+						fix := fixtures.Parse(t, tc.fixture)
+						mockSrv := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 						recorderClient := &testutil.MockRecorder{}
 
@@ -1223,7 +1223,7 @@ func TestErrorHandling(t *testing.T) {
 						t.Cleanup(bridgeSrv.Close)
 
 						// Add the stream param to the request.
-						reqBody, err := sjson.SetBytes(files.Request(), "stream", streaming)
+						reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 						require.NoError(t, err)
 
 						req := tc.createRequestFunc(t, bridgeSrv.URL, reqBody)
@@ -1301,8 +1301,8 @@ func TestErrorHandling(t *testing.T) {
 				t.Cleanup(cancel)
 
 				// Setup mock server.
-				files := fixtures.ParseFiles(t, tc.fixture)
-				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+				fix := fixtures.Parse(t, tc.fixture)
+				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 				upstream.StatusCode = http.StatusInternalServerError
 
 				recorderClient := &testutil.MockRecorder{}
@@ -1318,7 +1318,7 @@ func TestErrorHandling(t *testing.T) {
 				bridgeSrv.Start()
 				t.Cleanup(bridgeSrv.Close)
 
-				req := tc.createRequestFunc(t, bridgeSrv.URL, files.Request())
+				req := tc.createRequestFunc(t, bridgeSrv.URL, fix.Request())
 				resp, err := http.DefaultClient.Do(req)
 				t.Cleanup(func() { _ = resp.Body.Close() })
 				require.NoError(t, err)
@@ -1380,13 +1380,13 @@ func TestStableRequestEncoding(t *testing.T) {
 			mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
 			require.NoError(t, mcpMgr.Init(ctx))
 
-			files := fixtures.ParseFiles(t, tc.fixture)
+			fix := fixtures.Parse(t, tc.fixture)
 
 			// Create a mock upstream that serves the same blocking response for each request.
 			count := 10
 			responses := make([]testutil.UpstreamResponse, count)
 			for i := range count {
-				responses[i] = testutil.NewFixtureResponse(files)
+				responses[i] = testutil.NewFixtureResponse(fix)
 			}
 			upstream := testutil.NewMockUpstream(t, ctx, responses...)
 
@@ -1404,7 +1404,7 @@ func TestStableRequestEncoding(t *testing.T) {
 
 			// Make multiple requests and verify they all have identical payloads.
 			for range count {
-				req := tc.createRequestFunc(t, bridgeSrv.URL, files.Request())
+				req := tc.createRequestFunc(t, bridgeSrv.URL, fix.Request())
 				client := &http.Client{}
 				resp, err := client.Do(req)
 				require.NoError(t, err)
@@ -1513,8 +1513,8 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			}
 			require.NoError(t, mcpMgr.Init(ctx))
 
-			files := fixtures.ParseFiles(t, fixtures.AntSimple)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+			fix := fixtures.Parse(t, fixtures.AntSimple)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 			recorder := &testutil.MockRecorder{}
 			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -1531,7 +1531,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			t.Cleanup(bridgeSrv.Close)
 
 			// Prepare request body with tool_choice set.
-			reqBody, err := sjson.SetBytes(files.Request(), "tool_choice", tc.toolChoice)
+			reqBody, err := sjson.SetBytes(fix.Request(), "tool_choice", tc.toolChoice)
 			require.NoError(t, err)
 
 			req := createAnthropicMessagesReq(t, bridgeSrv.URL, reqBody)
@@ -1574,7 +1574,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 	t.Parallel()
 
-	files := fixtures.ParseFiles(t, fixtures.AntSimple)
+	fix := fixtures.Parse(t, fixtures.AntSimple)
 
 	for _, streaming := range []bool{true, false} {
 		t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
@@ -1584,7 +1584,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// Create a mock server that captures the request body sent upstream.
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 			recorderClient := &testutil.MockRecorder{}
 			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
@@ -1600,7 +1600,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			t.Cleanup(bridgeSrv.Close)
 
 			// Inject adaptive thinking into the fixture request.
-			reqBody, err := sjson.SetBytes(files.Request(), "thinking", map[string]string{"type": "adaptive"})
+			reqBody, err := sjson.SetBytes(fix.Request(), "thinking", map[string]string{"type": "adaptive"})
 			require.NoError(t, err)
 			reqBody, err = sjson.SetBytes(reqBody, "stream", streaming)
 			require.NoError(t, err)
@@ -1670,8 +1670,8 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			files := fixtures.ParseFiles(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 			// Set environment variables that the SDK would automatically read.
 			// These should NOT leak into upstream requests.
@@ -1690,7 +1690,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 			}
 			mockSrv.Start()
 
-			req := tc.createRequest(t, mockSrv.URL, files.Request())
+			req := tc.createRequest(t, mockSrv.URL, fix.Request())
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			require.NoError(t, err)

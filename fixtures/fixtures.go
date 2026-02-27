@@ -4,6 +4,7 @@ import (
 	_ "embed"
 	"testing"
 
+	"github.com/stretchr/testify/require"
 	"golang.org/x/tools/txtar"
 )
 
@@ -126,56 +127,85 @@ var (
 	OaiResponsesStreamingWrongResponseFormat []byte
 )
 
-// Archive file name constants matching the file names used in txtar fixtures.
+// Section name constants matching the file names used in txtar fixtures.
 const (
 	fileRequest              = "request"
 	fileStreamingResponse    = "streaming"
 	fileNonStreamingResponse = "non-streaming"
 	fileStreamingToolCall    = "streaming/tool-call"
 	fileNonStreamingToolCall = "non-streaming/tool-call"
+
+	// Exported aliases so callers can check [Fixture.Has] before calling a
+	// getter that would otherwise fail the test.
+	SectionStreaming         = fileStreamingResponse
+	SectionNonStreaming      = fileNonStreamingResponse
+	SectionStreamingToolCall = fileStreamingToolCall
+	SectionNonStreamToolCall = fileNonStreamingToolCall
 )
 
-// Files maps txtar archive file names to their contents.
-type Files map[string][]byte
-
-func (f Files) Request() []byte {
-	return f[fileRequest]
+// Fixture holds the named sections of a parsed txtar test fixture.
+type Fixture struct {
+	sections map[string][]byte
+	t        *testing.T
 }
 
-func (f Files) Streaming() []byte {
-	return f[fileStreamingResponse]
+// Has reports whether the fixture contains the named section.
+func (f Fixture) Has(name string) bool {
+	_, ok := f.sections[name]
+	return ok
 }
 
-func (f Files) NonStreaming() []byte {
-	return f[fileNonStreamingResponse]
+func (f Fixture) Request() []byte {
+	f.t.Helper()
+	v, ok := f.sections[fileRequest]
+	require.True(f.t, ok, "fixture archive missing %q section", fileRequest)
+	return v
 }
 
-func (f Files) StreamingToolCall() []byte {
-	return f[fileStreamingToolCall]
+func (f Fixture) Streaming() []byte {
+	f.t.Helper()
+	v, ok := f.sections[fileStreamingResponse]
+	require.True(f.t, ok, "fixture archive missing %q section", fileStreamingResponse)
+	return v
 }
 
-func (f Files) NonStreamingToolCall() []byte {
-	return f[fileNonStreamingToolCall]
+func (f Fixture) NonStreaming() []byte {
+	f.t.Helper()
+	v, ok := f.sections[fileNonStreamingResponse]
+	require.True(f.t, ok, "fixture archive missing %q section", fileNonStreamingResponse)
+	return v
 }
 
-// ParseFiles parses raw txtar data into a Files map.
-func ParseFiles(t *testing.T, data []byte) Files {
+func (f Fixture) StreamingToolCall() []byte {
+	f.t.Helper()
+	v, ok := f.sections[fileStreamingToolCall]
+	require.True(f.t, ok, "fixture archive missing %q section", fileStreamingToolCall)
+	return v
+}
+
+func (f Fixture) NonStreamingToolCall() []byte {
+	f.t.Helper()
+	v, ok := f.sections[fileNonStreamingToolCall]
+	require.True(f.t, ok, "fixture archive missing %q section", fileNonStreamingToolCall)
+	return v
+}
+
+// Parse parses raw txtar data into a [Fixture].
+func Parse(t *testing.T, data []byte) Fixture {
 	t.Helper()
 
 	archive := txtar.Parse(data)
-	if len(archive.Files) == 0 {
-		return nil
-	}
+	require.NotEmpty(t, archive.Files, "fixture archive has no files")
 
-	out := make(Files, len(archive.Files))
+	sections := make(map[string][]byte, len(archive.Files))
 	for _, f := range archive.Files {
-		out[f.Name] = f.Data
+		sections[f.Name] = f.Data
 	}
-	return out
+	return Fixture{sections: sections, t: t}
 }
 
 // Request extracts the "request" fixture from raw txtar data.
 func Request(t *testing.T, fixture []byte) []byte {
 	t.Helper()
-	return ParseFiles(t, fixture).Request()
+	return Parse(t, fixture).Request()
 }

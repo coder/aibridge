@@ -92,8 +92,8 @@ func TestAPIDump(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// Setup mock upstream server.
-			files := fixtures.ParseFiles(t, tc.fixture)
-			srv := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+			fix := fixtures.Parse(t, tc.fixture)
+			srv := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 			// Create temp dir for API dumps.
 			dumpDir := t.TempDir()
@@ -109,7 +109,7 @@ func TestAPIDump(t *testing.T) {
 			}
 			mockSrv.Start()
 
-			req := tc.createRequestFunc(t, mockSrv.URL, files.Request())
+			req := tc.createRequestFunc(t, mockSrv.URL, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -155,7 +155,7 @@ func TestAPIDump(t *testing.T) {
 			require.NoError(t, err)
 
 			// Compare requests semantically (key order may differ).
-			require.JSONEq(t, string(dumpBody), string(files.Request()), "request body JSON should match semantically")
+			require.JSONEq(t, string(dumpBody), string(fix.Request()), "request body JSON should match semantically")
 
 			// Verify response dump contains expected HTTP response format.
 			respDumpData, err := os.ReadFile(respDumpFile)
@@ -169,7 +169,7 @@ func TestAPIDump(t *testing.T) {
 			require.NoError(t, err)
 
 			// Compare responses semantically (key order may differ).
-			expectedRespBody := files.NonStreaming()
+			expectedRespBody := fix.NonStreaming()
 			require.JSONEq(t, string(expectedRespBody), string(dumpRespBody), "response body JSON should match semantically")
 
 			recorderClient.VerifyAllInterceptionsEnded(t)

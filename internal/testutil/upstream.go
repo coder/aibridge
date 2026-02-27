@@ -36,21 +36,31 @@ type UpstreamResponse struct {
 }
 
 // NewFixtureResponse creates an UpstreamResponse from a parsed fixture archive.
-// Uses 'streaming' and 'non-streaming' sub-files.
-func NewFixtureResponse(files fixtures.Files) UpstreamResponse {
-	return UpstreamResponse{
-		Streaming: files.Streaming(),
-		Blocking:  files.NonStreaming(),
+// It reads whichever of 'streaming' and 'non-streaming' sections exist;
+// not every fixture has both (e.g. error fixtures may only define one).
+func NewFixtureResponse(fix fixtures.Fixture) UpstreamResponse {
+	var resp UpstreamResponse
+	if fix.Has(fixtures.SectionStreaming) {
+		resp.Streaming = fix.Streaming()
 	}
+	if fix.Has(fixtures.SectionNonStreaming) {
+		resp.Blocking = fix.NonStreaming()
+	}
+	return resp
 }
 
 // NewFixtureToolResponse creates an UpstreamResponse from the tool-call fixture files.
-// Uses 'streaming/tool-call' and 'non-streaming/tool-call' sub-files.
-func NewFixtureToolResponse(files fixtures.Files) UpstreamResponse {
-	return UpstreamResponse{
-		Streaming: files.StreamingToolCall(),
-		Blocking:  files.NonStreamingToolCall(),
+// It reads whichever of 'streaming/tool-call' and 'non-streaming/tool-call'
+// sections exist.
+func NewFixtureToolResponse(fix fixtures.Fixture) UpstreamResponse {
+	var resp UpstreamResponse
+	if fix.Has(fixtures.SectionStreamingToolCall) {
+		resp.Streaming = fix.StreamingToolCall()
 	}
+	if fix.Has(fixtures.SectionNonStreamToolCall) {
+		resp.Blocking = fix.NonStreamingToolCall()
+	}
+	return resp
 }
 
 // ReceivedRequest captures the details of a single request handled by MockUpstream.
@@ -100,8 +110,8 @@ func (ms *MockUpstream) ReceivedRequests() []ReceivedRequest {
 // The test fails if the number of requests doesn't match the number of
 // responses (when AllowOverflow is not set, default).
 //
-//	srv := testutil.NewMockUpstream(t, ctx, testutil.NewResponse(files))                                   // simple
-//	srv := testutil.NewMockUpstream(t, ctx, testutil.NewResponse(files), testutil.NewToolResponse(files))  // multi-turn
+//	srv := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))                                          // simple
+//	srv := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix), testutil.NewFixtureToolResponse(fix))  // multi-turn
 func NewMockUpstream(t *testing.T, ctx context.Context, responses ...UpstreamResponse) *MockUpstream {
 	t.Helper()
 	require.NotEmpty(t, responses, "at least one UpstreamResponse required")

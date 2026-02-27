@@ -123,8 +123,8 @@ func TestMetrics_Interception(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			files := fixtures.ParseFiles(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 			upstream.AllowOverflow = tc.allowOverflow
 
 			metrics := aibridge.NewMetrics(prometheus.NewRegistry())
@@ -136,7 +136,7 @@ func TestMetrics_Interception(t *testing.T) {
 			}
 			srv, _ := newTestSrv(t, ctx, prov, metrics, testTracer)
 
-			req := tc.reqFunc(t, srv.URL, files.Request())
+			req := tc.reqFunc(t, srv.URL, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -154,7 +154,7 @@ func TestMetrics_Interception(t *testing.T) {
 func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Parallel()
 
-	files := fixtures.ParseFiles(t, fixtures.AntSimple)
+	fix := fixtures.Parse(t, fixtures.AntSimple)
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
@@ -175,7 +175,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		req := createAnthropicMessagesReq(t, bridgeSrv.URL, files.Request())
+		req := createAnthropicMessagesReq(t, bridgeSrv.URL, fix.Request())
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
@@ -235,14 +235,14 @@ func TestMetrics_PromptCount(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
-	files := fixtures.ParseFiles(t, fixtures.OaiChatSimple)
-	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+	fix := fixtures.Parse(t, fixtures.OaiChatSimple)
+	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
-	req := createOpenAIChatCompletionsReq(t, srv.URL, files.Request())
+	req := createOpenAIChatCompletionsReq(t, srv.URL, fix.Request())
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -260,14 +260,14 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 	t.Cleanup(cancel)
 
-	files := fixtures.ParseFiles(t, fixtures.OaiChatSingleBuiltinTool)
-	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files))
+	fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
+	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
 	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
 
-	req := createOpenAIChatCompletionsReq(t, srv.URL, files.Request())
+	req := createOpenAIChatCompletionsReq(t, srv.URL, fix.Request())
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -286,8 +286,8 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	t.Cleanup(cancel)
 
 	// First request returns the tool invocation, the second returns the mocked response to the tool result.
-	files := fixtures.ParseFiles(t, fixtures.AntSingleInjectedTool)
-	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(files), testutil.NewFixtureToolResponse(files))
+	fix := fixtures.Parse(t, fixtures.AntSingleInjectedTool)
+	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix), testutil.NewFixtureToolResponse(fix))
 
 	recorder := &testutil.MockRecorder{}
 	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
@@ -309,7 +309,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	srv.Start()
 	t.Cleanup(srv.Close)
 
-	req := createAnthropicMessagesReq(t, srv.URL, files.Request())
+	req := createAnthropicMessagesReq(t, srv.URL, fix.Request())
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
