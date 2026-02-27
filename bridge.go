@@ -29,21 +29,6 @@ const (
 	recordingTimeout = time.Second * 5
 )
 
-const (
-	// Possible values for the "client" field in interception records.
-	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
-	ClientClaude     = "Claude Code"
-	ClientCodex      = "Codex"
-	ClientCursor     = "Cursor"
-	ClientCopilotVSC = "GitHub Copilot (VS Code)"
-	ClientCopilotCLI = "GitHub Copilot (CLI)"
-	ClientKilo       = "Kilo Code"
-	ClientMux        = "Mux"
-	ClientRoo        = "Roo Code"
-	ClientZed        = "Zed"
-	ClientUnknown    = "Unknown"
-)
-
 // RequestBridge is an [http.Handler] which is capable of masquerading as AI providers' APIs;
 // specifically, OpenAI's & Anthropic's at present.
 // RequestBridge intercepts requests to - and responses from - these upstream services to provide
@@ -167,6 +152,11 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		ctx, span := tracer.Start(r.Context(), "Intercept")
 		defer span.End()
 
+		// We execute this before CreateInterceptor since the interceptors
+		// read the request body and don't reset them.
+		client := guessClient(r)
+		sessionID := guessSessionID(client, r)
+
 		interceptor, err := p.CreateInterceptor(w, r.WithContext(ctx), tracer)
 		if err != nil {
 			span.SetStatus(codes.Error, fmt.Sprintf("failed to create interceptor: %v", err))
@@ -203,13 +193,14 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
 		if err := rec.RecordInterception(ctx, &recorder.InterceptionRecord{
-			Client:                guessClient(r),
 			ID:                    interceptor.ID().String(),
 			InitiatorID:           actor.ID,
 			Metadata:              actor.Metadata,
 			Model:                 interceptor.Model(),
 			Provider:              p.Name(),
 			UserAgent:             r.UserAgent(),
+			Client:                string(client),
+			ClientSessionID:       sessionID,
 			CorrelatingToolCallID: interceptor.CorrelatingToolCallID(),
 		}); err != nil {
 			span.SetStatus(codes.Error, fmt.Sprintf("failed to record interception: %v", err))
