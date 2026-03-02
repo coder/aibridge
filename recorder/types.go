@@ -26,14 +26,15 @@ type ToolArgs any
 type Metadata map[string]any
 
 type InterceptionRecord struct {
-	Client      string
-	ID          string
-	InitiatorID string
-	Metadata    Metadata
-	Model       string
-	Provider    string
-	StartedAt   time.Time
-	UserAgent   string
+	Client                string
+	ID                    string
+	InitiatorID           string
+	Metadata              Metadata
+	Model                 string
+	Provider              string
+	StartedAt             time.Time
+	UserAgent             string
+	CorrelatingToolCallID *string
 }
 
 type InterceptionRecordEnded struct {
@@ -63,6 +64,7 @@ type PromptUsageRecord struct {
 type ToolUsageRecord struct {
 	InterceptionID  string
 	MsgID, Tool     string
+	ToolCallID      string
 	ServerURL       *string
 	Args            ToolArgs
 	Injected        bool

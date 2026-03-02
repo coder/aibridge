@@ -173,10 +173,12 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 				_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 					InterceptionID: i.ID().String(),
 					MsgID:          processor.getMsgID(),
+					ToolCallID:     toolCall.ID,
 					Tool:           toolCall.Name,
 					Args:           i.unmarshalArgs(toolCall.Arguments),
 					Injected:       false,
 				})
+
 				toolCall = nil
 			} else {
 				// When the provider responds with only tool calls (no text content),
@@ -284,6 +286,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 			InterceptionID:  i.ID().String(),
 			MsgID:           processor.getMsgID(),
+			ToolCallID:      id,
 			ServerURL:       &tool.ServerURL,
 			Tool:            tool.Name,
 			Args:            args,

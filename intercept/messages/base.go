@@ -57,6 +57,21 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 	i.mcpProxy = mcpProxy
 }
 
+func (i *interceptionBase) CorrelatingToolCallID() *string {
+	if len(i.req.Messages) == 0 {
+		return nil
+	}
+	content := i.req.Messages[len(i.req.Messages)-1].Content
+	for idx := len(content) - 1; idx >= 0; idx-- {
+		block := content[idx]
+		if block.OfToolResult == nil {
+			continue
+		}
+		return &block.OfToolResult.ToolUseID
+	}
+	return nil
+}
+
 func (i *interceptionBase) Model() string {
 	if i.req == nil {
 		return "coder-aibridge-unknown"

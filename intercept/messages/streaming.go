@@ -298,6 +298,7 @@ newStream:
 						_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 							InterceptionID:  i.ID().String(),
 							MsgID:           message.ID,
+							ToolCallID:      id,
 							ServerURL:       &tool.ServerURL,
 							Tool:            tool.Name,
 							Args:            input,
@@ -411,6 +412,7 @@ newStream:
 							_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
 								InterceptionID: i.ID().String(),
 								MsgID:          message.ID,
+								ToolCallID:     variant.ID,
 								Tool:           variant.Name,
 								Args:           variant.Input,
 								Injected:       false,

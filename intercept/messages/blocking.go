@@ -152,10 +152,12 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          resp.ID,
+				ToolCallID:     toolUse.ID,
 				Tool:           toolUse.Name,
 				Args:           toolUse.Input,
 				Injected:       false,
 			})
+
 		}
 
 		// If no injected tool calls, we're done.
@@ -188,6 +190,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           resp.ID,
+				ToolCallID:      tc.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
 				Args:            tc.Input,

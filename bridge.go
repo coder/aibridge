@@ -203,13 +203,14 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
 		if err := rec.RecordInterception(ctx, &recorder.InterceptionRecord{
-			Client:      guessClient(r),
-			ID:          interceptor.ID().String(),
-			InitiatorID: actor.ID,
-			Metadata:    actor.Metadata,
-			Model:       interceptor.Model(),
-			Provider:    p.Name(),
-			UserAgent:   r.UserAgent(),
+			Client:                guessClient(r),
+			ID:                    interceptor.ID().String(),
+			InitiatorID:           actor.ID,
+			Metadata:              actor.Metadata,
+			Model:                 interceptor.Model(),
+			Provider:              p.Name(),
+			UserAgent:             r.UserAgent(),
+			CorrelatingToolCallID: interceptor.CorrelatingToolCallID(),
 		}); err != nil {
 			span.SetStatus(codes.Error, fmt.Sprintf("failed to record interception: %v", err))
 			logger.Warn(ctx, "failed to record interception", slog.Error(err))

@@ -8,9 +8,106 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/utils"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 )
+
+func TestScanForCorrelatingToolCallID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		messages []anthropic.MessageParam
+		expected *string
+	}{
+		{
+			name:     "no messages",
+			messages: nil,
+			expected: nil,
+		},
+		{
+			name: "last message has no tool_result blocks",
+			messages: []anthropic.MessageParam{
+				anthropic.NewUserMessage(anthropic.NewTextBlock("hello")),
+			},
+			expected: nil,
+		},
+		{
+			name: "single tool_result block",
+			messages: []anthropic.MessageParam{
+				anthropic.NewUserMessage(
+					anthropic.ContentBlockParamUnion{
+						OfToolResult: &anthropic.ToolResultBlockParam{
+							ToolUseID: "toolu_abc",
+							Content: []anthropic.ToolResultBlockParamContentUnion{
+								{OfText: &anthropic.TextBlockParam{Text: "result"}},
+							},
+						},
+					},
+				),
+			},
+			expected: utils.PtrTo("toolu_abc"),
+		},
+		{
+			name: "multiple tool_result blocks returns last",
+			messages: []anthropic.MessageParam{
+				anthropic.NewUserMessage(
+					anthropic.ContentBlockParamUnion{
+						OfToolResult: &anthropic.ToolResultBlockParam{
+							ToolUseID: "toolu_first",
+							Content: []anthropic.ToolResultBlockParamContentUnion{
+								{OfText: &anthropic.TextBlockParam{Text: "first"}},
+							},
+						},
+					},
+					anthropic.NewTextBlock("some text"),
+					anthropic.ContentBlockParamUnion{
+						OfToolResult: &anthropic.ToolResultBlockParam{
+							ToolUseID: "toolu_second",
+							Content: []anthropic.ToolResultBlockParamContentUnion{
+								{OfText: &anthropic.TextBlockParam{Text: "second"}},
+							},
+						},
+					},
+				),
+			},
+			expected: utils.PtrTo("toolu_second"),
+		},
+		{
+			name: "last message is not a tool result",
+			messages: []anthropic.MessageParam{
+				anthropic.NewUserMessage(
+					anthropic.ContentBlockParamUnion{
+						OfToolResult: &anthropic.ToolResultBlockParam{
+							ToolUseID: "toolu_first",
+							Content: []anthropic.ToolResultBlockParamContentUnion{
+								{OfText: &anthropic.TextBlockParam{Text: "first"}},
+							},
+						},
+					}),
+				anthropic.NewUserMessage(anthropic.NewTextBlock("some text")),
+			},
+			expected: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			base := &interceptionBase{
+				req: &MessageNewParamsWrapper{
+					MessageNewParams: anthropic.MessageNewParams{
+						Messages: tc.messages,
+					},
+				},
+			}
+
+			require.Equal(t, tc.expected, base.CorrelatingToolCallID())
+		})
+	}
+}
 
 func TestAWSBedrockValidation(t *testing.T) {
 	t.Parallel()

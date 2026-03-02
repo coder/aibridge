@@ -9,10 +9,109 @@ import (
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/utils"
 	"github.com/google/uuid"
 	oairesponses "github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/require"
 )
+
+func TestScanForCorrelatingToolCallID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		input    []oairesponses.ResponseInputItemUnionParam
+		expected *string
+	}{
+		{
+			name:     "no input items",
+			input:    nil,
+			expected: nil,
+		},
+		{
+			name: "no function_call_output items",
+			input: []oairesponses.ResponseInputItemUnionParam{
+				{
+					OfMessage: &oairesponses.EasyInputMessageParam{
+						Role: "user",
+					},
+				},
+			},
+			expected: nil,
+		},
+		{
+			name: "single function_call_output",
+			input: []oairesponses.ResponseInputItemUnionParam{
+				{
+					OfMessage: &oairesponses.EasyInputMessageParam{
+						Role: "user",
+					},
+				},
+				{
+					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
+						CallID: "call_abc",
+					},
+				},
+			},
+			expected: utils.PtrTo("call_abc"),
+		},
+		{
+			name: "multiple function_call_outputs returns last",
+			input: []oairesponses.ResponseInputItemUnionParam{
+				{
+					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
+						CallID: "call_first",
+					},
+				},
+				{
+					OfMessage: &oairesponses.EasyInputMessageParam{
+						Role: "user",
+					},
+				},
+				{
+					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
+						CallID: "call_second",
+					},
+				},
+			},
+			expected: utils.PtrTo("call_second"),
+		},
+		{
+			name: "last input is not a tool result",
+			input: []oairesponses.ResponseInputItemUnionParam{
+				{
+					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
+						CallID: "call_first",
+					},
+				},
+				{
+					OfMessage: &oairesponses.EasyInputMessageParam{
+						Role: "user",
+					},
+				},
+			},
+			expected: nil,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			base := &responsesInterceptionBase{
+				req: &ResponsesNewParamsWrapper{
+					ResponseNewParams: oairesponses.ResponseNewParams{
+						Input: oairesponses.ResponseNewParamsInputUnion{
+							OfInputItemList: tc.input,
+						},
+					},
+				},
+			}
+
+			require.Equal(t, tc.expected, base.CorrelatingToolCallID())
+		})
+	}
+}
 
 func TestLastUserPrompt(t *testing.T) {
 	t.Parallel()
@@ -265,6 +364,7 @@ func TestRecordToolUsage(t *testing.T) {
 				Output: []oairesponses.ResponseOutputItemUnion{
 					{
 						Type:      "function_call",
+						CallID:    "call_abc",
 						Name:      "get_weather",
 						Arguments: "",
 					},
@@ -274,6 +374,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_456",
+					ToolCallID:     "call_abc",
 					Tool:           "get_weather",
 					Args:           "",
 					Injected:       false,
@@ -287,11 +388,13 @@ func TestRecordToolUsage(t *testing.T) {
 				Output: []oairesponses.ResponseOutputItemUnion{
 					{
 						Type:      "function_call",
+						CallID:    "call_1",
 						Name:      "get_weather",
 						Arguments: `{"location": "NYC"}`,
 					},
 					{
 						Type:      "function_call",
+						CallID:    "call_2",
 						Name:      "bad_json_args",
 						Arguments: `{"bad": args`,
 					},
@@ -301,12 +404,14 @@ func TestRecordToolUsage(t *testing.T) {
 						Role: "assistant",
 					},
 					{
-						Type:  "custom_tool_call",
-						Name:  "search",
-						Input: `{\"query\": \"test\"}`,
+						Type:   "custom_tool_call",
+						CallID: "call_3",
+						Name:   "search",
+						Input:  `{\"query\": \"test\"}`,
 					},
 					{
 						Type:      "function_call",
+						CallID:    "call_4",
 						Name:      "calculate",
 						Arguments: `{"a": 1, "b": 2}`,
 					},
@@ -316,6 +421,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_789",
+					ToolCallID:     "call_1",
 					Tool:           "get_weather",
 					Args:           map[string]any{"location": "NYC"},
 					Injected:       false,
@@ -323,6 +429,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_789",
+					ToolCallID:     "call_2",
 					Tool:           "bad_json_args",
 					Args:           `{"bad": args`,
 					Injected:       false,
@@ -330,6 +437,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_789",
+					ToolCallID:     "call_3",
 					Tool:           "search",
 					Args:           `{\"query\": \"test\"}`,
 					Injected:       false,
@@ -337,6 +445,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_789",
+					ToolCallID:     "call_4",
 					Tool:           "calculate",
 					Args:           map[string]any{"a": float64(1), "b": float64(2)},
 					Injected:       false,

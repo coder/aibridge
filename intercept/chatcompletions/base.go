@@ -63,6 +63,19 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 	i.mcpProxy = mcpProxy
 }
 
+func (i *interceptionBase) CorrelatingToolCallID() *string {
+	if len(i.req.Messages) == 0 {
+		return nil
+	}
+
+	// The tool result should be the last input message.
+	msg := i.req.Messages[len(i.req.Messages)-1]
+	if msg.OfTool == nil {
+		return nil
+	}
+	return &msg.OfTool.ToolCallID
+}
+
 func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),

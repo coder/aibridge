@@ -124,6 +124,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 					_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 						InterceptionID: i.ID().String(),
 						MsgID:          completion.ID,
+						ToolCallID:     toolCall.ID,
 						Tool:           toolCall.Function.Name,
 						Args:           i.unmarshalArgs(toolCall.Function.Arguments),
 						Injected:       false,
@@ -161,6 +162,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           completion.ID,
+				ToolCallID:      tc.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
 				Args:            args,

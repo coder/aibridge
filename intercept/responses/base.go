@@ -80,6 +80,19 @@ func (i *responsesInterceptionBase) Model() string {
 	return i.model
 }
 
+func (i *responsesInterceptionBase) CorrelatingToolCallID() *string {
+	if len(i.req.Input.OfInputItemList) == 0 {
+		return nil
+	}
+
+	// The tool result should be the last input message.
+	item := i.req.Input.OfInputItemList[len(i.req.Input.OfInputItemList)-1]
+	if item.OfFunctionCallOutput == nil {
+		return nil
+	}
+	return &item.OfFunctionCallOutput.CallID
+}
+
 func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),
@@ -263,6 +276,7 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 		if err := i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 			InterceptionID: i.ID().String(),
 			MsgID:          response.ID,
+			ToolCallID:     item.CallID,
 			Tool:           item.Name,
 			Args:           args,
 			Injected:       false,
