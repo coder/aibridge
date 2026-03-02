@@ -16,6 +16,7 @@ const (
 	ClientCopilotVSC Client = "GitHub Copilot (VS Code)"
 	ClientCopilotCLI Client = "GitHub Copilot (CLI)"
 	ClientKilo       Client = "Kilo Code"
+	ClientMux        Client = "Mux"
 	ClientRoo        Client = "Roo Code"
 	ClientCursor     Client = "Cursor"
 	ClientUnknown    Client = "Unknown"
@@ -32,6 +33,8 @@ func guessClient(r *http.Request) Client {
 
 	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
 	switch {
+	case strings.HasPrefix(userAgent, "mux/"):
+		return ClientMux
 	case strings.HasPrefix(userAgent, "claude"):
 		return ClientClaudeCode
 	case strings.HasPrefix(userAgent, "codex"):

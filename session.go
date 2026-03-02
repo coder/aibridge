@@ -46,8 +46,9 @@ func guessSessionID(client Client, r *http.Request) string {
 		}
 		return matches[1]
 	case ClientCodex:
-		// Codex sends a `session_id` header.
 		return strings.TrimSpace(headers.Get("session_id"))
+	case ClientMux:
+		return strings.TrimSpace(headers.Get("X-Mux-Workspace-Id"))
 	default:
 		return ""
 	}
