@@ -363,8 +363,6 @@ func guessClient(r *http.Request) string {
 		return ClientKilo
 	case strings.HasPrefix(userAgent, "roo-code/") || originator == "roo-code":
 		return ClientRoo
-	case strings.HasPrefix(userAgent, "copilot"):
-		return ClientCursor
 	case r.Header.Get("x-cursor-client-version") != "":
 		return ClientCursor
 	}
