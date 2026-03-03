@@ -112,7 +112,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
 		}
-		proxy.Transport = apidump.NewRoundTripperMiddleware(t, provider.APIDumpDir(), provider.Name(), logger, quartz.NewReal())
+		proxy.Transport = apidump.NewPassthroughMiddleware(t, provider.APIDumpDir(), provider.Name(), logger, quartz.NewReal())
 
 		proxy.ServeHTTP(w, r)
 	}

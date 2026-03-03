@@ -24,7 +24,7 @@ func TestMiddleware_StreamingResponse(t *testing.T) {
 	clk := quartz.NewMock(t)
 	interceptionID := uuid.New()
 
-	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
+	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
@@ -100,7 +100,7 @@ func TestMiddleware_PreservesResponseBody(t *testing.T) {
 	clk := quartz.NewMock(t)
 	interceptionID := uuid.New()
 
-	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
+	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))

@@ -179,30 +179,34 @@ func TestAPIDumpPassthrough(t *testing.T) {
 	const responseBody = `{"object":"list","data":[{"id":"gpt-4","object":"model"}]}`
 
 	cases := []struct {
-		name         string
-		providerFunc func(addr string, dumpDir string) aibridge.Provider
-		requestPath  string
+		name           string
+		providerFunc   func(addr string, dumpDir string) aibridge.Provider
+		requestPath    string
+		expectDumpName string
 	}{
 		{
 			name: "anthropic",
 			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
 				return provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)
 			},
-			requestPath: "/anthropic/v1/models",
+			requestPath:    "/anthropic/v1/models",
+			expectDumpName: "-v1-models-",
 		},
 		{
 			name: "openai",
 			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
 				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
-			requestPath: "/openai/v1/models",
+			requestPath:    "/openai/v1/models",
+			expectDumpName: "-models-",
 		},
 		{
 			name: "copilot",
 			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
 				return provider.NewCopilot(config.Copilot{BaseURL: addr, APIDumpDir: dumpDir})
 			},
-			requestPath: "/copilot/models",
+			requestPath:    "/copilot/models",
+			expectDumpName: "-models-",
 		},
 	}
 
@@ -261,8 +265,16 @@ func TestAPIDumpPassthrough(t *testing.T) {
 				return nil
 			})
 			require.NoError(t, err, "walking failed: %v", err)
+
 			require.NotEmpty(t, reqDumpFile, "request dump file should exist")
+			require.FileExists(t, reqDumpFile)
+			require.Contains(t, reqDumpFile, "/passthrough/")
+			require.Contains(t, reqDumpFile, tc.expectDumpName)
+
 			require.NotEmpty(t, respDumpFile, "response dump file should exist")
+			require.FileExists(t, respDumpFile)
+			require.Contains(t, respDumpFile, "/passthrough/")
+			require.Contains(t, respDumpFile, tc.expectDumpName)
 
 			// Verify request dump.
 			reqDumpData, err := os.ReadFile(reqDumpFile)

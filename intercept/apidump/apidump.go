@@ -32,10 +32,9 @@ type MiddlewareNext = func(*http.Request) (*http.Response, error)
 // Middleware is an HTTP middleware function compatible with SDK WithMiddleware options.
 type Middleware = func(*http.Request, MiddlewareNext) (*http.Response, error)
 
-// NewMiddleware returns a middleware function that dumps requests and responses to files.
-// Files are written to the path returned by DumpPath.
+// NewBridgeMiddleware returns a middleware function that dumps requests and responses to files.
 // If baseDir is empty, returns nil (no middleware).
-func NewMiddleware(baseDir, provider, model string, interceptionID uuid.UUID, logger slog.Logger, clk quartz.Clock) Middleware {
+func NewBridgeMiddleware(baseDir string, provider string, model string, interceptionID uuid.UUID, logger slog.Logger, clk quartz.Clock) Middleware {
 	if baseDir == "" {
 		return nil
 	}
@@ -103,9 +102,10 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 
 	_, err = fmt.Fprintf(&buf, "\r\n")
 	if err != nil {
-		return fmt.Errorf("write request body: %w", err)
+		return fmt.Errorf("write request header terminator: %w", err)
 	}
 	buf.Write(prettyBody)
+	buf.WriteByte('\n')
 
 	return os.WriteFile(dumpPath, buf.Bytes(), 0o644)
 }
@@ -125,7 +125,7 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 	}
 	_, err = fmt.Fprintf(&headerBuf, "\r\n")
 	if err != nil {
-		return fmt.Errorf("write response body: %w", err)
+		return fmt.Errorf("write response header terminator: %w", err)
 	}
 
 	// Wrap the response body to capture it as it streams
@@ -197,23 +197,22 @@ func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitiv
 	return nil
 }
 
-// interceptDumpPath returns the base file path (without suffix) for an interception dump.
+// interceptDumpPath returns the base file path (without req/resp suffix) for an interception dump.
 func interceptDumpPath(baseDir string, provider string, model string, interceptionID uuid.UUID, clk quartz.Clock) string {
 	safeModel := strings.ReplaceAll(model, "/", "-")
 	return filepath.Join(baseDir, provider, safeModel, fmt.Sprintf("%d-%s", clk.Now().UTC().UnixMilli(), interceptionID))
 }
 
-// passthroughDumpPath returns the base file path (without suffix) for a passthrough dump.
-// A random UUID is generated for the filename. "passthrough" is used as the directory name
-// in place of the model.
-func passthroughDumpPath(baseDir string, provider string, clk quartz.Clock) string {
-	return filepath.Join(baseDir, provider, "passthrough", fmt.Sprintf("%d-%s", clk.Now().UTC().UnixMilli(), uuid.New()))
+// passthroughDumpPath returns the base file path (without req/resp suffix) for a passthrough dump.
+func passthroughDumpPath(baseDir string, provider string, urlPath string, clk quartz.Clock) string {
+	safeURLPath := strings.ReplaceAll(strings.TrimPrefix(urlPath, "/"), "/", "-")
+	return filepath.Join(baseDir, provider, "passthrough", fmt.Sprintf("%d-%s-%s", clk.Now().UTC().UnixMilli(), safeURLPath, uuid.NewString()[:4]))
 }
 
-// NewRoundTripperMiddleware returns http.RoundTripper that dumps requests and responses to files.
+// NewPassthroughMiddleware returns http.RoundTripper that dumps requests and responses to files.
 // If baseDir is empty, returns the original transport unchanged.
-// Used for logging passed through requests.
-func NewRoundTripperMiddleware(transport http.RoundTripper, baseDir string, provider string, logger slog.Logger, clk quartz.Clock) http.RoundTripper {
+// Used for logging in pass through routes.
+func NewPassthroughMiddleware(transport http.RoundTripper, baseDir string, provider string, logger slog.Logger, clk quartz.Clock) http.RoundTripper {
 	if baseDir == "" {
 		return transport
 	}
@@ -236,7 +235,7 @@ type dumpRoundTripper struct {
 
 func (rt *dumpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
 	dumper := dumper{
-		dumpPath: passthroughDumpPath(rt.baseDir, rt.provider, rt.clk),
+		dumpPath: passthroughDumpPath(rt.baseDir, rt.provider, req.URL.Path, rt.clk),
 		logger:   rt.logger,
 	}
 
@@ -269,9 +268,5 @@ func prettyPrintJSON(body []byte) []byte {
 		result = pretty.Pretty(body)
 	}
 
-	// Add trailing newline if missing.
-	if !bytes.HasSuffix(result, []byte("\n")) {
-		result = append(result, []byte("\n")...)
-	}
 	return result
 }
