@@ -88,6 +88,66 @@ func TestGuessSessionID(t *testing.T) {
 			body:      `{"metadata":{"user_id":"user_abc_account_456_session_some-id"}}`,
 			sessionID: "",
 		},
+		// Mux.
+		{
+			name:      "mux_with_workspace_header",
+			client:    ClientMux,
+			headers:   map[string]string{"X-Mux-Workspace-Id": "ws-abc-123"},
+			sessionID: "ws-abc-123",
+		},
+		{
+			name:      "mux_without_workspace_header",
+			client:    ClientMux,
+			sessionID: "",
+		},
+		// Copilot VS Code.
+		{
+			name:      "copilot_vsc_with_interaction_id",
+			client:    ClientCopilotVSC,
+			headers:   map[string]string{"x-interaction-id": "interaction-xyz"},
+			sessionID: "interaction-xyz",
+		},
+		{
+			name:      "copilot_vsc_without_interaction_id",
+			client:    ClientCopilotVSC,
+			sessionID: "",
+		},
+		// Copilot CLI.
+		{
+			name:      "copilot_cli_with_session_header",
+			client:    ClientCopilotCLI,
+			headers:   map[string]string{"X-Client-Session-Id": "cli-sess-456"},
+			sessionID: "cli-sess-456",
+		},
+		{
+			name:      "copilot_cli_without_session_header",
+			client:    ClientCopilotCLI,
+			sessionID: "",
+		},
+		// Kilo.
+		{
+			name:      "kilo_with_task_id",
+			client:    ClientKilo,
+			headers:   map[string]string{"X-KILOCODE-TASKID": "task-789"},
+			sessionID: "task-789",
+		},
+		{
+			name:      "kilo_without_task_id",
+			client:    ClientKilo,
+			sessionID: "",
+		},
+		// Roo.
+		{
+			name:      "roo_returns_empty",
+			client:    ClientRoo,
+			sessionID: "",
+		},
+		// Cursor.
+		{
+			name:      "cursor_returns_empty",
+			client:    ClientCursor,
+			sessionID: "",
+		},
 	}
 
 	for _, tc := range cases {

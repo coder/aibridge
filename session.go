@@ -49,6 +49,25 @@ func guessSessionID(client Client, r *http.Request) string {
 		return strings.TrimSpace(headers.Get("session_id"))
 	case ClientMux:
 		return strings.TrimSpace(headers.Get("X-Mux-Workspace-Id"))
+	case ClientZed:
+		return "" // Zed does not send a session ID from Zed Agent or Text Thread.
+	case ClientCopilotVSC:
+		// This does not map precisely to what we consider a session, but it's close enough.
+		// Most other providers' equivalent of this would persist for the duration of a
+		// conversation; it does seem to persist across an agentic loop though, which is
+		// all we really need.
+		//
+		// There's also `vscode-sessionid` but that's persistent for the duration of the
+		// VS Code window.
+		return strings.TrimSpace(headers.Get("x-interaction-id"))
+	case ClientCopilotCLI:
+		return strings.TrimSpace(headers.Get("X-Client-Session-Id"))
+	case ClientKilo:
+		return strings.TrimSpace(headers.Get("X-KILOCODE-TASKID"))
+	case ClientRoo:
+		return "" // RooCode doesn't send a session ID.
+	case ClientCursor:
+		return "" // Cursor is not currently supported.
 	default:
 		return ""
 	}
