@@ -17,16 +17,6 @@ var claudeCodePattern = regexp.MustCompile(`_session_(.+)$`) // Save compilation
 // the client. We only attempt to retrieve sessions using methods recognized for
 // the given client.
 func guessSessionID(client Client, r *http.Request) *string {
-	payload, err := io.ReadAll(r.Body)
-	if err != nil {
-		// Failing silently is suitable here; if the body cannot be read, we won't be able to do much more.
-		return nil
-	}
-	_ = r.Body.Close()
-
-	// Restore the request body.
-	r.Body = io.NopCloser(bytes.NewReader(payload))
-
 	switch client {
 	case ClientClaudeCode:
 		/* Claude Code adds the session ID into the `metadata.user_id` field in the JSON body.
@@ -37,6 +27,15 @@ func guessSessionID(client Client, r *http.Request) *string {
 			},
 			...
 		} */
+		payload, err := io.ReadAll(r.Body)
+		if err != nil {
+			// Failing silently is suitable here; if the body cannot be read, we won't be able to do much more.
+			return nil
+		}
+		_ = r.Body.Close()
+
+		// Restore the request body.
+		r.Body = io.NopCloser(bytes.NewReader(payload))
 		userID := gjson.GetBytes(payload, "metadata.user_id")
 		if !userID.Exists() {
 			return nil
