@@ -22,7 +22,6 @@ import (
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/internal/testutil"
-	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
 	"github.com/stretchr/testify/require"
 )
@@ -95,7 +94,7 @@ func TestAPIDump(t *testing.T) {
 			dumpDir := t.TempDir()
 
 			recorderClient := &testutil.MockRecorder{}
-			b, err := aibridge.NewRequestBridge(t.Context(), tc.providersFunc(srv.URL, dumpDir), recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			b, err := aibridge.NewRequestBridge(t.Context(), tc.providersFunc(srv.URL, dumpDir), recorderClient, testutil.NilMCPManager(), logger, nil, testTracer)
 			require.NoError(t, err)
 
 			mockSrv := httptest.NewUnstartedServer(b)
@@ -230,7 +229,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 			recorderClient := &testutil.MockRecorder{}
 			prov := tc.providerFunc(upstream.URL, dumpDir)
 			provs := []aibridge.Provider{prov}
-			b, err := aibridge.NewRequestBridge(t.Context(), provs, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			b, err := aibridge.NewRequestBridge(t.Context(), provs, recorderClient, testutil.NilMCPManager(), logger, nil, testTracer)
 			require.NoError(t, err)
 
 			bridgeSrv := httptest.NewUnstartedServer(b)

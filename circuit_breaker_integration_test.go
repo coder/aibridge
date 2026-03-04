@@ -18,7 +18,6 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/internal/testutil"
-	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/prometheus/client_golang/prometheus"
@@ -145,7 +144,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			bridge, err := aibridge.NewRequestBridge(ctx,
 				[]provider.Provider{prov},
 				&testutil.MockRecorder{},
-				mcp.NewServerProxyManager(nil, tracer),
+				testutil.NilMCPManager(),
 				logger,
 				metrics,
 				tracer,
@@ -318,7 +317,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			bridge, err := aibridge.NewRequestBridge(ctx,
 				[]provider.Provider{prov},
 				&testutil.MockRecorder{},
-				mcp.NewServerProxyManager(nil, tracer),
+				testutil.NilMCPManager(),
 				logger,
 				metrics,
 				tracer,
@@ -484,7 +483,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			bridge, err := aibridge.NewRequestBridge(ctx,
 				[]provider.Provider{prov},
 				&testutil.MockRecorder{},
-				mcp.NewServerProxyManager(nil, tracer),
+				testutil.NilMCPManager(),
 				logger,
 				metrics,
 				tracer,
@@ -622,7 +621,7 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	bridge, err := aibridge.NewRequestBridge(ctx,
 		[]provider.Provider{prov},
 		&testutil.MockRecorder{},
-		mcp.NewServerProxyManager(nil, tracer),
+		testutil.NilMCPManager(),
 		logger,
 		m,
 		tracer,

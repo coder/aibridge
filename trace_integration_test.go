@@ -4,19 +4,14 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
-	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/internal/testutil"
-	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
 	"github.com/stretchr/testify/assert"
@@ -274,33 +269,81 @@ func TestTraceAnthropicErr(t *testing.T) {
 	}
 }
 
-func TestAnthropicInjectedToolsTrace(t *testing.T) {
+func TestInjectedToolsTrace(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name      string
-		streaming bool
-		bedrock   bool
+		name           string
+		streaming      bool
+		bedrock        bool
+		fixture        []byte
+		providerFn     providerFunc
+		createReqFn    func(*testing.T, string, []byte) *http.Request
+		expectModel    string
+		expectPath     string
+		expectProvider string
 	}{
 		{
-			name:      "anthr_blocking",
-			streaming: false,
-			bedrock:   false,
+			name:           "anthr_blocking",
+			streaming:      false,
+			fixture:        fixtures.AntSingleInjectedTool,
+			providerFn:     newAnthropicProvider,
+			createReqFn:    createAnthropicMessagesReq,
+			expectModel:    "claude-sonnet-4-20250514",
+			expectPath:     "/anthropic/v1/messages",
+			expectProvider: config.ProviderAnthropic,
 		},
 		{
-			name:      "anthr_streaming",
-			streaming: true,
-			bedrock:   false,
+			name:           "anthr_streaming",
+			streaming:      true,
+			fixture:        fixtures.AntSingleInjectedTool,
+			providerFn:     newAnthropicProvider,
+			createReqFn:    createAnthropicMessagesReq,
+			expectModel:    "claude-sonnet-4-20250514",
+			expectPath:     "/anthropic/v1/messages",
+			expectProvider: config.ProviderAnthropic,
 		},
 		{
-			name:      "bedrock_blocking",
-			streaming: false,
-			bedrock:   true,
+			name:           "bedrock_blocking",
+			streaming:      false,
+			bedrock:        true,
+			fixture:        fixtures.AntSingleInjectedTool,
+			providerFn:     newBedrockProvider,
+			createReqFn:    createAnthropicMessagesReq,
+			expectModel:    "beddel",
+			expectPath:     "/anthropic/v1/messages",
+			expectProvider: config.ProviderAnthropic,
 		},
 		{
-			name:      "bedrock_streaming",
-			streaming: true,
-			bedrock:   true,
+			name:           "bedrock_streaming",
+			streaming:      true,
+			bedrock:        true,
+			fixture:        fixtures.AntSingleInjectedTool,
+			providerFn:     newBedrockProvider,
+			createReqFn:    createAnthropicMessagesReq,
+			expectModel:    "beddel",
+			expectPath:     "/anthropic/v1/messages",
+			expectProvider: config.ProviderAnthropic,
+		},
+		{
+			name:           "openai_blocking",
+			streaming:      false,
+			fixture:        fixtures.OaiChatSingleInjectedTool,
+			providerFn:     newOpenAIProvider,
+			createReqFn:    createOpenAIChatCompletionsReq,
+			expectModel:    "gpt-4.1",
+			expectPath:     "/openai/v1/chat/completions",
+			expectProvider: config.ProviderOpenAI,
+		},
+		{
+			name:           "openai_streaming",
+			streaming:      true,
+			fixture:        fixtures.OaiChatSingleInjectedTool,
+			providerFn:     newOpenAIProvider,
+			createReqFn:    createOpenAIChatCompletionsReq,
+			expectModel:    "gpt-4.1",
+			expectPath:     "/openai/v1/chat/completions",
+			expectProvider: config.ProviderOpenAI,
 		},
 	}
 
@@ -313,54 +356,41 @@ func TestAnthropicInjectedToolsTrace(t *testing.T) {
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				var bedrockCfg *config.AWSBedrock
-				if tc.bedrock {
-					bedrockCfg = testBedrockCfg(addr)
-				}
-				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), bedrockCfg)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, tracer)
+			var validatorFn func(*http.Request, []byte)
+			if tc.expectProvider == config.ProviderAnthropic {
+				validatorFn = anthropicToolResultValidator(t)
+			} else {
+				validatorFn = openaiChatToolResultValidator(t)
 			}
 
-			var reqBody string
-			reqFunc := func(t *testing.T, baseURL string, input []byte) *http.Request {
-				reqBody = string(input)
-				return createAnthropicMessagesReq(t, baseURL, input)
-			}
-
-			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, proxies, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, tc.streaming, configureFn, reqFunc, anthropicToolResultValidator(t))
-
+			recorderClient, mockMCP, resp := setupInjectedToolTest(
+				t, tc.fixture, tc.streaming, tc.providerFn, tracer, userID,
+				tc.createReqFn, validatorFn,
+			)
 			defer resp.Body.Close()
 
 			require.Len(t, recorderClient.RecordedInterceptions(), 1)
 			intcID := recorderClient.RecordedInterceptions()[0].ID
 
-			model := gjson.Get(string(reqBody), "model").Str
-			if tc.bedrock {
-				model = "beddel"
+			tool := mockMCP.ListTools()[0]
+
+			attrs := []attribute.KeyValue{
+				attribute.String(tracing.RequestPath, tc.expectPath),
+				attribute.String(tracing.InterceptionID, intcID),
+				attribute.String(tracing.Provider, tc.expectProvider),
+				attribute.String(tracing.Model, tc.expectModel),
+				attribute.String(tracing.InitiatorID, userID),
+				attribute.String(tracing.MCPInput, `{"owner":"admin"}`),
+				attribute.String(tracing.MCPToolName, "coder_list_workspaces"),
+				attribute.String(tracing.MCPServerName, tool.ServerName),
+				attribute.String(tracing.MCPServerURL, tool.ServerURL),
+				attribute.Bool(tracing.Streaming, tc.streaming),
+			}
+			if tc.expectProvider == config.ProviderAnthropic {
+				attrs = append(attrs, attribute.Bool(tracing.IsBedrock, tc.bedrock))
 			}
 
-			for _, proxy := range proxies {
-				require.NotEmpty(t, proxy.ListTools())
-				tool := proxy.ListTools()[0]
-
-				attrs := []attribute.KeyValue{
-					attribute.String(tracing.RequestPath, "/anthropic/v1/messages"),
-					attribute.String(tracing.InterceptionID, intcID),
-					attribute.String(tracing.Provider, config.ProviderAnthropic),
-					attribute.String(tracing.Model, model),
-					attribute.String(tracing.InitiatorID, userID),
-					attribute.String(tracing.MCPInput, "{\"owner\":\"admin\"}"),
-					attribute.String(tracing.MCPToolName, "coder_list_workspaces"),
-					attribute.String(tracing.MCPServerName, tool.ServerName),
-					attribute.String(tracing.MCPServerURL, tool.ServerURL),
-					attribute.Bool(tracing.Streaming, tc.streaming),
-					attribute.Bool(tracing.IsBedrock, tc.bedrock),
-				}
-				verifyTraces(t, sr, []expectTrace{{"Intercept.ProcessRequest.ToolCall", 1, codes.Unset}}, attrs)
-			}
+			verifyTraces(t, sr, []expectTrace{{"Intercept.ProcessRequest.ToolCall", 1, codes.Unset}}, attrs)
 		})
 	}
 }
@@ -659,60 +689,6 @@ func TestTraceOpenAIErr(t *testing.T) {
 	}
 }
 
-func TestOpenAIInjectedToolsTrace(t *testing.T) {
-	t.Parallel()
-
-	for _, streaming := range []bool{true, false} {
-		t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
-			t.Parallel()
-
-			sr := tracetest.NewSpanRecorder()
-			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-			tracer := tp.Tracer(t.Name())
-			defer func() { _ = tp.Shutdown(t.Context()) }()
-
-			configureFn := func(addr string, client aibridge.Recorder, srvProxyMgr *mcp.ServerProxyManager) (*aibridge.RequestBridge, error) {
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, srvProxyMgr, logger, nil, tracer)
-			}
-
-			var reqBody string
-			reqFunc := func(t *testing.T, baseURL string, input []byte) *http.Request {
-				reqBody = string(input)
-				return createOpenAIChatCompletionsReq(t, baseURL, input)
-			}
-
-			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, _, proxies, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, configureFn, reqFunc, openaiChatToolResultValidator(t))
-
-			defer resp.Body.Close()
-
-			require.Len(t, recorderClient.RecordedInterceptions(), 1)
-			intcID := recorderClient.RecordedInterceptions()[0].ID
-
-			for _, proxy := range proxies {
-				require.NotEmpty(t, proxy.ListTools())
-				tool := proxy.ListTools()[0]
-
-				attrs := []attribute.KeyValue{
-					attribute.String(tracing.RequestPath, "/openai/v1/chat/completions"),
-					attribute.String(tracing.InterceptionID, intcID),
-					attribute.String(tracing.Provider, config.ProviderOpenAI),
-					attribute.String(tracing.Model, gjson.Get(reqBody, "model").Str),
-					attribute.String(tracing.InitiatorID, userID),
-					attribute.String(tracing.MCPInput, "{\"owner\":\"admin\"}"),
-					attribute.String(tracing.MCPToolName, "coder_list_workspaces"),
-					attribute.String(tracing.MCPServerName, tool.ServerName),
-					attribute.String(tracing.MCPServerURL, tool.ServerURL),
-					attribute.Bool(tracing.Streaming, streaming),
-				}
-				verifyTraces(t, sr, []expectTrace{{"Intercept.ProcessRequest.ToolCall", 1, codes.Unset}}, attrs)
-			}
-		})
-	}
-}
-
 func TestTracePassthrough(t *testing.T) {
 	t.Parallel()
 
@@ -751,38 +727,26 @@ func TestTracePassthrough(t *testing.T) {
 }
 
 func TestNewServerProxyManagerTraces(t *testing.T) {
-	ctx := t.Context()
-
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	tracer := tp.Tracer(t.Name())
 	defer func() { _ = tp.Shutdown(t.Context()) }()
 
 	serverName := "serverName"
-	srv, _ := createMockMCPSrv(t)
-	mcpSrv := httptest.NewServer(srv)
-	t.Cleanup(mcpSrv.Close)
-
-	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-	proxy, err := mcp.NewStreamableHTTPServerProxy(serverName, mcpSrv.URL, nil, nil, nil, logger, tracer)
-	require.NoError(t, err)
-	tools := map[string]mcp.ServerProxier{"unusedValue": proxy}
-
-	mcpMgr := mcp.NewServerProxyManager(tools, tracer)
-	err = mcpMgr.Init(ctx)
-	require.NoError(t, err)
+	mockMCP := testutil.SetupMCPForTestWithName(t, serverName, tracer)
+	tool := mockMCP.ListTools()[0]
 
 	require.Len(t, sr.Ended(), 3)
 	verifyTraces(t, sr, []expectTrace{{"ServerProxyManager.Init", 1, codes.Unset}}, []attribute.KeyValue{})
 
 	attrs := []attribute.KeyValue{
-		attribute.String(tracing.MCPProxyName, proxy.Name()),
-		attribute.String(tracing.MCPServerURL, mcpSrv.URL),
+		attribute.String(tracing.MCPProxyName, serverName),
+		attribute.String(tracing.MCPServerURL, tool.ServerURL),
 		attribute.String(tracing.MCPServerName, serverName),
 	}
 	verifyTraces(t, sr, []expectTrace{{"StreamableHTTPServerProxy.Init", 1, codes.Unset}}, attrs)
 
-	attrs = append(attrs, attribute.Int(tracing.MCPToolCount, len(proxy.ListTools())))
+	attrs = append(attrs, attribute.Int(tracing.MCPToolCount, len(mockMCP.ListTools())))
 	verifyTraces(t, sr, []expectTrace{{"StreamableHTTPServerProxy.Init.fetchTools", 1, codes.Unset}}, attrs)
 }
 
