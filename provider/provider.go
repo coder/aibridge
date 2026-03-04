@@ -75,4 +75,8 @@ type Provider interface {
 
 	// CircuitBreakerConfig returns the circuit breaker configuration for the provider.
 	CircuitBreakerConfig() *config.CircuitBreaker
+
+	// APIDumpDir returns the directory path for dumping API requests and responses.
+	// Empty string is returned when API dumping is not enabled.
+	APIDumpDir() string
 }

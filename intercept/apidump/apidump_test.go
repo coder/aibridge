@@ -2,10 +2,12 @@ package apidump
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"cdr.dev/slog/v3"
@@ -25,7 +27,7 @@ func findDumpFile(t *testing.T, dir, suffix string) string {
 	return matches[0]
 }
 
-func TestMiddleware_RedactsSensitiveRequestHeaders(t *testing.T) {
+func TestBridgedMiddleware_RedactsSensitiveRequestHeaders(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -33,7 +35,7 @@ func TestMiddleware_RedactsSensitiveRequestHeaders(t *testing.T) {
 	clk := quartz.NewMock(t)
 	interceptionID := uuid.New()
 
-	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
+	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{"test": true}`)))
@@ -82,7 +84,7 @@ func TestMiddleware_RedactsSensitiveRequestHeaders(t *testing.T) {
 	require.Contains(t, content, "User-Agent: test-client")
 }
 
-func TestMiddleware_RedactsSensitiveResponseHeaders(t *testing.T) {
+func TestBridgedMiddleware_RedactsSensitiveResponseHeaders(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -90,7 +92,7 @@ func TestMiddleware_RedactsSensitiveResponseHeaders(t *testing.T) {
 	clk := quartz.NewMock(t)
 	interceptionID := uuid.New()
 
-	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
+	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
@@ -143,15 +145,15 @@ func TestMiddleware_RedactsSensitiveResponseHeaders(t *testing.T) {
 	require.Contains(t, content, "X-Request-Id: req-123")
 }
 
-func TestMiddleware_EmptyBaseDir_ReturnsNil(t *testing.T) {
+func TestBridgedMiddleware_EmptyBaseDir_ReturnsNil(t *testing.T) {
 	t.Parallel()
 
 	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-	middleware := NewMiddleware("", "openai", "gpt-4", uuid.New(), logger, quartz.NewMock(t))
+	middleware := NewBridgeMiddleware("", "openai", "gpt-4", uuid.New(), logger, quartz.NewMock(t))
 	require.Nil(t, middleware)
 }
 
-func TestMiddleware_PreservesRequestBody(t *testing.T) {
+func TestBridgedMiddleware_PreservesRequestBody(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -159,7 +161,7 @@ func TestMiddleware_PreservesRequestBody(t *testing.T) {
 	clk := quartz.NewMock(t)
 	interceptionID := uuid.New()
 
-	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
+	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
 	originalBody := `{"messages": [{"role": "user", "content": "hello"}]}`
@@ -184,7 +186,7 @@ func TestMiddleware_PreservesRequestBody(t *testing.T) {
 	require.Equal(t, originalBody, string(capturedBody))
 }
 
-func TestMiddleware_ModelWithSlash(t *testing.T) {
+func TestBridgedMiddleware_ModelWithSlash(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -193,7 +195,7 @@ func TestMiddleware_ModelWithSlash(t *testing.T) {
 	interceptionID := uuid.New()
 
 	// Model with slash should have it replaced with dash
-	middleware := NewMiddleware(tmpDir, "google", "gemini/1.5-pro", interceptionID, logger, clk)
+	middleware := NewBridgeMiddleware(tmpDir, "google", "gemini/1.5-pro", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.google.com/v1/chat", bytes.NewReader([]byte(`{}`)))
@@ -233,12 +235,25 @@ func TestPrettyPrintJSON(t *testing.T) {
 		{
 			name:     "valid JSON",
 			input:    []byte(`{"key":"value"}`),
-			expected: "{\n  \"key\": \"value\"\n}",
+			expected: "{\n  \"key\": \"value\"\n}\n",
 		},
 		{
 			name:     "invalid JSON returns as-is",
 			input:    []byte("not json"),
 			expected: "not json",
+		},
+		// see: https://github.com/tidwall/pretty/blob/9090695766b652478676cc3e55bc3187056b1ff0/pretty.go#L117
+		// for input starting with "t" it would change it to "true", eg. "t_rest_of_the_string_is_discarded" -> "true"
+		// similar for inputs startrting with "f" and "n"
+		{
+			name:     "invalid JSON edge case t",
+			input:    []byte("test"),
+			expected: "test",
+		},
+		{
+			name:     "invalid JSON edge case f",
+			input:    []byte("f"),
+			expected: "f",
 		},
 	}
 
@@ -251,7 +266,7 @@ func TestPrettyPrintJSON(t *testing.T) {
 	}
 }
 
-func TestMiddleware_AllSensitiveRequestHeaders(t *testing.T) {
+func TestBridgedMiddleware_AllSensitiveRequestHeaders(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
@@ -259,7 +274,7 @@ func TestMiddleware_AllSensitiveRequestHeaders(t *testing.T) {
 	clk := quartz.NewMock(t)
 	interceptionID := uuid.New()
 
-	middleware := NewMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
+	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
 	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
@@ -310,4 +325,137 @@ func TestMiddleware_AllSensitiveRequestHeaders(t *testing.T) {
 	require.Contains(t, content, "Cookie:")
 	require.Contains(t, content, "Proxy-Authorization:")
 	require.Contains(t, content, "X-Amz-Security-Token:")
+}
+
+func TestPassthroughMiddleware(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty_base_dir_returns_original_transport", func(t *testing.T) {
+		t.Parallel()
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+		inner := http.DefaultTransport
+		rt := NewPassthroughMiddleware(inner, "", "openai", logger, quartz.NewMock(t))
+		require.Equal(t, inner, rt)
+	})
+
+	t.Run("returns_error_from_inner_round_trip", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+		clk := quartz.NewMock(t)
+
+		innerErr := io.ErrUnexpectedEOF
+		inner := &mockRoundTripper{
+			roundTrip: func(_ *http.Request) (*http.Response, error) {
+				return nil, innerErr
+			},
+		}
+
+		rt := NewPassthroughMiddleware(inner, tmpDir, "openai", logger, clk)
+
+		req, err := http.NewRequest(http.MethodGet, "https://api.openai.com/v1/models", nil)
+		require.NoError(t, err)
+
+		resp, err := rt.RoundTrip(req)
+		require.ErrorIs(t, err, innerErr)
+		require.Nil(t, resp)
+	})
+
+	t.Run("dumps_request_and_response", func(t *testing.T) {
+		t.Parallel()
+
+		tmpDir := t.TempDir()
+		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+		clk := quartz.NewMock(t)
+
+		req1Body := `first request`
+		req2Body := `{"request": 2}`
+		req2BodyPretty := "{\n  \"request\": 2\n}\n"
+
+		callCount := 0
+		inner := &mockRoundTripper{
+			roundTrip: func(req *http.Request) (*http.Response, error) {
+				// Verify body is still readable after dump
+				body, err := io.ReadAll(req.Body)
+				require.NoError(t, err)
+				callCount++
+				if callCount == 1 {
+					require.Equal(t, req1Body, string(body))
+				} else {
+					require.Equal(t, req2Body, string(body))
+				}
+
+				return &http.Response{
+					StatusCode: http.StatusOK,
+					Status:     "200 OK",
+					Proto:      "HTTP/1.1",
+					Header:     http.Header{"Content-Type": []string{"application/json"}},
+					Body:       io.NopCloser(bytes.NewReader([]byte(fmt.Sprintf(`{"call": %d}"`, callCount)))),
+				}, nil
+			},
+		}
+
+		rt := NewPassthroughMiddleware(inner, tmpDir, "openai", logger, clk)
+
+		req, err := http.NewRequest(http.MethodPost, "/v1/models", bytes.NewReader([]byte(req1Body)))
+		require.NoError(t, err)
+		req.Header.Set("Authorization", "Bearer sk-secret-key-12345")
+		resp, err := rt.RoundTrip(req)
+		require.NoError(t, err)
+		_, err = io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+
+		// Second request should create new req/resp files
+		req2, err := http.NewRequest(http.MethodPost, "/v1/conversations", bytes.NewReader([]byte(req2Body)))
+		require.NoError(t, err)
+		resp2, err := rt.RoundTrip(req2)
+		require.NoError(t, err)
+		_, err = io.ReadAll(resp2.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp2.Body.Close())
+
+		// Validate request files contents
+		passthroughDir := filepath.Join(tmpDir, "openai", "passthrough")
+		req1Dump := readDumpFileContent(t, filepath.Join(passthroughDir, "*-v1-models-*"+SuffixRequest))
+		req2Dump := readDumpFileContent(t, filepath.Join(passthroughDir, "*-v1-conversations-*"+SuffixRequest))
+
+		require.Contains(t, req1Dump, req1Body+"\n")
+		require.Contains(t, req2Dump, req2BodyPretty)
+		// Sensitive header should be redacted
+		require.NotContains(t, req1Dump, "sk-secret-key-12345")
+		require.NotContains(t, req2Dump, "sk-secret-key-12345")
+		require.Contains(t, req1Dump, "Authorization:")
+		require.NotContains(t, req2Dump, "Authorization:")
+
+		// Validate response files contents
+		resp1Dump := readDumpFileContent(t, filepath.Join(passthroughDir, "*-v1-models-*"+SuffixResponse))
+		resp2Dump := readDumpFileContent(t, filepath.Join(passthroughDir, "*-v1-conversations-*"+SuffixResponse))
+
+		require.Contains(t, resp1Dump, "200 OK")
+		require.Contains(t, resp1Dump, `{"call": 1}"`)
+		require.Contains(t, resp2Dump, "200 OK")
+		require.Contains(t, resp2Dump, `{"call": 2}"`)
+	})
+}
+
+type mockRoundTripper struct {
+	roundTrip func(*http.Request) (*http.Response, error)
+}
+
+func (m *mockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return m.roundTrip(req)
+}
+
+// readDumpFileContent reads the content of the dump file matching the pattern.
+// Expects exactly one file to match the pattern.
+func readDumpFileContent(t *testing.T, pattern string) string {
+	t.Helper()
+	matches, err := filepath.Glob(pattern)
+	require.NoError(t, err)
+	require.Len(t, matches, 1, "expected exactly one match got: %v %s", len(matches), strings.Join(matches, ", "), pattern)
+	reqContent, readErr := os.ReadFile(matches[0])
+	require.NoError(t, readErr)
+	return string(reqContent)
 }

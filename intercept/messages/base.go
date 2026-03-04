@@ -182,7 +182,7 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
 
 	// Add API dump middleware if configured
-	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, aibconfig.ProviderAnthropic, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
+	if mw := apidump.NewBridgeMiddleware(i.cfg.APIDumpDir, aibconfig.ProviderAnthropic, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))
 	}
 
