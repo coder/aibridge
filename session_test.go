@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/coder/aibridge/utils"
 	"github.com/stretchr/testify/require"
 )
 
@@ -17,136 +18,122 @@ func TestGuessSessionID(t *testing.T) {
 		client    Client
 		body      string
 		headers   map[string]string
-		sessionID string
+		sessionID *string
 	}{
 		// Claude Code.
 		{
 			name:      "claude_code_with_valid_session",
 			client:    ClientClaudeCode,
 			body:      `{"metadata":{"user_id":"user_abc123_account_456_session_f47ac10b-58cc-4372-a567-0e02b2c3d479"}}`,
-			sessionID: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+			sessionID: utils.PtrTo("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
 		},
 		{
-			name:      "claude_code_missing_metadata",
-			client:    ClientClaudeCode,
-			body:      `{"model":"claude-3"}`,
-			sessionID: "",
+			name:   "claude_code_missing_metadata",
+			client: ClientClaudeCode,
+			body:   `{"model":"claude-3"}`,
 		},
 		{
-			name:      "claude_code_missing_user_id",
-			client:    ClientClaudeCode,
-			body:      `{"metadata":{}}`,
-			sessionID: "",
+			name:   "claude_code_missing_user_id",
+			client: ClientClaudeCode,
+			body:   `{"metadata":{}}`,
 		},
 		{
-			name:      "claude_code_user_id_without_session",
-			client:    ClientClaudeCode,
-			body:      `{"metadata":{"user_id":"user_abc123_account_456"}}`,
-			sessionID: "",
+			name:   "claude_code_user_id_without_session",
+			client: ClientClaudeCode,
+			body:   `{"metadata":{"user_id":"user_abc123_account_456"}}`,
 		},
 		{
-			name:      "claude_code_empty_body",
-			client:    ClientClaudeCode,
-			body:      ``,
-			sessionID: "",
+			name:   "claude_code_empty_body",
+			client: ClientClaudeCode,
+			body:   ``,
 		},
 		{
-			name:      "claude_code_invalid_json",
-			client:    ClientClaudeCode,
-			body:      `not json at all`,
-			sessionID: "",
+			name:   "claude_code_invalid_json",
+			client: ClientClaudeCode,
+			body:   `not json at all`,
 		},
 		// Codex.
 		{
 			name:      "codex_with_session_header",
 			client:    ClientCodex,
 			headers:   map[string]string{"session_id": "codex-session-123"},
-			sessionID: "codex-session-123",
+			sessionID: utils.PtrTo("codex-session-123"),
 		},
 		{
 			name:      "codex_with_whitespace_in_header",
 			client:    ClientCodex,
 			headers:   map[string]string{"session_id": "  codex-session-123  "},
-			sessionID: "codex-session-123",
+			sessionID: utils.PtrTo("codex-session-123"),
 		},
 		{
-			name:      "codex_without_session_header",
-			client:    ClientCodex,
-			sessionID: "",
+			name:   "codex_without_session_header",
+			client: ClientCodex,
 		},
 		// Other clients shouldn't use others' logic.
 		{
-			name:      "unknown_client_returns_empty",
-			client:    ClientUnknown,
-			body:      `{"metadata":{"user_id":"user_abc_account_456_session_some-id"}}`,
-			sessionID: "",
+			name:   "unknown_client_returns_empty",
+			client: ClientUnknown,
+			body:   `{"metadata":{"user_id":"user_abc_account_456_session_some-id"}}`,
 		},
 		{
-			name:      "zed_returns_empty",
-			client:    ClientZed,
-			headers:   map[string]string{"session_id": "zed-session"},
-			body:      `{"metadata":{"user_id":"user_abc_account_456_session_some-id"}}`,
-			sessionID: "",
+			name:    "zed_returns_empty",
+			client:  ClientZed,
+			headers: map[string]string{"session_id": "zed-session"},
+			body:    `{"metadata":{"user_id":"user_abc_account_456_session_some-id"}}`,
 		},
 		// Mux.
 		{
 			name:      "mux_with_workspace_header",
 			client:    ClientMux,
 			headers:   map[string]string{"X-Mux-Workspace-Id": "ws-abc-123"},
-			sessionID: "ws-abc-123",
+			sessionID: utils.PtrTo("ws-abc-123"),
 		},
 		{
-			name:      "mux_without_workspace_header",
-			client:    ClientMux,
-			sessionID: "",
+			name:   "mux_without_workspace_header",
+			client: ClientMux,
 		},
 		// Copilot VS Code.
 		{
 			name:      "copilot_vsc_with_interaction_id",
 			client:    ClientCopilotVSC,
 			headers:   map[string]string{"x-interaction-id": "interaction-xyz"},
-			sessionID: "interaction-xyz",
+			sessionID: utils.PtrTo("interaction-xyz"),
 		},
 		{
-			name:      "copilot_vsc_without_interaction_id",
-			client:    ClientCopilotVSC,
-			sessionID: "",
+			name:   "copilot_vsc_without_interaction_id",
+			client: ClientCopilotVSC,
 		},
 		// Copilot CLI.
 		{
 			name:      "copilot_cli_with_session_header",
 			client:    ClientCopilotCLI,
 			headers:   map[string]string{"X-Client-Session-Id": "cli-sess-456"},
-			sessionID: "cli-sess-456",
+			sessionID: utils.PtrTo("cli-sess-456"),
 		},
 		{
-			name:      "copilot_cli_without_session_header",
-			client:    ClientCopilotCLI,
-			sessionID: "",
+			name:   "copilot_cli_without_session_header",
+			client: ClientCopilotCLI,
 		},
 		// Kilo.
 		{
 			name:      "kilo_with_task_id",
 			client:    ClientKilo,
 			headers:   map[string]string{"X-KILOCODE-TASKID": "task-789"},
-			sessionID: "task-789",
+			sessionID: utils.PtrTo("task-789"),
 		},
 		{
-			name:      "kilo_without_task_id",
-			client:    ClientKilo,
-			sessionID: "",
+			name:   "kilo_without_task_id",
+			client: ClientKilo,
 		},
 		// Roo.
 		{
-			name:      "roo_returns_empty",
-			client:    ClientRoo,
-			sessionID: "",
+			name:   "roo_returns_empty",
+			client: ClientRoo,
 		},
 		// Cursor.
 		{
-			name:      "cursor_returns_empty",
-			client:    ClientCursor,
-			sessionID: "",
+			name:   "cursor_returns_empty",
+			client: ClientCursor,
 		},
 	}
 
@@ -180,7 +167,7 @@ func TestUnreadableBody(t *testing.T) {
 	require.NoError(t, err)
 
 	got := guessSessionID(ClientClaudeCode, req)
-	require.Equal(t, "", got)
+	require.Nil(t, got)
 }
 
 // errReader is an io.Reader that always returns an error.

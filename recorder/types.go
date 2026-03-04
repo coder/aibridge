@@ -32,7 +32,7 @@ type InterceptionRecord struct {
 	Model                 string
 	Provider              string
 	StartedAt             time.Time
-	ClientSessionID       string
+	ClientSessionID       *string
 	Client                string
 	UserAgent             string
 	CorrelatingToolCallID *string

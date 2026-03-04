@@ -7,18 +7,20 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/coder/aibridge/utils"
 	"github.com/tidwall/gjson"
 )
+
+var claudeCodePattern = regexp.MustCompile(`_session_(.+)$`) // Save compilation on each call.
 
 // guessSessionID attempts to retrieve a session ID which may have been sent by
 // the client. We only attempt to retrieve sessions using methods recognized for
 // the given client.
-func guessSessionID(client Client, r *http.Request) string {
-	headers := r.Header.Clone()
+func guessSessionID(client Client, r *http.Request) *string {
 	payload, err := io.ReadAll(r.Body)
 	if err != nil {
 		// Failing silently is suitable here; if the body cannot be read, we won't be able to do much more.
-		return ""
+		return nil
 	}
 	_ = r.Body.Close()
 
@@ -37,20 +39,20 @@ func guessSessionID(client Client, r *http.Request) string {
 		} */
 		userID := gjson.GetBytes(payload, "metadata.user_id")
 		if !userID.Exists() {
-			return ""
+			return nil
 		}
 
-		matches := regexp.MustCompile(`_session_(.+)$`).FindStringSubmatch(userID.String())
+		matches := claudeCodePattern.FindStringSubmatch(userID.String())
 		if len(matches) < 2 {
-			return ""
+			return nil
 		}
-		return matches[1]
+		return cleanRef(matches[1])
 	case ClientCodex:
-		return strings.TrimSpace(headers.Get("session_id"))
+		return cleanRef(r.Header.Get("session_id"))
 	case ClientMux:
-		return strings.TrimSpace(headers.Get("X-Mux-Workspace-Id"))
+		return cleanRef(r.Header.Get("X-Mux-Workspace-Id"))
 	case ClientZed:
-		return "" // Zed does not send a session ID from Zed Agent or Text Thread.
+		return nil // Zed does not send a session ID from Zed Agent or Text Thread.
 	case ClientCopilotVSC:
 		// This does not map precisely to what we consider a session, but it's close enough.
 		// Most other providers' equivalent of this would persist for the duration of a
@@ -59,16 +61,25 @@ func guessSessionID(client Client, r *http.Request) string {
 		//
 		// There's also `vscode-sessionid` but that's persistent for the duration of the
 		// VS Code window.
-		return strings.TrimSpace(headers.Get("x-interaction-id"))
+		return cleanRef(r.Header.Get("x-interaction-id"))
 	case ClientCopilotCLI:
-		return strings.TrimSpace(headers.Get("X-Client-Session-Id"))
+		return cleanRef(r.Header.Get("X-Client-Session-Id"))
 	case ClientKilo:
-		return strings.TrimSpace(headers.Get("X-KILOCODE-TASKID"))
+		return cleanRef(r.Header.Get("X-KILOCODE-TASKID"))
 	case ClientRoo:
-		return "" // RooCode doesn't send a session ID.
+		return nil // RooCode doesn't send a session ID.
 	case ClientCursor:
-		return "" // Cursor is not currently supported.
+		return nil // Cursor is not currently supported.
 	default:
-		return ""
+		return nil
 	}
+}
+
+func cleanRef(str string) *string {
+	str = strings.TrimSpace(str)
+	if str == "" {
+		return nil
+	}
+
+	return utils.PtrTo(str)
 }

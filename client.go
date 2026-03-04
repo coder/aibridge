@@ -26,10 +26,8 @@ const (
 // Not all clients set proper user agent headers, so this is a best-effort approach.
 // Based on https://github.com/coder/aibridge/issues/20#issuecomment-3769444101.
 func guessClient(r *http.Request) Client {
-	headers := r.Header.Clone()
-
 	userAgent := strings.ToLower(r.UserAgent())
-	originator := headers.Get("originator")
+	originator := r.Header.Get("originator")
 
 	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
 	switch {
@@ -51,7 +49,7 @@ func guessClient(r *http.Request) Client {
 		return ClientRoo
 	case strings.HasPrefix(userAgent, "copilot"):
 		return ClientCursor
-	case headers.Get("x-cursor-client-version") != "":
+	case r.Header.Get("x-cursor-client-version") != "":
 		return ClientCursor
 	}
 	return ClientUnknown
