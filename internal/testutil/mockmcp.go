@@ -78,7 +78,7 @@ func SetupMCPForTestWithName(t *testing.T, name string, tracer trace.Tracer) *Mo
 	return &MockMCP{ServerProxier: mgr, calls: acc}
 }
 
-func NilMCPManager() mcp.ServerProxier {
+func NewNoopMCPManager() mcp.ServerProxier {
 	return mcp.NewServerProxyManager(nil, noop.NewTracerProvider().Tracer(""))
 }
 

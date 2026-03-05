@@ -338,7 +338,7 @@ func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, m
 	}
 	wrappedRecorder := aibridge.NewRecorder(logger, tracer, clientFn)
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, testutil.NilMCPManager(), logger, metrics, tracer)
+	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, testutil.NewNoopMCPManager(), logger, metrics, tracer)
 	require.NoError(t, err)
 
 	srv := httptest.NewUnstartedServer(bridge)

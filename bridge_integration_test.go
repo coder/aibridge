@@ -106,7 +106,7 @@ func TestAnthropicMessages(t *testing.T) {
 				recorderClient := &testutil.MockRecorder{}
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)}
-				b, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, testutil.NilMCPManager(), logger, nil, testTracer)
+				b, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 				require.NoError(t, err)
 
 				mockSrv := httptest.NewUnstartedServer(b)
@@ -189,7 +189,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
 		b, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{
 			provider.NewAnthropic(anthropicCfg("http://unused", apiKey), bedrockCfg),
-		}, recorderClient, testutil.NilMCPManager(), logger, nil, testTracer)
+		}, recorderClient, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 		require.NoError(t, err)
 
 		mockSrv := httptest.NewUnstartedServer(b)
@@ -236,7 +236,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
 				b, err := aibridge.NewRequestBridge(
 					ctx, []aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)},
-					recorderClient, testutil.NilMCPManager(), logger, nil, testTracer)
+					recorderClient, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 				require.NoError(t, err)
 
 				mockBridgeSrv := httptest.NewUnstartedServer(b)
@@ -324,7 +324,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				recorderClient := &testutil.MockRecorder{}
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))}
-				b, err := aibridge.NewRequestBridge(t.Context(), providers, recorderClient, testutil.NilMCPManager(), logger, nil, testTracer)
+				b, err := aibridge.NewRequestBridge(t.Context(), providers, recorderClient, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 				require.NoError(t, err)
 
 				mockSrv := httptest.NewUnstartedServer(b)
@@ -540,14 +540,14 @@ func TestSimple(t *testing.T) {
 		t.Helper()
 		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 		providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)}
-		return aibridge.NewRequestBridge(t.Context(), providers, client, testutil.NilMCPManager(), logger, nil, testTracer)
+		return aibridge.NewRequestBridge(t.Context(), providers, client, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 	}
 
 	configureOpenAI := func(t *testing.T, addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 		t.Helper()
 		logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 		providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
-		return aibridge.NewRequestBridge(t.Context(), providers, client, testutil.NilMCPManager(), logger, nil, testTracer)
+		return aibridge.NewRequestBridge(t.Context(), providers, client, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 	}
 
 	testCases := []struct {
@@ -713,7 +713,7 @@ func TestFallthrough(t *testing.T) {
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
-				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, client, testutil.NilMCPManager(), logger, nil, testTracer)
+				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, client, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 				require.NoError(t, err)
 				return provider, bridge
 			},
@@ -728,7 +728,7 @@ func TestFallthrough(t *testing.T) {
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
-				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, client, testutil.NilMCPManager(), logger, nil, testTracer)
+				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, client, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 				require.NoError(t, err)
 				return provider, bridge
 			},
@@ -743,7 +743,7 @@ func TestFallthrough(t *testing.T) {
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
-				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, client, testutil.NilMCPManager(), logger, nil, testTracer)
+				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, client, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 				require.NoError(t, err)
 				return provider, bridge
 			},
@@ -758,7 +758,7 @@ func TestFallthrough(t *testing.T) {
 			configureFunc: func(addr string, client aibridge.Recorder) (aibridge.Provider, *aibridge.RequestBridge) {
 				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 				provider := provider.NewOpenAI(openaiCfg(addr, apiKey))
-				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, client, testutil.NilMCPManager(), logger, nil, testTracer)
+				bridge, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, client, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 				require.NoError(t, err)
 				return provider, bridge
 			},
@@ -1203,7 +1203,7 @@ func TestErrorHandling(t *testing.T) {
 
 						recorderClient := &testutil.MockRecorder{}
 
-						b, err := tc.configureFunc(mockSrv.URL, recorderClient, testutil.NilMCPManager())
+						b, err := tc.configureFunc(mockSrv.URL, recorderClient, testutil.NewNoopMCPManager())
 						require.NoError(t, err)
 
 						// Invoke request to mocked API via aibridge.
@@ -1299,7 +1299,7 @@ func TestErrorHandling(t *testing.T) {
 
 				recorderClient := &testutil.MockRecorder{}
 
-				b, err := tc.configureFunc(upstream.URL, recorderClient, testutil.NilMCPManager())
+				b, err := tc.configureFunc(upstream.URL, recorderClient, testutil.NewNoopMCPManager())
 				require.NoError(t, err)
 
 				// Invoke request to mocked API via aibridge.
@@ -1496,7 +1496,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			if tc.withInjectedTools {
 				mcpMgr = testutil.SetupMCPForTest(t, testTracer)
 			} else {
-				mcpMgr = testutil.NilMCPManager()
+				mcpMgr = testutil.NewNoopMCPManager()
 			}
 
 			fix := fixtures.Parse(t, fixtures.AntSimple)
@@ -1575,7 +1575,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			recorderClient := &testutil.MockRecorder{}
 			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 			providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)}
-			bridge, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, testutil.NilMCPManager(), logger, nil, testTracer)
+			bridge, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 			require.NoError(t, err)
 
 			bridgeSrv := httptest.NewUnstartedServer(bridge)
@@ -1625,7 +1625,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, testutil.NilMCPManager(), logger, nil, testTracer)
+				return aibridge.NewRequestBridge(t.Context(), providers, client, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 			},
 			createRequest: createAnthropicMessagesReq,
 			envVars: map[string]string{
@@ -1639,7 +1639,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 			configureFunc: func(addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 				providers := []aibridge.Provider{provider.NewOpenAI(openaiCfg(addr, apiKey))}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, testutil.NilMCPManager(), logger, nil, testTracer)
+				return aibridge.NewRequestBridge(t.Context(), providers, client, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 			},
 			createRequest: createOpenAIChatCompletionsReq,
 			envVars: map[string]string{
@@ -1795,7 +1795,7 @@ func TestActorHeaders(t *testing.T) {
 				provider := tc.createProviderFn(srv.URL, apiKey, send)
 				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 
-				b, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, rec, testutil.NilMCPManager(), logger, nil, testTracer)
+				b, err := aibridge.NewRequestBridge(t.Context(), []aibridge.Provider{provider}, rec, testutil.NewNoopMCPManager(), logger, nil, testTracer)
 				require.NoError(t, err, "failed to create handler")
 
 				mockSrv := httptest.NewUnstartedServer(b)
