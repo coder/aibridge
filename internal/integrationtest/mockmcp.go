@@ -21,33 +21,33 @@ import (
 	"go.opentelemetry.io/otel/trace/noop"
 )
 
-// MockToolName is the primary mock tool name used in MCP tests.
-const MockToolName = "coder_list_workspaces"
+// mockToolName is the primary mock tool name used in MCP tests.
+const mockToolName = "coder_list_workspaces"
 
-// MockMCP wraps a real mcp.ServerProxier with test assertion helpers.
+// mockMCP wraps a real mcp.ServerProxier with test assertion helpers.
 // Implements mcp.ServerProxier so it can be passed directly to NewRequestBridge.
-type MockMCP struct {
+type mockMCP struct {
 	mcp.ServerProxier
 	calls *callAccumulator
 }
 
-// GetCallsByTool returns recorded arguments for a given tool name.
-func (m *MockMCP) GetCallsByTool(name string) []any {
+// getCallsByTool returns recorded arguments for a given tool name.
+func (m *mockMCP) getCallsByTool(name string) []any {
 	return m.calls.getCallsByTool(name)
 }
 
-// SetToolError configures a tool to return an error when invoked.
-func (m *MockMCP) SetToolError(tool, errMsg string) {
+// setToolError configures a tool to return an error when invoked.
+func (m *mockMCP) setToolError(tool, errMsg string) {
 	m.calls.setToolError(tool, errMsg)
 }
 
-// SetupMCPForTest creates a ready-to-use MCP server with proxy named "coder".
-func SetupMCPForTest(t *testing.T, tracer trace.Tracer) *MockMCP {
+// setupMCPForTest creates a ready-to-use MCP server with proxy named "coder".
+func setupMCPForTest(t *testing.T, tracer trace.Tracer) *mockMCP {
 	t.Helper()
-	return SetupMCPForTestWithName(t, "coder", tracer)
+	return setupMCPForTestWithName(t, "coder", tracer)
 }
 
-func SetupMCPForTestWithName(t *testing.T, name string, tracer trace.Tracer) *MockMCP {
+func setupMCPForTestWithName(t *testing.T, name string, tracer trace.Tracer) *mockMCP {
 	t.Helper()
 
 	srv, acc := createMockMCPSrv(t)
@@ -75,10 +75,10 @@ func SetupMCPForTestWithName(t *testing.T, name string, tracer trace.Tracer) *Mo
 	require.NoError(t, mgr.Init(ctx))
 	require.NotEmpty(t, mgr.ListTools(), "mock MCP server should expose tools after init")
 
-	return &MockMCP{ServerProxier: mgr, calls: acc}
+	return &mockMCP{ServerProxier: mgr, calls: acc}
 }
 
-func NewNoopMCPManager() mcp.ServerProxier {
+func newNoopMCPManager() mcp.ServerProxier {
 	return mcp.NewServerProxyManager(nil, noop.NewTracerProvider().Tracer(""))
 }
 
@@ -134,7 +134,7 @@ func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
 
 	acc := newCallAccumulator()
 
-	for _, name := range []string{MockToolName, "coder_list_templates", "coder_template_version_parameters", "coder_get_authenticated_user", "coder_create_workspace_build", "coder_delete_template"} {
+	for _, name := range []string{mockToolName, "coder_list_templates", "coder_template_version_parameters", "coder_get_authenticated_user", "coder_create_workspace_build", "coder_delete_template"} {
 		tool := mcplib.NewTool(name,
 			mcplib.WithDescription(fmt.Sprintf("Mock of the %s tool", name)),
 		)

@@ -1,4 +1,4 @@
-package integrationtest_test
+package integrationtest
 
 import (
 	"context"
@@ -16,7 +16,6 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/internal/integrationtest"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
 	"github.com/openai/openai-go/v3/responses"
@@ -333,12 +332,12 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := integrationtest.NewMockUpstream(t, ctx, integrationtest.NewFixtureResponse(fix))
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
-			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov}, integrationtest.WithWrappedRecorder())
+			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
+			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov}, withWrappedRecorder())
 
-			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, fix.Request())
+			req := createOpenAIResponsesReq(t, ts.URL, fix.Request())
 			req.Header.Set("User-Agent", tc.userAgent)
 			client := &http.Client{}
 
@@ -358,7 +357,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			interceptions := ts.Recorder.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
 			intc := interceptions[0]
-			require.Equal(t, intc.InitiatorID, integrationtest.DefaultActorID)
+			require.Equal(t, intc.InitiatorID, defaultActorID)
 			require.Equal(t, intc.Provider, config.ProviderOpenAI)
 			require.Equal(t, intc.Model, tc.expectModel)
 			require.Equal(t, tc.userAgent, intc.UserAgent)
@@ -427,12 +426,12 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
-			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov})
+			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
+			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov})
 
 			// Create a request with background mode enabled
 			reqBytes := responsesRequestBytes(t, tc.streaming, keyVal{"background", true})
-			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, reqBytes)
+			req := createOpenAIResponsesReq(t, ts.URL, reqBytes)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -540,10 +539,10 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
-			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov})
+			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
+			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov})
 
-			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, []byte(tc.request))
+			req := createOpenAIResponsesReq(t, ts.URL, []byte(tc.request))
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -600,11 +599,11 @@ func TestClientAndConnectionError(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			prov := provider.NewOpenAI(integrationtest.OpenAICfg(tc.addr, integrationtest.APIKey))
-			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov}, integrationtest.WithWrappedRecorder())
+			prov := provider.NewOpenAI(openAICfg(tc.addr, apiKey))
+			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov}, withWrappedRecorder())
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, reqBytes)
+			req := createOpenAIResponsesReq(t, ts.URL, reqBytes)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -683,11 +682,11 @@ func TestUpstreamError(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
-			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov})
+			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
+			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov})
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, reqBytes)
+			req := createOpenAIResponsesReq(t, ts.URL, reqBytes)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -858,18 +857,18 @@ func TestResponsesInjectedTool(t *testing.T) {
 			// Setup mock server for multi-turn interaction.
 			// First request → tool call response, second → tool response.
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := integrationtest.NewMockUpstream(t, ctx, integrationtest.NewFixtureResponse(fix), integrationtest.NewFixtureToolResponse(fix))
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix))
 
 			// Setup MCP server proxies (with mock tools).
-			mockMCP := integrationtest.SetupMCPForTest(t, integrationtest.DefaultTracer)
+			mockMCP := setupMCPForTest(t, defaultTracer)
 			if tc.expectToolError != "" {
-				mockMCP.SetToolError(tc.mcpToolName, tc.expectToolError)
+				mockMCP.setToolError(tc.mcpToolName, tc.expectToolError)
 			}
 
-			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
-			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov}, integrationtest.WithMCP(mockMCP))
+			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
+			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov}, withMCP(mockMCP))
 
-			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, fix.Request())
+			req := createOpenAIResponsesReq(t, ts.URL, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -884,7 +883,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 			}, time.Second*10, time.Millisecond*50)
 
 			// Verify the injected tool was invoked via MCP.
-			invocations := mockMCP.GetCallsByTool(tc.mcpToolName)
+			invocations := mockMCP.getCallsByTool(tc.mcpToolName)
 			require.Len(t, invocations, 1, "expected MCP tool to be invoked once")
 
 			// Verify the injected tool usage was recorded.
