@@ -18,9 +18,8 @@ type Recorder interface {
 	// RecordPromptUsage records the prompts used in an interception with an upstream AI provider.
 	RecordPromptUsage(ctx context.Context, req *PromptUsageRecord) error
 	// RecordToolUsage records the tools used in an interception with an upstream AI provider.
+	// Any associated model thoughts should be included in the ToolUsageRecord.
 	RecordToolUsage(ctx context.Context, req *ToolUsageRecord) error
-	// RecordModelThought records the reasoning/thinking produced in an interception with an upstream AI provider.
-	RecordModelThought(ctx context.Context, req *ModelThoughtRecord) error
 }
 
 type ToolArgs any
@@ -74,12 +73,11 @@ type ToolUsageRecord struct {
 	InvocationError error
 	Metadata        Metadata
 	CreatedAt       time.Time
+	ModelThoughts   []*ModelThoughtRecord
 }
 
 type ModelThoughtRecord struct {
-	InterceptionID string
-	ProviderToolCallID string
-	Content        string
-	Metadata       Metadata
-	CreatedAt      time.Time
+	Content   string
+	Metadata  Metadata
+	CreatedAt time.Time
 }

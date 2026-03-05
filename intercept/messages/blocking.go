@@ -137,18 +137,16 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 		// Capture any thinking blocks that were returned.
 		var thoughtRecords []*recorder.ModelThoughtRecord
-		if !i.isSmallFastModel() {
-			for _, block := range resp.Content {
-				switch variant := block.AsAny().(type) {
-				case anthropic.ThinkingBlock:
-					thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
-						InterceptionID: i.ID().String(),
-						Content:        variant.Thinking,
-					})
-				case anthropic.RedactedThinkingBlock:
-					// For redacted thinking, there's nothing useful we can capture.
-					continue
-				}
+		for _, block := range resp.Content {
+			switch variant := block.AsAny().(type) {
+			case anthropic.ThinkingBlock:
+				thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
+					Content:   variant.Thinking,
+					CreatedAt: time.Now(),
+				})
+			case anthropic.RedactedThinkingBlock:
+				// For redacted thinking, there's nothing useful we can capture.
+				continue
 			}
 		}
 
@@ -173,22 +171,15 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Tool:           toolUse.Name,
 				Args:           toolUse.Input,
 				Injected:       false,
+				ModelThoughts:  thoughtRecords,
 			})
-
-			// Associate the model thoughts with this tool call.
-			for _, thought := range thoughtRecords {
-				thought.ProviderToolCallID = toolUse.ID
-			}
+			// Clear after first use to avoid duplicating across
+			// multiple tool calls in the same message.
+			thoughtRecords = nil
 		}
 
-		// If no injected tool calls, persist thoughts and we're done.
+		// If no injected tool calls, we're done.
 		if len(pendingToolCalls) == 0 {
-			for _, thought := range thoughtRecords {
-				if thought.ProviderToolCallID == "" {
-					continue
-				}
-				_ = i.recorder.RecordModelThought(ctx, thought)
-			}
 			break
 		}
 
@@ -223,12 +214,11 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Args:            tc.Input,
 				Injected:        true,
 				InvocationError: err,
+				ModelThoughts:   thoughtRecords,
 			})
-
-			// Associate the model thoughts with this tool call.
-			for _, thought := range thoughtRecords {
-				thought.ProviderToolCallID = tc.ID
-			}
+			// Clear after first use to avoid duplicating across
+			// multiple tool calls in the same message.
+			thoughtRecords = nil
 
 			if err != nil {
 				// Always provide a tool_result even if the tool call failed
@@ -313,14 +303,6 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			if len(toolResult.OfToolResult.Content) > 0 {
 				messages.Messages = append(messages.Messages, anthropic.NewUserMessage(toolResult))
 			}
-		}
-
-		// Only persist thoughts that are associated to a tool call.
-		for _, thought := range thoughtRecords {
-			if thought.ProviderToolCallID == "" {
-				continue
-			}
-			_ = i.recorder.RecordModelThought(ctx, thought)
 		}
 
 		// Sync the raw payload with updated messages so that withBody()

@@ -255,18 +255,16 @@ newStream:
 
 				// Capture any thinking blocks that were returned.
 				var thoughtRecords []*recorder.ModelThoughtRecord
-				if !i.isSmallFastModel() { // TODO: remove.
-					for _, block := range message.Content {
-						switch variant := block.AsAny().(type) {
-						case anthropic.ThinkingBlock:
-							thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
-								InterceptionID: i.ID().String(),
-								Content:        variant.Thinking,
-							})
-						case anthropic.RedactedThinkingBlock:
-							// For redacted thinking, there's nothing useful we can capture.
-							continue
-						}
+				for _, block := range message.Content {
+					switch variant := block.AsAny().(type) {
+					case anthropic.ThinkingBlock:
+						thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
+							Content:   variant.Thinking,
+							CreatedAt: time.Now(),
+						})
+					case anthropic.RedactedThinkingBlock:
+						// For redacted thinking, there's nothing useful we can capture.
+						continue
 					}
 				}
 
@@ -322,12 +320,11 @@ newStream:
 							Args:            input,
 							Injected:        true,
 							InvocationError: err,
+							ModelThoughts:   thoughtRecords,
 						})
-
-						// Associate the model thoughts with this tool call.
-						for _, thought := range thoughtRecords {
-							thought.ProviderToolCallID = id
-						}
+						// Clear after first use to avoid duplicating across
+						// multiple tool calls in the same message.
+						thoughtRecords = nil
 
 						if err != nil {
 							// Always provide a tool_result even if the tool call failed
@@ -413,15 +410,6 @@ newStream:
 						}
 					}
 
-					// Only persist thoughts that are associated to a tool call.
-					for _, thought := range thoughtRecords {
-						if thought.ProviderToolCallID == "" {
-							continue
-						}
-
-						_ = i.recorder.RecordModelThought(streamCtx, thought)
-					}
-
 					// Sync the raw payload with updated messages so that withBody()
 					// sends the updated payload on the next iteration.
 					if syncErr := i.syncPayloadMessages(messages.Messages); syncErr != nil {
@@ -448,22 +436,12 @@ newStream:
 								Tool:           variant.Name,
 								Args:           variant.Input,
 								Injected:       false,
+								ModelThoughts:  thoughtRecords,
 							})
-
-							// Associate the model thoughts with this tool call.
-							for _, thought := range thoughtRecords {
-								thought.ProviderToolCallID = variant.ID
-							}
+							// Clear after first use to avoid duplicating across
+							// multiple tool calls in the same message.
+							thoughtRecords = nil
 						}
-					}
-
-					// Only persist thoughts that are associated to a tool call.
-					for _, thought := range thoughtRecords {
-						if thought.ProviderToolCallID == "" {
-							continue
-						}
-
-						_ = i.recorder.RecordModelThought(streamCtx, thought)
 					}
 				}
 			}
