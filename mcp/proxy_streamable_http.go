@@ -32,8 +32,8 @@ type StreamableHTTPServerProxy struct {
 	tools      map[string]*Tool
 }
 
-func NewStreamableHTTPServerProxy(serverName, serverURL string, headers map[string]string, allowlist, denylist *regexp.Regexp, logger slog.Logger, tracer trace.Tracer) (*StreamableHTTPServerProxy, error) {
-	var opts []transport.StreamableHTTPCOption
+func NewStreamableHTTPServerProxy(serverName, serverURL string, headers map[string]string, allowlist, denylist *regexp.Regexp, logger slog.Logger, tracer trace.Tracer, opts ...transport.StreamableHTTPCOption) (*StreamableHTTPServerProxy, error) {
+	// nit: headers should be passed in as an option instead of a separate parameter. Not changed as this would be a breaking change.
 	if headers != nil {
 		opts = append(opts, transport.WithHTTPHeaders(headers))
 	}

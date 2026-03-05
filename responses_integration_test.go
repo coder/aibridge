@@ -21,7 +21,6 @@ import (
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/internal/testutil"
-	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
 	"github.com/openai/openai-go/v3/responses"
@@ -872,18 +871,16 @@ func TestResponsesInjectedTool(t *testing.T) {
 			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix), testutil.NewFixtureToolResponse(fix))
 
 			// Setup MCP server proxies (with mock tools).
-			mcpProxiers, mcpCalls := setupMCPServerProxiesForTest(t, testTracer)
+			mockMCP := testutil.SetupMCPForTest(t, testTracer)
 			if tc.expectToolError != "" {
-				mcpCalls.setToolError(tc.mcpToolName, tc.expectToolError)
+				mockMCP.SetToolError(tc.mcpToolName, tc.expectToolError)
 			}
-			mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
-			require.NoError(t, mcpMgr.Init(ctx))
 
 			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
 			mockRecorder := &testutil.MockRecorder{}
 			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 
-			bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{prov}, mockRecorder, mcpMgr, logger, nil, testTracer)
+			bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{prov}, mockRecorder, mockMCP, logger, nil, testTracer)
 			require.NoError(t, err)
 
 			srv := httptest.NewUnstartedServer(bridge)
@@ -908,7 +905,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 			}, time.Second*10, time.Millisecond*50)
 
 			// Verify the injected tool was invoked via MCP.
-			invocations := mcpCalls.getCallsByTool(tc.mcpToolName)
+			invocations := mockMCP.GetCallsByTool(tc.mcpToolName)
 			require.Len(t, invocations, 1, "expected MCP tool to be invoked once")
 
 			// Verify the injected tool usage was recorded.

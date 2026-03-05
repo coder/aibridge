@@ -16,7 +16,6 @@ import (
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/internal/testutil"
-	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/prometheus/client_golang/prometheus"
@@ -295,11 +294,9 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	provider := provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)
 
 	// Setup mocked MCP server & tools.
-	mcpProxiers, _ := setupMCPServerProxiesForTest(t, testTracer)
-	mcpMgr := mcp.NewServerProxyManager(mcpProxiers, testTracer)
-	require.NoError(t, mcpMgr.Init(ctx))
+	mockMCP := testutil.SetupMCPForTest(t, testTracer)
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mcpMgr, logger, metrics, testTracer)
+	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mockMCP, logger, metrics, testTracer)
 	require.NoError(t, err)
 
 	srv := httptest.NewUnstartedServer(bridge)
@@ -327,7 +324,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	actualServerURL := *recorder.ToolUsages()[0].ServerURL
 
 	count := promtest.ToFloat64(metrics.InjectedToolUseCount.WithLabelValues(
-		config.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName))
+		config.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, testutil.MockToolName))
 	require.Equal(t, 1.0, count)
 }
 
@@ -341,7 +338,7 @@ func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, m
 	}
 	wrappedRecorder := aibridge.NewRecorder(logger, tracer, clientFn)
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, mcp.NewServerProxyManager(nil, testTracer), logger, metrics, tracer)
+	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, testutil.NewNoopMCPManager(), logger, metrics, tracer)
 	require.NoError(t, err)
 
 	srv := httptest.NewUnstartedServer(bridge)
