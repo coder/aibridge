@@ -19,15 +19,15 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// DefaultActorID is the actor ID used by default in test servers.
-const DefaultActorID = "ae235cc1-9f8f-417d-a636-a7b170bac62e"
+// defaultActorID is the actor ID used by default in test servers.
+const defaultActorID = "ae235cc1-9f8f-417d-a636-a7b170bac62e"
 
-// DefaultTracer is the default OTel tracer used in integration tests.
-var DefaultTracer = otel.Tracer("integrationtest")
+// defaultTracer is the default OTel tracer used in integration tests.
+var defaultTracer = otel.Tracer("integrationtest")
 
-// NewLogger creates a test logger at Debug level.
+// newLogger creates a test logger at Debug level.
 // Eliminates the repeated slogtest.Make(t, &slogtest.Options{...}).Leveled(slog.LevelDebug) pattern.
-func NewLogger(t *testing.T, opts ...*slogtest.Options) slog.Logger {
+func newLogger(t *testing.T, opts ...*slogtest.Options) slog.Logger {
 	t.Helper()
 	var o *slogtest.Options
 	if len(opts) > 0 {
@@ -38,15 +38,15 @@ func NewLogger(t *testing.T, opts ...*slogtest.Options) slog.Logger {
 	return slogtest.Make(t, o).Leveled(slog.LevelDebug)
 }
 
-// BridgeTestServer wraps an httptest.Server running a RequestBridge.
-type BridgeTestServer struct {
+// bridgeTestServer wraps an httptest.Server running a RequestBridge.
+type bridgeTestServer struct {
 	*httptest.Server
 	Recorder *testutil.MockRecorder
 	Bridge   *aibridge.RequestBridge
 }
 
-// BridgeOption configures a [BridgeTestServer].
-type BridgeOption func(*bridgeConfig)
+// bridgeOption configures a [bridgeTestServer].
+type bridgeOption func(*bridgeConfig)
 
 type bridgeConfig struct {
 	metrics      *metrics.Metrics
@@ -59,66 +59,66 @@ type bridgeConfig struct {
 	wrapRecorder bool
 }
 
-// WithMetrics sets the Prometheus metrics for the bridge.
-func WithMetrics(m *metrics.Metrics) BridgeOption {
+// withMetrics sets the Prometheus metrics for the bridge.
+func withMetrics(m *metrics.Metrics) bridgeOption {
 	return func(c *bridgeConfig) { c.metrics = m }
 }
 
-// WithTracer overrides the default tracer.
-func WithTracer(t trace.Tracer) BridgeOption {
+// withTracer overrides the default tracer.
+func withTracer(t trace.Tracer) bridgeOption {
 	return func(c *bridgeConfig) { c.tracer = t }
 }
 
-// WithMCP sets the MCP server proxier (default: NoopMCPManager).
-func WithMCP(p mcp.ServerProxier) BridgeOption {
+// withMCP sets the MCP server proxier (default: NoopMCPManager).
+func withMCP(p mcp.ServerProxier) bridgeOption {
 	return func(c *bridgeConfig) { c.mcpProxy = p }
 }
 
-// WithActor sets the actor ID and metadata for the BaseContext.
-func WithActor(id string, md recorder.Metadata) BridgeOption {
+// withActor sets the actor ID and metadata for the BaseContext.
+func withActor(id string, md recorder.Metadata) bridgeOption {
 	return func(c *bridgeConfig) { c.userID = id; c.metadata = md }
 }
 
-// WithLogger overrides the default slogtest debug logger.
-func WithLogger(l slog.Logger) BridgeOption {
+// withLogger overrides the default slogtest debug logger.
+func withLogger(l slog.Logger) bridgeOption {
 	return func(c *bridgeConfig) { c.logger = l; c.loggerSet = true }
 }
 
-// WithWrappedRecorder wraps the MockRecorder through aibridge.NewRecorder
+// withWrappedRecorder wraps the MockRecorder through aibridge.NewRecorder
 // (the production recorder wrapper). Use when testing the recorder pipeline.
-func WithWrappedRecorder() BridgeOption {
+func withWrappedRecorder() bridgeOption {
 	return func(c *bridgeConfig) { c.wrapRecorder = true }
 }
 
-// NewBridgeTestServer creates a fully configured test server running
+// newBridgeTestServer creates a fully configured test server running
 // a RequestBridge with sensible defaults:
-//   - MockRecorder (raw, unless WithWrappedRecorder)
-//   - NoopMCPManager (unless WithMCP)
-//   - slogtest debug logger (unless WithLogger)
-//   - DefaultTracer (unless WithTracer)
-//   - DefaultActorID (unless WithActor)
-func NewBridgeTestServer(
+//   - MockRecorder (raw, unless withWrappedRecorder)
+//   - NoopMCPManager (unless withMCP)
+//   - slogtest debug logger (unless withLogger)
+//   - defaultTracer (unless withTracer)
+//   - defaultActorID (unless withActor)
+func newBridgeTestServer(
 	t *testing.T,
 	ctx context.Context,
 	providers []aibridge.Provider,
-	opts ...BridgeOption,
-) *BridgeTestServer {
+	opts ...bridgeOption,
+) *bridgeTestServer {
 	t.Helper()
 
 	cfg := &bridgeConfig{
-		userID: DefaultActorID,
+		userID: defaultActorID,
 	}
 	for _, o := range opts {
 		o(cfg)
 	}
 	if cfg.tracer == nil {
-		cfg.tracer = DefaultTracer
+		cfg.tracer = defaultTracer
 	}
 	if !cfg.loggerSet {
-		cfg.logger = NewLogger(t)
+		cfg.logger = newLogger(t)
 	}
 	if cfg.mcpProxy == nil {
-		cfg.mcpProxy = NewNoopMCPManager()
+		cfg.mcpProxy = newNoopMCPManager()
 	}
 
 	mockRec := &testutil.MockRecorder{}
@@ -143,7 +143,7 @@ func NewBridgeTestServer(
 	srv.Start()
 	t.Cleanup(srv.Close)
 
-	return &BridgeTestServer{
+	return &bridgeTestServer{
 		Server:   srv,
 		Recorder: mockRec,
 		Bridge:   bridge,

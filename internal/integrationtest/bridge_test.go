@@ -54,15 +54,15 @@ type (
 )
 
 func newAnthropicProvider(addr string) aibridge.Provider {
-	return provider.NewAnthropic(AnthropicCfg(addr, APIKey), nil)
+	return provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
 }
 
 func newOpenAIProvider(addr string) aibridge.Provider {
-	return provider.NewOpenAI(OpenAICfg(addr, APIKey))
+	return provider.NewOpenAI(openAICfg(addr, apiKey))
 }
 
 func newBedrockProvider(addr string) aibridge.Provider {
-	return provider.NewAnthropic(AnthropicCfg(addr, APIKey), testBedrockCfg(addr))
+	return provider.NewAnthropic(anthropicCfg(addr, apiKey), testBedrockCfg(addr))
 }
 
 func TestMain(m *testing.M) {
@@ -103,16 +103,16 @@ func TestAnthropicMessages(t *testing.T) {
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
-				upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix))
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-				ts := NewBridgeTestServer(t, ctx,
-					[]aibridge.Provider{provider.NewAnthropic(AnthropicCfg(upstream.URL, APIKey), nil)},
+				ts := newBridgeTestServer(t, ctx,
+					[]aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)},
 				)
 
 				// Make API call to aibridge for Anthropic /v1/messages
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
-				req := CreateAnthropicMessagesReq(t, ts.URL, reqBody)
+				req := createAnthropicMessagesReq(t, ts.URL, reqBody)
 				client := &http.Client{}
 				resp, err := client.Do(req)
 				require.NoError(t, err)
@@ -178,12 +178,12 @@ func TestAWSBedrockIntegration(t *testing.T) {
 			SmallFastModel:  "test-haiku",
 		}
 
-		ts := NewBridgeTestServer(t, ctx,
-			[]aibridge.Provider{provider.NewAnthropic(AnthropicCfg("http://unused", APIKey), bedrockCfg)},
-			WithLogger(NewLogger(t, &slogtest.Options{IgnoreErrors: true})),
+		ts := newBridgeTestServer(t, ctx,
+			[]aibridge.Provider{provider.NewAnthropic(anthropicCfg("http://unused", apiKey), bedrockCfg)},
+			withLogger(newLogger(t, &slogtest.Options{IgnoreErrors: true})),
 		)
 
-		req := CreateAnthropicMessagesReq(t, ts.URL, fixtures.Request(t, fixtures.AntSingleBuiltinTool))
+		req := createAnthropicMessagesReq(t, ts.URL, fixtures.Request(t, fixtures.AntSingleBuiltinTool))
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
@@ -204,7 +204,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
-				upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix))
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 				// We define region here to validate that with Region & BaseURL defined, the latter takes precedence.
 				bedrockCfg := &config.AWSBedrock{
@@ -216,16 +216,16 @@ func TestAWSBedrockIntegration(t *testing.T) {
 					BaseURL:         upstream.URL,      // Use the mock server.
 				}
 
-				ts := NewBridgeTestServer(t, ctx,
-					[]aibridge.Provider{provider.NewAnthropic(AnthropicCfg(upstream.URL, APIKey), bedrockCfg)},
-					WithLogger(NewLogger(t, &slogtest.Options{IgnoreErrors: true})),
+				ts := newBridgeTestServer(t, ctx,
+					[]aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)},
+					withLogger(newLogger(t, &slogtest.Options{IgnoreErrors: true})),
 				)
 
 				// Make API call to aibridge for Anthropic /v1/messages, which will be routed via AWS Bedrock.
 				// We override the AWS Bedrock client to route requests through our mock server.
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 				require.NoError(t, err)
-				req := CreateAnthropicMessagesReq(t, ts.URL, reqBody)
+				req := createAnthropicMessagesReq(t, ts.URL, reqBody)
 				client := &http.Client{}
 				resp, err := client.Do(req)
 				require.NoError(t, err)
@@ -240,7 +240,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 
 				// Verify that Bedrock-specific model name was used in the request to the mock server
 				// and the interception data.
-				received := upstream.ReceivedRequests()
+				received := upstream.receivedRequests()
 				require.Len(t, received, 1)
 
 				// The Anthropic SDK's Bedrock middleware extracts "model" and "stream"
@@ -294,16 +294,16 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
-				upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix))
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-				ts := NewBridgeTestServer(t, ctx,
-					[]aibridge.Provider{provider.NewOpenAI(OpenAICfg(upstream.URL, APIKey))},
+				ts := newBridgeTestServer(t, ctx,
+					[]aibridge.Provider{provider.NewOpenAI(openAICfg(upstream.URL, apiKey))},
 				)
 
 				// Make API call to aibridge for OpenAI /v1/chat/completions
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
-				req := CreateOpenAIChatCompletionsReq(t, ts.URL, reqBody)
+				req := createOpenAIChatCompletionsReq(t, ts.URL, reqBody)
 
 				client := &http.Client{}
 				resp, err := client.Do(req)
@@ -377,20 +377,20 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				// Setup mock server for multi-turn interaction.
 				// First request → tool call response, second → tool response.
 				fix := fixtures.Parse(t, tc.fixture)
-				upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix), NewFixtureToolResponse(fix))
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix))
 
 				// Setup MCP proxies with the tool from the fixture
-				mockMCP := SetupMCPForTest(t, DefaultTracer)
+				mockMCP := setupMCPForTest(t, defaultTracer)
 
-				ts := NewBridgeTestServer(t, ctx,
-					[]aibridge.Provider{provider.NewOpenAI(OpenAICfg(upstream.URL, APIKey))},
-					WithMCP(mockMCP),
+				ts := newBridgeTestServer(t, ctx,
+					[]aibridge.Provider{provider.NewOpenAI(openAICfg(upstream.URL, apiKey))},
+					withMCP(mockMCP),
 				)
 
 				// Add the stream param to the request.
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", true)
 				require.NoError(t, err)
-				req := CreateOpenAIChatCompletionsReq(t, ts.URL, reqBody)
+				req := createOpenAIChatCompletionsReq(t, ts.URL, reqBody)
 
 				client := &http.Client{}
 				resp, err := client.Do(req)
@@ -408,7 +408,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				resp.Body.Close()
 
 				// Verify the MCP tool was actually invoked
-				invocations := mockMCP.GetCallsByTool(MockToolName)
+				invocations := mockMCP.getCallsByTool(mockToolName)
 				require.Len(t, invocations, 1, "expected MCP tool to be invoked")
 
 				// Verify tool was invoked with the expected args (if specified)
@@ -423,7 +423,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				// Verify tool usage was recorded
 				toolUsages := ts.Recorder.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
-				assert.Equal(t, MockToolName, toolUsages[0].Tool)
+				assert.Equal(t, mockToolName, toolUsages[0].Tool)
 
 				ts.Recorder.VerifyAllInterceptionsEnded(t)
 			})
@@ -511,7 +511,7 @@ func TestSimple(t *testing.T) {
 			expectedPath:      "/v1/messages",
 			providerFn:        newAnthropicProvider,
 			getResponseIDFunc: getAnthropicResponseID,
-			createRequest:     CreateAnthropicMessagesReq,
+			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
 			userAgent:         "claude-cli/2.0.67 (external, cli)",
 			expectedClient:    aibridge.ClientClaudeCode,
@@ -523,7 +523,7 @@ func TestSimple(t *testing.T) {
 			expectedPath:      "/chat/completions",
 			providerFn:        newOpenAIProvider,
 			getResponseIDFunc: getOpenAIResponseID,
-			createRequest:     CreateOpenAIChatCompletionsReq,
+			createRequest:     createOpenAIChatCompletionsReq,
 			expectedMsgID:     "chatcmpl-BwoiPTGRbKkY5rncfaM0s9KtWrq5N",
 			userAgent:         "codex_cli_rs/0.87.0 (Mac OS 26.2.0; arm64)",
 			expectedClient:    aibridge.ClientCodex,
@@ -535,7 +535,7 @@ func TestSimple(t *testing.T) {
 			expectedPath:      "/api/v1/messages",
 			providerFn:        newAnthropicProvider,
 			getResponseIDFunc: getAnthropicResponseID,
-			createRequest:     CreateAnthropicMessagesReq,
+			createRequest:     createAnthropicMessagesReq,
 			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
 			userAgent:         "GitHubCopilotChat/0.37.2026011603",
 			expectedClient:    aibridge.ClientCopilotVSC,
@@ -547,7 +547,7 @@ func TestSimple(t *testing.T) {
 			expectedPath:      "/api/chat/completions",
 			providerFn:        newOpenAIProvider,
 			getResponseIDFunc: getOpenAIResponseID,
-			createRequest:     CreateOpenAIChatCompletionsReq,
+			createRequest:     createOpenAIChatCompletionsReq,
 			expectedMsgID:     "chatcmpl-BwoiPTGRbKkY5rncfaM0s9KtWrq5N",
 			userAgent:         "Zed/0.219.4+stable.119.abc123 (macos; aarch64)",
 			expectedClient:    aibridge.ClientZed,
@@ -566,9 +566,9 @@ func TestSimple(t *testing.T) {
 					t.Cleanup(cancel)
 
 					fix := fixtures.Parse(t, tc.fixture)
-					upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix))
+					upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-					ts := NewBridgeTestServer(t, ctx,
+					ts := newBridgeTestServer(t, ctx,
 						[]aibridge.Provider{tc.providerFn(upstream.URL + tc.basePath)},
 					)
 
@@ -584,7 +584,7 @@ func TestSimple(t *testing.T) {
 					defer resp.Body.Close()
 
 					// Then: I expect the upstream request to have the correct path.
-					received := upstream.ReceivedRequests()
+					received := upstream.receivedRequests()
 					require.Len(t, received, 1)
 					require.Equal(t, tc.expectedPath, received[0].Path)
 
@@ -801,9 +801,9 @@ func TestFallthrough(t *testing.T) {
 			t.Parallel()
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := NewMockUpstream(t, t.Context(), NewFixtureResponse(fix))
+			upstream := newMockUpstream(t, t.Context(), newFixtureResponse(fix))
 			p := tc.providerFn(upstream.URL + tc.basePath)
-			ts := NewBridgeTestServer(t, t.Context(),
+			ts := newBridgeTestServer(t, t.Context(),
 				[]aibridge.Provider{p},
 			)
 
@@ -818,10 +818,10 @@ func TestFallthrough(t *testing.T) {
 
 			// Verify upstream received the request at the expected path
 			// with the API key header.
-			received := upstream.ReceivedRequests()
+			received := upstream.receivedRequests()
 			require.Len(t, received, 1)
 			require.Equal(t, tc.expectedUpstreamPath, received[0].Path)
-			require.Contains(t, received[0].Header.Get(p.AuthHeader()), APIKey)
+			require.Contains(t, received[0].Header.Get(p.AuthHeader()), apiKey)
 
 			gotBytes, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
@@ -844,18 +844,18 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			t.Parallel()
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, newAnthropicProvider, DefaultTracer, DefaultActorID, CreateAnthropicMessagesReq, anthropicToolResultValidator(t))
+			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, newAnthropicProvider, defaultTracer, defaultActorID, createAnthropicMessagesReq, anthropicToolResultValidator(t))
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := recorderClient.RecordedToolUsages()
 			require.Len(t, toolUsages, 1)
-			require.Equal(t, MockToolName, toolUsages[0].Tool)
+			require.Equal(t, mockToolName, toolUsages[0].Tool)
 			expected, err := json.Marshal(map[string]any{"owner": "admin"})
 			require.NoError(t, err)
 			actual, err := json.Marshal(toolUsages[0].Args)
 			require.NoError(t, err)
 			require.EqualValues(t, expected, actual)
-			invocations := mockMCP.GetCallsByTool(MockToolName)
+			invocations := mockMCP.getCallsByTool(mockToolName)
 			require.Len(t, invocations, 1)
 			actual, err = json.Marshal(invocations[0])
 			require.NoError(t, err)
@@ -928,18 +928,18 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			t.Parallel()
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, newOpenAIProvider, DefaultTracer, DefaultActorID, CreateOpenAIChatCompletionsReq, openaiChatToolResultValidator(t))
+			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, newOpenAIProvider, defaultTracer, defaultActorID, createOpenAIChatCompletionsReq, openaiChatToolResultValidator(t))
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := recorderClient.RecordedToolUsages()
 			require.Len(t, toolUsages, 1)
-			require.Equal(t, MockToolName, toolUsages[0].Tool)
+			require.Equal(t, mockToolName, toolUsages[0].Tool)
 			expected, err := json.Marshal(map[string]any{"owner": "admin"})
 			require.NoError(t, err)
 			actual, err := json.Marshal(toolUsages[0].Args)
 			require.NoError(t, err)
 			require.EqualValues(t, expected, actual)
-			invocations := mockMCP.GetCallsByTool(MockToolName)
+			invocations := mockMCP.getCallsByTool(mockToolName)
 			require.Len(t, invocations, 1)
 			actual, err = json.Marshal(invocations[0])
 			require.NoError(t, err)
@@ -1102,7 +1102,7 @@ func setupInjectedToolTest(
 	actorID string,
 	createRequestFn func(*testing.T, string, []byte) *http.Request,
 	toolRequestValidatorFn func(*http.Request, []byte),
-) (*testutil.MockRecorder, *MockMCP, *http.Response) {
+) (*testutil.MockRecorder, *mockMCP, *http.Response) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -1112,18 +1112,18 @@ func setupInjectedToolTest(
 
 	// Setup mock server for multi-turn interaction.
 	// First request → tool call response, second → tool response.
-	firstResp := NewFixtureResponse(fix)
-	toolResp := NewFixtureToolResponse(fix)
+	firstResp := newFixtureResponse(fix)
+	toolResp := newFixtureToolResponse(fix)
 	toolResp.OnRequest = toolRequestValidatorFn
-	upstream := NewMockUpstream(t, ctx, firstResp, toolResp)
+	upstream := newMockUpstream(t, ctx, firstResp, toolResp)
 
-	mockMCP := SetupMCPForTest(t, tracer)
+	mockMCP := setupMCPForTest(t, tracer)
 
-	ts := NewBridgeTestServer(t, ctx,
+	ts := newBridgeTestServer(t, ctx,
 		[]aibridge.Provider{providerFn(upstream.URL)},
-		WithMCP(mockMCP),
-		WithTracer(tracer),
-		WithActor(actorID, nil),
+		withMCP(mockMCP),
+		withTracer(tracer),
+		withActor(actorID, nil),
 	)
 
 	// Add the stream param to the request.
@@ -1162,7 +1162,7 @@ func TestErrorHandling(t *testing.T) {
 			{
 				name:              config.ProviderAnthropic,
 				fixture:           fixtures.AntNonStreamError,
-				createRequestFunc: CreateAnthropicMessagesReq,
+				createRequestFunc: createAnthropicMessagesReq,
 				providerFn:        newAnthropicProvider,
 				responseHandlerFn: func(resp *http.Response) {
 					require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -1176,7 +1176,7 @@ func TestErrorHandling(t *testing.T) {
 			{
 				name:              config.ProviderOpenAI,
 				fixture:           fixtures.OaiChatNonStreamError,
-				createRequestFunc: CreateOpenAIChatCompletionsReq,
+				createRequestFunc: createOpenAIChatCompletionsReq,
 				providerFn:        newOpenAIProvider,
 				responseHandlerFn: func(resp *http.Response) {
 					require.Equal(t, http.StatusBadRequest, resp.StatusCode)
@@ -1203,9 +1203,9 @@ func TestErrorHandling(t *testing.T) {
 						// Setup mock server. Error fixtures contain raw HTTP
 						// responses that may cause the bridge to retry.
 						fix := fixtures.Parse(t, tc.fixture)
-						upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix))
+						upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-						ts := NewBridgeTestServer(t, ctx,
+						ts := newBridgeTestServer(t, ctx,
 							[]aibridge.Provider{tc.providerFn(upstream.URL)},
 						)
 
@@ -1238,7 +1238,7 @@ func TestErrorHandling(t *testing.T) {
 			{
 				name:              config.ProviderAnthropic,
 				fixture:           fixtures.AntMidStreamError,
-				createRequestFunc: CreateAnthropicMessagesReq,
+				createRequestFunc: createAnthropicMessagesReq,
 				providerFn:        newAnthropicProvider,
 				responseHandlerFn: func(resp *http.Response) {
 					// Server responds first with 200 OK then starts streaming.
@@ -1253,7 +1253,7 @@ func TestErrorHandling(t *testing.T) {
 			{
 				name:              config.ProviderOpenAI,
 				fixture:           fixtures.OaiChatMidStreamError,
-				createRequestFunc: CreateOpenAIChatCompletionsReq,
+				createRequestFunc: createOpenAIChatCompletionsReq,
 				providerFn:        newOpenAIProvider,
 				responseHandlerFn: func(resp *http.Response) {
 					// Server responds first with 200 OK then starts streaming.
@@ -1281,10 +1281,10 @@ func TestErrorHandling(t *testing.T) {
 
 				// Setup mock server.
 				fix := fixtures.Parse(t, tc.fixture)
-				upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix))
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 				upstream.StatusCode = http.StatusInternalServerError
 
-				ts := NewBridgeTestServer(t, ctx,
+				ts := newBridgeTestServer(t, ctx,
 					[]aibridge.Provider{tc.providerFn(upstream.URL)},
 				)
 
@@ -1317,13 +1317,13 @@ func TestStableRequestEncoding(t *testing.T) {
 		{
 			name:              config.ProviderAnthropic,
 			fixture:           fixtures.AntSimple,
-			createRequestFunc: CreateAnthropicMessagesReq,
+			createRequestFunc: createAnthropicMessagesReq,
 			providerFn:        newAnthropicProvider,
 		},
 		{
 			name:              config.ProviderOpenAI,
 			fixture:           fixtures.OaiChatSimple,
-			createRequestFunc: CreateOpenAIChatCompletionsReq,
+			createRequestFunc: createOpenAIChatCompletionsReq,
 			providerFn:        newOpenAIProvider,
 		},
 	}
@@ -1336,21 +1336,21 @@ func TestStableRequestEncoding(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// Setup MCP tools.
-			mockMCP := SetupMCPForTest(t, DefaultTracer)
+			mockMCP := setupMCPForTest(t, defaultTracer)
 
 			fix := fixtures.Parse(t, tc.fixture)
 
 			// Create a mock upstream that serves the same blocking response for each request.
 			count := 10
-			responses := make([]UpstreamResponse, count)
+			responses := make([]upstreamResponse, count)
 			for i := range count {
-				responses[i] = NewFixtureResponse(fix)
+				responses[i] = newFixtureResponse(fix)
 			}
-			upstream := NewMockUpstream(t, ctx, responses...)
+			upstream := newMockUpstream(t, ctx, responses...)
 
-			ts := NewBridgeTestServer(t, ctx,
+			ts := newBridgeTestServer(t, ctx,
 				[]aibridge.Provider{tc.providerFn(upstream.URL)},
-				WithMCP(mockMCP),
+				withMCP(mockMCP),
 			)
 
 			// Make multiple requests and verify they all have identical payloads.
@@ -1364,7 +1364,7 @@ func TestStableRequestEncoding(t *testing.T) {
 			}
 
 			// All upstream request bodies should be identical.
-			received := upstream.ReceivedRequests()
+			received := upstream.receivedRequests()
 			require.Len(t, received, count)
 			reference := string(received[0].Body)
 			for _, r := range received[1:] {
@@ -1457,24 +1457,24 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			// Setup MCP tools conditionally.
 			var mcpMgr mcp.ServerProxier
 			if tc.withInjectedTools {
-				mcpMgr = SetupMCPForTest(t, DefaultTracer)
+				mcpMgr = setupMCPForTest(t, defaultTracer)
 			} else {
-				mcpMgr = NewNoopMCPManager()
+				mcpMgr = newNoopMCPManager()
 			}
 
 			fix := fixtures.Parse(t, fixtures.AntSimple)
-			upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix))
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			ts := NewBridgeTestServer(t, ctx,
-				[]aibridge.Provider{provider.NewAnthropic(AnthropicCfg(upstream.URL, APIKey), nil)},
-				WithMCP(mcpMgr),
+			ts := newBridgeTestServer(t, ctx,
+				[]aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)},
+				withMCP(mcpMgr),
 			)
 
 			// Prepare request body with tool_choice set.
 			reqBody, err := sjson.SetBytes(fix.Request(), "tool_choice", tc.toolChoice)
 			require.NoError(t, err)
 
-			req := CreateAnthropicMessagesReq(t, ts.URL, reqBody)
+			req := createAnthropicMessagesReq(t, ts.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			require.NoError(t, err)
@@ -1482,7 +1482,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			_ = resp.Body.Close()
 
 			// Verify tool_choice in the upstream request.
-			received := upstream.ReceivedRequests()
+			received := upstream.receivedRequests()
 			require.Len(t, received, 1)
 			var receivedRequest map[string]any
 			require.NoError(t, json.Unmarshal(received[0].Body, &receivedRequest))
@@ -1524,10 +1524,10 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// Create a mock server that captures the request body sent upstream.
-			upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix))
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			ts := NewBridgeTestServer(t, ctx,
-				[]aibridge.Provider{provider.NewAnthropic(AnthropicCfg(upstream.URL, APIKey), nil)},
+			ts := newBridgeTestServer(t, ctx,
+				[]aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)},
 			)
 
 			// Inject adaptive thinking into the fixture request.
@@ -1536,7 +1536,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			reqBody, err = sjson.SetBytes(reqBody, "stream", streaming)
 			require.NoError(t, err)
 
-			req := CreateAnthropicMessagesReq(t, ts.URL, reqBody)
+			req := createAnthropicMessagesReq(t, ts.URL, reqBody)
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -1544,7 +1544,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			_ = resp.Body.Close()
 
 			// Verify the thinking field was preserved in the upstream request.
-			received := upstream.ReceivedRequests()
+			received := upstream.receivedRequests()
 			require.Len(t, received, 1)
 			assert.Equal(t, "adaptive", gjson.GetBytes(received[0].Body, "thinking.type").Str)
 		})
@@ -1568,7 +1568,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 			name:          config.ProviderAnthropic,
 			fixture:       fixtures.AntSimple,
 			providerFn:    newAnthropicProvider,
-			createRequest: CreateAnthropicMessagesReq,
+			createRequest: createAnthropicMessagesReq,
 			envVars: map[string]string{
 				"ANTHROPIC_AUTH_TOKEN": "should-not-leak",
 			},
@@ -1578,7 +1578,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 			name:          config.ProviderOpenAI,
 			fixture:       fixtures.OaiChatSimple,
 			providerFn:    newOpenAIProvider,
-			createRequest: CreateOpenAIChatCompletionsReq,
+			createRequest: createOpenAIChatCompletionsReq,
 			envVars: map[string]string{
 				"OPENAI_ORG_ID": "should-not-leak",
 			},
@@ -1594,7 +1594,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := NewMockUpstream(t, ctx, NewFixtureResponse(fix))
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 			// Set environment variables that the SDK would automatically read.
 			// These should NOT leak into upstream requests.
@@ -1602,7 +1602,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 				t.Setenv(key, val)
 			}
 
-			ts := NewBridgeTestServer(t, ctx,
+			ts := newBridgeTestServer(t, ctx,
 				[]aibridge.Provider{tc.providerFn(upstream.URL)},
 			)
 
@@ -1614,7 +1614,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 			defer resp.Body.Close()
 
 			// Verify that environment values did not leak.
-			received := upstream.ReceivedRequests()
+			received := upstream.receivedRequests()
 			require.Len(t, received, 1)
 			require.Empty(t, received[0].Header.Get(tc.headerName))
 		})
@@ -1635,9 +1635,9 @@ func TestActorHeaders(t *testing.T) {
 	}{
 		{
 			name:          "openai/v1/chat/completions",
-			createRequest: CreateOpenAIChatCompletionsReq,
+			createRequest: createOpenAIChatCompletionsReq,
 			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
-				cfg := OpenAICfg(url, key)
+				cfg := openAICfg(url, key)
 				cfg.SendActorHeaders = sendHeaders
 				return provider.NewOpenAI(cfg)
 			},
@@ -1646,9 +1646,9 @@ func TestActorHeaders(t *testing.T) {
 		},
 		{
 			name:          "openai/v1/chat/completions",
-			createRequest: CreateOpenAIChatCompletionsReq,
+			createRequest: createOpenAIChatCompletionsReq,
 			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
-				cfg := OpenAICfg(url, key)
+				cfg := openAICfg(url, key)
 				cfg.SendActorHeaders = sendHeaders
 				return provider.NewOpenAI(cfg)
 			},
@@ -1657,9 +1657,9 @@ func TestActorHeaders(t *testing.T) {
 		},
 		{
 			name:          "openai/v1/responses",
-			createRequest: CreateOpenAIResponsesReq,
+			createRequest: createOpenAIResponsesReq,
 			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
-				cfg := OpenAICfg(url, key)
+				cfg := openAICfg(url, key)
 				cfg.SendActorHeaders = sendHeaders
 				return provider.NewOpenAI(cfg)
 			},
@@ -1668,9 +1668,9 @@ func TestActorHeaders(t *testing.T) {
 		},
 		{
 			name:          "openai/v1/responses",
-			createRequest: CreateOpenAIResponsesReq,
+			createRequest: createOpenAIResponsesReq,
 			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
-				cfg := OpenAICfg(url, key)
+				cfg := openAICfg(url, key)
 				cfg.SendActorHeaders = sendHeaders
 				return provider.NewOpenAI(cfg)
 			},
@@ -1679,9 +1679,9 @@ func TestActorHeaders(t *testing.T) {
 		},
 		{
 			name:          "anthropic/v1/messages",
-			createRequest: CreateAnthropicMessagesReq,
+			createRequest: createAnthropicMessagesReq,
 			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
-				cfg := AnthropicCfg(url, key)
+				cfg := anthropicCfg(url, key)
 				cfg.SendActorHeaders = sendHeaders
 				return provider.NewAnthropic(cfg, nil)
 			},
@@ -1690,9 +1690,9 @@ func TestActorHeaders(t *testing.T) {
 		},
 		{
 			name:          "anthropic/v1/messages",
-			createRequest: CreateAnthropicMessagesReq,
+			createRequest: createAnthropicMessagesReq,
 			createProviderFn: func(url, key string, sendHeaders bool) aibridge.Provider {
-				cfg := AnthropicCfg(url, key)
+				cfg := anthropicCfg(url, key)
 				cfg.SendActorHeaders = sendHeaders
 				return provider.NewAnthropic(cfg, nil)
 			},
@@ -1721,12 +1721,12 @@ func TestActorHeaders(t *testing.T) {
 				srv.Start()
 				t.Cleanup(srv.Close)
 
-				p := tc.createProviderFn(srv.URL, APIKey, send)
+				p := tc.createProviderFn(srv.URL, apiKey, send)
 
 				metadataKey := "Username"
-				ts := NewBridgeTestServer(t, ctx,
+				ts := newBridgeTestServer(t, ctx,
 					[]aibridge.Provider{p},
-					WithActor(DefaultActorID, recorder.Metadata{
+					withActor(defaultActorID, recorder.Metadata{
 						metadataKey: actorUsername,
 					}),
 				)
@@ -1752,7 +1752,7 @@ func TestActorHeaders(t *testing.T) {
 				}
 
 				if send {
-					require.Equal(t, found[strings.ToLower(intercept.ActorIDHeader())], []string{DefaultActorID})
+					require.Equal(t, found[strings.ToLower(intercept.ActorIDHeader())], []string{defaultActorID})
 					require.Equal(t, found[strings.ToLower(intercept.ActorMetadataHeader(metadataKey))], []string{actorUsername})
 				} else {
 					require.Empty(t, found)

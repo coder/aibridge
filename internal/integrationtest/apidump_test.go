@@ -1,4 +1,4 @@
-package integrationtest_test
+package integrationtest
 
 import (
 	"bufio"
@@ -17,7 +17,6 @@ import (
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/intercept/apidump"
-	"github.com/coder/aibridge/internal/integrationtest"
 	"github.com/coder/aibridge/provider"
 	"github.com/stretchr/testify/require"
 )
@@ -51,25 +50,25 @@ func TestAPIDump(t *testing.T) {
 			name:    "anthropic",
 			fixture: fixtures.AntSimple,
 			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithAPIDump(addr, integrationtest.APIKey, dumpDir), nil)}
+				return []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)}
 			},
-			createRequestFunc: integrationtest.CreateAnthropicMessagesReq,
+			createRequestFunc: createAnthropicMessagesReq,
 		},
 		{
 			name:    "openai_chat_completions",
 			fixture: fixtures.OaiChatSimple,
 			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, integrationtest.APIKey, dumpDir))}
+				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
 			},
-			createRequestFunc: integrationtest.CreateOpenAIChatCompletionsReq,
+			createRequestFunc: createOpenAIChatCompletionsReq,
 		},
 		{
 			name:    "openai_responses",
 			fixture: fixtures.OaiResponsesBlockingSimple,
 			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, integrationtest.APIKey, dumpDir))}
+				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
 			},
-			createRequestFunc: integrationtest.CreateOpenAIResponsesReq,
+			createRequestFunc: createOpenAIResponsesReq,
 		},
 	}
 
@@ -82,13 +81,13 @@ func TestAPIDump(t *testing.T) {
 
 			// Setup mock upstream server.
 			fix := fixtures.Parse(t, tc.fixture)
-			srv := integrationtest.NewMockUpstream(t, ctx, integrationtest.NewFixtureResponse(fix))
+			srv := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 			// Create temp dir for API dumps.
 			dumpDir := t.TempDir()
 
 			providers := tc.providersFunc(srv.URL, dumpDir)
-			ts := integrationtest.NewBridgeTestServer(t, ctx, providers)
+			ts := newBridgeTestServer(t, ctx, providers)
 
 			req := tc.createRequestFunc(t, ts.URL, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
@@ -172,7 +171,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		{
 			name: "anthropic",
 			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
-				return provider.NewAnthropic(anthropicCfgWithAPIDump(addr, integrationtest.APIKey, dumpDir), nil)
+				return provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)
 			},
 			requestPath:    "/anthropic/v1/models",
 			expectDumpName: "-v1-models-",
@@ -180,7 +179,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		{
 			name: "openai",
 			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
-				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, integrationtest.APIKey, dumpDir))
+				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
 			requestPath:    "/openai/v1/models",
 			expectDumpName: "-models-",
@@ -211,7 +210,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 			dumpDir := t.TempDir()
 
 			prov := tc.providerFunc(upstream.URL, dumpDir)
-			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov})
+			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov})
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+tc.requestPath, nil)
 			require.NoError(t, err)

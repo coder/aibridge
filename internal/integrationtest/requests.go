@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// APIKey is the default API key used across integration tests.
-const APIKey = "api-key"
+// apiKey is the default API key used across integration tests.
+const apiKey = "api-key"
 
-// CreateAnthropicMessagesReq builds an HTTP request targeting the Anthropic messages endpoint.
-func CreateAnthropicMessagesReq(t *testing.T, baseURL string, input []byte) *http.Request {
+// createAnthropicMessagesReq builds an HTTP request targeting the Anthropic messages endpoint.
+func createAnthropicMessagesReq(t *testing.T, baseURL string, input []byte) *http.Request {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), "POST", baseURL+"/anthropic/v1/messages", bytes.NewReader(input))
@@ -23,8 +23,8 @@ func CreateAnthropicMessagesReq(t *testing.T, baseURL string, input []byte) *htt
 	return req
 }
 
-// CreateOpenAIChatCompletionsReq builds an HTTP request targeting the OpenAI chat completions endpoint.
-func CreateOpenAIChatCompletionsReq(t *testing.T, baseURL string, input []byte) *http.Request {
+// createOpenAIChatCompletionsReq builds an HTTP request targeting the OpenAI chat completions endpoint.
+func createOpenAIChatCompletionsReq(t *testing.T, baseURL string, input []byte) *http.Request {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), "POST", baseURL+"/openai/v1/chat/completions", bytes.NewReader(input))
@@ -34,8 +34,8 @@ func CreateOpenAIChatCompletionsReq(t *testing.T, baseURL string, input []byte) 
 	return req
 }
 
-// CreateOpenAIResponsesReq builds an HTTP request targeting the OpenAI responses endpoint.
-func CreateOpenAIResponsesReq(t *testing.T, baseURL string, input []byte) *http.Request {
+// createOpenAIResponsesReq builds an HTTP request targeting the OpenAI responses endpoint.
+func createOpenAIResponsesReq(t *testing.T, baseURL string, input []byte) *http.Request {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), "POST", baseURL+"/openai/v1/responses", bytes.NewReader(input))
@@ -44,16 +44,16 @@ func CreateOpenAIResponsesReq(t *testing.T, baseURL string, input []byte) *http.
 	return req
 }
 
-// OpenAICfg creates a minimal OpenAI config for testing.
-func OpenAICfg(url, key string) config.OpenAI {
+// openAICfg creates a minimal OpenAI config for testing.
+func openAICfg(url, key string) config.OpenAI {
 	return config.OpenAI{
 		BaseURL: url,
 		Key:     key,
 	}
 }
 
-// AnthropicCfg creates a minimal Anthropic config for testing.
-func AnthropicCfg(url, key string) config.Anthropic {
+// anthropicCfg creates a minimal Anthropic config for testing.
+func anthropicCfg(url, key string) config.Anthropic {
 	return config.Anthropic{
 		BaseURL: url,
 		Key:     key,
