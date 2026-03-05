@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/provider"
@@ -17,22 +16,6 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
-
-// testBedrockCfg returns a test AWS Bedrock config pointing at the given URL.
-func testBedrockCfg(url string) *config.AWSBedrock {
-	return &config.AWSBedrock{
-		Region:          "us-west-2",
-		AccessKey:       "test-access-key",
-		AccessKeySecret: "test-secret-key",
-		Model:           "beddel",  // This model should override the request's given one.
-		SmallFastModel:  "modrock", // Unused but needed for validation.
-		BaseURL:         url,
-	}
-}
-
-func newBedrockProvider(addr string) aibridge.Provider {
-	return provider.NewAnthropic(anthropicCfg(addr, apiKey), testBedrockCfg(addr))
-}
 
 func TestAWSBedrockIntegration(t *testing.T) {
 	t.Parallel()
@@ -52,12 +35,12 @@ func TestAWSBedrockIntegration(t *testing.T) {
 			SmallFastModel:  "test-haiku",
 		}
 
-		ts := newBridgeTestServer(t, ctx,
-			[]aibridge.Provider{provider.NewAnthropic(anthropicCfg("http://unused", apiKey), bedrockCfg)},
+		ts := newBridgeTestServer(t, ctx, "http://unused",
+			withCustomProvider(provider.NewAnthropic(anthropicCfg("http://unused", apiKey), bedrockCfg)),
 			withLogger(newLogger(t)),
 		)
 
-		req := createAnthropicMessagesReq(t, ts.URL, fixtures.Request(t, fixtures.AntSingleBuiltinTool))
+		req := ts.newRequest(t, pathAnthropicMessages, fixtures.Request(t, fixtures.AntSingleBuiltinTool))
 		resp, err := http.DefaultClient.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
@@ -90,8 +73,8 @@ func TestAWSBedrockIntegration(t *testing.T) {
 					BaseURL:         upstream.URL,      // Use the mock server.
 				}
 
-				ts := newBridgeTestServer(t, ctx,
-					[]aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)},
+				ts := newBridgeTestServer(t, ctx, upstream.URL,
+					withCustomProvider(provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)),
 					withLogger(newLogger(t)),
 				)
 
@@ -99,7 +82,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				// We override the AWS Bedrock client to route requests through our mock server.
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 				require.NoError(t, err)
-				req := createAnthropicMessagesReq(t, ts.URL, reqBody)
+				req := ts.newRequest(t, pathAnthropicMessages, reqBody)
 				client := &http.Client{}
 				resp, err := client.Do(req)
 				require.NoError(t, err)

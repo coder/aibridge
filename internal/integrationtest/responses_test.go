@@ -334,10 +334,9 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			fix := fixtures.Parse(t, tc.fixture)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov}, withWrappedRecorder())
+			ts := newBridgeTestServer(t, ctx, upstream.URL, withWrappedRecorder())
 
-			req := createOpenAIResponsesReq(t, ts.URL, fix.Request())
+			req := ts.newRequest(t, pathOpenAIResponses, fix.Request())
 			req.Header.Set("User-Agent", tc.userAgent)
 			client := &http.Client{}
 
@@ -426,12 +425,11 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov})
+			ts := newBridgeTestServer(t, ctx, upstream.URL)
 
 			// Create a request with background mode enabled
 			reqBytes := responsesRequestBytes(t, tc.streaming, keyVal{"background", true})
-			req := createOpenAIResponsesReq(t, ts.URL, reqBytes)
+			req := ts.newRequest(t, pathOpenAIResponses, reqBytes)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -539,10 +537,9 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov})
+			ts := newBridgeTestServer(t, ctx, upstream.URL)
 
-			req := createOpenAIResponsesReq(t, ts.URL, []byte(tc.request))
+			req := ts.newRequest(t, pathOpenAIResponses, []byte(tc.request))
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -599,11 +596,11 @@ func TestClientAndConnectionError(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			prov := provider.NewOpenAI(openAICfg(tc.addr, apiKey))
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov}, withWrappedRecorder())
+			// tc.addr may be an intentionally invalid URL; use withCustomProvider.
+			ts := newBridgeTestServer(t, ctx, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))), withWrappedRecorder())
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := createOpenAIResponsesReq(t, ts.URL, reqBytes)
+			req := ts.newRequest(t, pathOpenAIResponses, reqBytes)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -682,11 +679,10 @@ func TestUpstreamError(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov})
+			ts := newBridgeTestServer(t, ctx, upstream.URL)
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := createOpenAIResponsesReq(t, ts.URL, reqBytes)
+			req := ts.newRequest(t, pathOpenAIResponses, reqBytes)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -865,10 +861,9 @@ func TestResponsesInjectedTool(t *testing.T) {
 				mockMCP.setToolError(tc.mcpToolName, tc.expectToolError)
 			}
 
-			prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov}, withMCP(mockMCP))
+			ts := newBridgeTestServer(t, ctx, upstream.URL, withMCP(mockMCP))
 
-			req := createOpenAIResponsesReq(t, ts.URL, fix.Request())
+			req := ts.newRequest(t, pathOpenAIResponses, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()

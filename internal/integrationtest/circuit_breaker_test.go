@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
@@ -46,7 +45,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 		successBody    string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
-		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
+		path string
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 		expectProvider string
 		expectEndpoint string
@@ -66,7 +65,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
-			createRequest: createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
@@ -86,7 +85,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
-			createRequest: createOpenAIChatCompletionsReq,
+			path: pathOpenAIChatCompletions,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -130,16 +129,16 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 				Timeout:          50 * time.Millisecond,
 				MaxRequests:      1,
 			}
-			prov := tc.createProvider(mockUpstream.URL, cbConfig)
 
 			ctx := t.Context()
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+			ts := newBridgeTestServer(t, ctx, mockUpstream.URL,
+				withCustomProvider(tc.createProvider(mockUpstream.URL, cbConfig)),
 				withMetrics(m),
 				withActor("test-user-id", nil),
 			)
 
 			makeRequest := func() *http.Response {
-				req := tc.createRequest(t, ts.URL, []byte(tc.requestBody))
+				req := ts.newRequest(t, tc.path, []byte(tc.requestBody))
 				tc.setupHeaders(req)
 				resp, err := http.DefaultClient.Do(req)
 				require.NoError(t, err)
@@ -216,7 +215,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 		errorBody      string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
-		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
+		path string
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 		expectProvider string
 		expectEndpoint string
@@ -235,7 +234,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
-			createRequest: createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
@@ -254,7 +253,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
-			createRequest: createOpenAIChatCompletionsReq,
+			path: pathOpenAIChatCompletions,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -289,16 +288,16 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 				Timeout:          50 * time.Millisecond,
 				MaxRequests:      1,
 			}
-			prov := tc.createProvider(mockUpstream.URL, cbConfig)
 
 			ctx := t.Context()
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+			ts := newBridgeTestServer(t, ctx, mockUpstream.URL,
+				withCustomProvider(tc.createProvider(mockUpstream.URL, cbConfig)),
 				withMetrics(m),
 				withActor("test-user-id", nil),
 			)
 
 			makeRequest := func() *http.Response {
-				req := tc.createRequest(t, ts.URL, []byte(tc.requestBody))
+				req := ts.newRequest(t, tc.path, []byte(tc.requestBody))
 				tc.setupHeaders(req)
 				resp, err := http.DefaultClient.Do(req)
 				require.NoError(t, err)
@@ -356,7 +355,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 		successBody    string
 		requestBody    string
 		setupHeaders   func(req *http.Request)
-		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
+		path string
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 		expectProvider string
 		expectEndpoint string
@@ -376,7 +375,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				req.Header.Set("x-api-key", "test")
 				req.Header.Set("anthropic-version", "2023-06-01")
 			},
-			createRequest: createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
@@ -396,7 +395,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			setupHeaders: func(req *http.Request) {
 				req.Header.Set("Authorization", "Bearer test-key")
 			},
-			createRequest: createOpenAIChatCompletionsReq,
+			path: pathOpenAIChatCompletions,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -441,16 +440,16 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				Timeout:          50 * time.Millisecond,
 				MaxRequests:      maxRequests, // Allow only 2 concurrent requests in half-open
 			}
-			prov := tc.createProvider(mockUpstream.URL, cbConfig)
 
 			ctx := t.Context()
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+			ts := newBridgeTestServer(t, ctx, mockUpstream.URL,
+				withCustomProvider(tc.createProvider(mockUpstream.URL, cbConfig)),
 				withMetrics(m),
 				withActor("test-user-id", nil),
 			)
 
 			makeRequest := func() *http.Response {
-				req := tc.createRequest(t, ts.URL, []byte(tc.requestBody))
+				req := ts.newRequest(t, tc.path, []byte(tc.requestBody))
 				tc.setupHeaders(req)
 				resp, err := http.DefaultClient.Do(req)
 				require.NoError(t, err)
@@ -561,21 +560,20 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 		Timeout:          500 * time.Millisecond,
 		MaxRequests:      1,
 	}
-	prov := provider.NewAnthropic(config.Anthropic{
-		BaseURL:        mockUpstream.URL,
-		Key:            "test-key",
-		CircuitBreaker: cbConfig,
-	}, nil)
-
 	ctx := t.Context()
-	ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+	ts := newBridgeTestServer(t, ctx, mockUpstream.URL,
+		withCustomProvider(provider.NewAnthropic(config.Anthropic{
+			BaseURL:        mockUpstream.URL,
+			Key:            "test-key",
+			CircuitBreaker: cbConfig,
+		}, nil)),
 		withMetrics(m),
 		withActor("test-user-id", nil),
 	)
 
 	makeRequest := func(model string) *http.Response {
 		body := fmt.Sprintf(`{"model":"%s","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`, model)
-		req := createAnthropicMessagesReq(t, ts.URL, []byte(body))
+		req := ts.newRequest(t, pathAnthropicMessages, []byte(body))
 		req.Header.Set("x-api-key", "test")
 		req.Header.Set("anthropic-version", "2023-06-01")
 		resp, err := http.DefaultClient.Do(req)
