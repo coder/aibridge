@@ -1,7 +1,6 @@
-package aibridge_test
+package integrationtest_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -14,12 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
-	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/internal/integrationtest"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
@@ -335,16 +332,14 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
-			ctx = aibcontext.AsActor(ctx, userID, nil)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+			upstream := integrationtest.NewMockUpstream(t, ctx, integrationtest.NewFixtureResponse(fix))
 
-			provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			srv, mockRecorder := newTestSrv(t, ctx, provider, nil, testTracer)
-			defer srv.Close()
+			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov}, integrationtest.WithWrappedRecorder())
 
-			req := createOpenAIResponsesReq(t, srv.URL, fix.Request())
+			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, fix.Request())
 			req.Header.Set("User-Agent", tc.userAgent)
 			client := &http.Client{}
 
@@ -361,16 +356,16 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Equal(t, string(fix.NonStreaming()), string(got))
 			}
 
-			interceptions := mockRecorder.RecordedInterceptions()
+			interceptions := ts.Recorder.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
 			intc := interceptions[0]
-			require.Equal(t, intc.InitiatorID, userID)
+			require.Equal(t, intc.InitiatorID, integrationtest.DefaultActorID)
 			require.Equal(t, intc.Provider, config.ProviderOpenAI)
 			require.Equal(t, intc.Model, tc.expectModel)
 			require.Equal(t, tc.userAgent, intc.UserAgent)
 			require.Equal(t, string(tc.expectedClient), intc.Client)
 
-			recordedPrompts := mockRecorder.RecordedPromptUsages()
+			recordedPrompts := ts.Recorder.RecordedPromptUsages()
 			if tc.expectPromptRecorded != "" {
 				require.Len(t, recordedPrompts, 1)
 				promptEq := func(pur *recorder.PromptUsageRecord) bool { return pur.Prompt == tc.expectPromptRecorded }
@@ -379,7 +374,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Empty(t, recordedPrompts)
 			}
 
-			recordedTools := mockRecorder.RecordedToolUsages()
+			recordedTools := ts.Recorder.RecordedToolUsages()
 			if tc.expectToolRecorded != nil {
 				require.Len(t, recordedTools, 1)
 				recordedTools[0].InterceptionID = tc.expectToolRecorded.InterceptionID // ignore interception id (interception id is not constant and response doesn't contain it)
@@ -389,7 +384,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Empty(t, recordedTools)
 			}
 
-			recordedTokens := mockRecorder.RecordedTokenUsages()
+			recordedTokens := ts.Recorder.RecordedTokenUsages()
 			if tc.expectTokenUsage != nil {
 				require.Len(t, recordedTokens, 1)
 				recordedTokens[0].InterceptionID = tc.expectTokenUsage.InterceptionID // ignore interception id
@@ -433,13 +428,12 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			srv, _ := newTestSrv(t, ctx, prov, nil, testTracer)
-			defer srv.Close()
+			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov})
 
 			// Create a request with background mode enabled
 			reqBytes := responsesRequestBytes(t, tc.streaming, keyVal{"background", true})
-			req := createOpenAIResponsesReq(t, srv.URL, reqBytes)
+			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, reqBytes)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -547,11 +541,10 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			srv, _ := newTestSrv(t, ctx, prov, nil, testTracer)
-			defer srv.Close()
+			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov})
 
-			req := createOpenAIResponsesReq(t, srv.URL, []byte(tc.request))
+			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, []byte(tc.request))
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -608,12 +601,11 @@ func TestClientAndConnectionError(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			prov := provider.NewOpenAI(openaiCfg(tc.addr, apiKey))
-			srv, mockRecorder := newTestSrv(t, ctx, prov, nil, testTracer)
-			defer srv.Close()
+			prov := provider.NewOpenAI(integrationtest.OpenAICfg(tc.addr, integrationtest.APIKey))
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov}, integrationtest.WithWrappedRecorder())
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := createOpenAIResponsesReq(t, srv.URL, reqBytes)
+			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, reqBytes)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -626,7 +618,7 @@ func TestClientAndConnectionError(t *testing.T) {
 			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 			requireResponsesError(t, http.StatusInternalServerError, tc.errContains, body)
-			require.Empty(t, mockRecorder.RecordedPromptUsages())
+			require.Empty(t, ts.Recorder.RecordedPromptUsages())
 		})
 	}
 }
@@ -692,12 +684,11 @@ func TestUpstreamError(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			srv, _ := newTestSrv(t, ctx, prov, nil, testTracer)
-			defer srv.Close()
+			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov})
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := createOpenAIResponsesReq(t, srv.URL, reqBytes)
+			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, reqBytes)
 			client := &http.Client{}
 
 			resp, err := client.Do(req)
@@ -868,29 +859,18 @@ func TestResponsesInjectedTool(t *testing.T) {
 			// Setup mock server for multi-turn interaction.
 			// First request → tool call response, second → tool response.
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix), testutil.NewFixtureToolResponse(fix))
+			upstream := integrationtest.NewMockUpstream(t, ctx, integrationtest.NewFixtureResponse(fix), integrationtest.NewFixtureToolResponse(fix))
 
 			// Setup MCP server proxies (with mock tools).
-			mockMCP := testutil.SetupMCPForTest(t, testTracer)
+			mockMCP := integrationtest.SetupMCPForTest(t, integrationtest.DefaultTracer)
 			if tc.expectToolError != "" {
 				mockMCP.SetToolError(tc.mcpToolName, tc.expectToolError)
 			}
 
-			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			mockRecorder := &testutil.MockRecorder{}
-			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov}, integrationtest.WithMCP(mockMCP))
 
-			bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{prov}, mockRecorder, mockMCP, logger, nil, testTracer)
-			require.NoError(t, err)
-
-			srv := httptest.NewUnstartedServer(bridge)
-			srv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibcontext.AsActor(ctx, userID, nil)
-			}
-			srv.Start()
-			t.Cleanup(srv.Close)
-
-			req := createOpenAIResponsesReq(t, srv.URL, fix.Request())
+			req := integrationtest.CreateOpenAIResponsesReq(t, ts.URL, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -909,7 +889,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 			require.Len(t, invocations, 1, "expected MCP tool to be invoked once")
 
 			// Verify the injected tool usage was recorded.
-			toolUsages := mockRecorder.RecordedToolUsages()
+			toolUsages := ts.Recorder.RecordedToolUsages()
 			require.Len(t, toolUsages, 1)
 			require.Equal(t, tc.mcpToolName, toolUsages[0].Tool)
 			require.Equal(t, tc.expectToolArgs, toolUsages[0].Args)
@@ -919,11 +899,11 @@ func TestResponsesInjectedTool(t *testing.T) {
 			}
 
 			// Verify prompt was recorded.
-			prompts := mockRecorder.RecordedPromptUsages()
+			prompts := ts.Recorder.RecordedPromptUsages()
 			require.Len(t, prompts, 1)
 			require.Equal(t, tc.expectPrompt, prompts[0].Prompt)
 
-			tokenUsages := mockRecorder.RecordedTokenUsages()
+			tokenUsages := ts.Recorder.RecordedTokenUsages()
 			require.Len(t, tokenUsages, len(tc.expectTokenUsages))
 			for i := range tokenUsages {
 				tokenUsages[i].InterceptionID = "" // ignore interception ID and time creation when comparing
@@ -939,15 +919,6 @@ func TestResponsesInjectedTool(t *testing.T) {
 			}
 		})
 	}
-}
-
-func createOpenAIResponsesReq(t *testing.T, baseURL string, input []byte) *http.Request {
-	t.Helper()
-
-	req, err := http.NewRequestWithContext(t.Context(), "POST", baseURL+"/openai/v1/responses", bytes.NewReader(input))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	return req
 }
 
 func requireResponsesError(t *testing.T, code int, message string, body []byte) {
