@@ -35,7 +35,7 @@ func (r *RecorderWrapper) RecordInterception(ctx context.Context, req *Intercept
 		return fmt.Errorf("acquire client: %w", err)
 	}
 
-	req.StartedAt = time.Now()
+	req.StartedAt = time.Now().UTC()
 	if err = client.RecordInterception(ctx, req); err == nil {
 		return nil
 	}
@@ -71,7 +71,7 @@ func (r *RecorderWrapper) RecordPromptUsage(ctx context.Context, req *PromptUsag
 		return fmt.Errorf("acquire client: %w", err)
 	}
 
-	req.CreatedAt = time.Now()
+	req.CreatedAt = time.Now().UTC()
 	if err = client.RecordPromptUsage(ctx, req); err == nil {
 		return nil
 	}
@@ -89,7 +89,7 @@ func (r *RecorderWrapper) RecordTokenUsage(ctx context.Context, req *TokenUsageR
 		return fmt.Errorf("acquire client: %w", err)
 	}
 
-	req.CreatedAt = time.Now()
+	req.CreatedAt = time.Now().UTC()
 	if err = client.RecordTokenUsage(ctx, req); err == nil {
 		return nil
 	}
@@ -107,7 +107,7 @@ func (r *RecorderWrapper) RecordToolUsage(ctx context.Context, req *ToolUsageRec
 		return fmt.Errorf("acquire client: %w", err)
 	}
 
-	req.CreatedAt = time.Now()
+	req.CreatedAt = time.Now().UTC()
 	if err = client.RecordToolUsage(ctx, req); err == nil {
 		return nil
 	}
@@ -165,6 +165,7 @@ func (a *AsyncRecorder) RecordInterception(ctx context.Context, req *Interceptio
 }
 
 func (a *AsyncRecorder) RecordInterceptionEnded(ctx context.Context, req *InterceptionRecordEnded) error {
+	req.EndedAt = time.Now().UTC()
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
@@ -181,6 +182,7 @@ func (a *AsyncRecorder) RecordInterceptionEnded(ctx context.Context, req *Interc
 }
 
 func (a *AsyncRecorder) RecordPromptUsage(ctx context.Context, req *PromptUsageRecord) error {
+	req.CreatedAt = time.Now().UTC()
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
@@ -201,6 +203,7 @@ func (a *AsyncRecorder) RecordPromptUsage(ctx context.Context, req *PromptUsageR
 }
 
 func (a *AsyncRecorder) RecordTokenUsage(ctx context.Context, req *TokenUsageRecord) error {
+	req.CreatedAt = time.Now().UTC()
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
@@ -225,6 +228,7 @@ func (a *AsyncRecorder) RecordTokenUsage(ctx context.Context, req *TokenUsageRec
 }
 
 func (a *AsyncRecorder) RecordToolUsage(ctx context.Context, req *ToolUsageRecord) error {
+	req.CreatedAt = time.Now().UTC()
 	a.wg.Add(1)
 	go func() {
 		defer a.wg.Done()
