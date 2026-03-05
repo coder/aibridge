@@ -1,4 +1,4 @@
-package aibridge_test
+package integrationtest_test
 
 import (
 	"context"
@@ -9,9 +9,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/internal/testutil"
+	"github.com/coder/aibridge/internal/integrationtest"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
 	"github.com/stretchr/testify/assert"
@@ -98,25 +99,29 @@ func TestTraceAnthropic(t *testing.T) {
 			tracer := tp.Tracer(t.Name())
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+			upstream := integrationtest.NewMockUpstream(t, ctx, integrationtest.NewFixtureResponse(fix))
 
 			var bedrockCfg *config.AWSBedrock
 			if tc.bedrock {
 				bedrockCfg = testBedrockCfg(upstream.URL)
 			}
-			provider := provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)
-			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
+			prov := provider.NewAnthropic(integrationtest.AnthropicCfg(upstream.URL, integrationtest.APIKey), bedrockCfg)
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+				integrationtest.WithTracer(tracer),
+				integrationtest.WithWrappedRecorder(),
+			)
 
 			reqBody, err := sjson.SetBytes(fixtureReqBody, "stream", tc.streaming)
 			require.NoError(t, err)
-			req := createAnthropicMessagesReq(t, srv.URL, reqBody)
+			req := integrationtest.CreateAnthropicMessagesReq(t, ts.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			defer resp.Body.Close()
-			srv.Close()
+			ts.Close()
 
+			recorder := ts.Recorder
 			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
 			intcID := recorder.RecordedInterceptions()[0].ID
 
@@ -135,7 +140,7 @@ func TestTraceAnthropic(t *testing.T) {
 				attribute.String(tracing.InterceptionID, intcID),
 				attribute.String(tracing.Provider, config.ProviderAnthropic),
 				attribute.String(tracing.Model, model),
-				attribute.String(tracing.InitiatorID, userID),
+				attribute.String(tracing.InitiatorID, integrationtest.DefaultActorID),
 				attribute.Bool(tracing.Streaming, tc.streaming),
 				attribute.Bool(tracing.IsBedrock, tc.bedrock),
 			}
@@ -214,18 +219,21 @@ func TestTraceAnthropicErr(t *testing.T) {
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+			upstream := integrationtest.NewMockUpstream(t, ctx, integrationtest.NewFixtureResponse(fix))
 
 			var bedrockCfg *config.AWSBedrock
 			if tc.bedrock {
 				bedrockCfg = testBedrockCfg(upstream.URL)
 			}
-			provider := provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)
-			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
+			prov := provider.NewAnthropic(integrationtest.AnthropicCfg(upstream.URL, integrationtest.APIKey), bedrockCfg)
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+				integrationtest.WithTracer(tracer),
+				integrationtest.WithWrappedRecorder(),
+			)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
-			req := createAnthropicMessagesReq(t, srv.URL, reqBody)
+			req := integrationtest.CreateAnthropicMessagesReq(t, ts.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			require.NoError(t, err)
@@ -235,8 +243,9 @@ func TestTraceAnthropicErr(t *testing.T) {
 				require.Equal(t, tc.expectCode, resp.StatusCode)
 			}
 			defer resp.Body.Close()
-			srv.Close()
+			ts.Close()
 
+			recorder := ts.Recorder
 			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
 			intcID := recorder.RecordedInterceptions()[0].ID
 
@@ -259,7 +268,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 				attribute.String(tracing.InterceptionID, intcID),
 				attribute.String(tracing.Provider, config.ProviderAnthropic),
 				attribute.String(tracing.Model, model),
-				attribute.String(tracing.InitiatorID, userID),
+				attribute.String(tracing.InitiatorID, integrationtest.DefaultActorID),
 				attribute.Bool(tracing.Streaming, tc.streaming),
 				attribute.Bool(tracing.IsBedrock, tc.bedrock),
 			}
@@ -288,7 +297,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 			streaming:      false,
 			fixture:        fixtures.AntSingleInjectedTool,
 			providerFn:     newAnthropicProvider,
-			createReqFn:    createAnthropicMessagesReq,
+			createReqFn:    integrationtest.CreateAnthropicMessagesReq,
 			expectModel:    "claude-sonnet-4-20250514",
 			expectPath:     "/anthropic/v1/messages",
 			expectProvider: config.ProviderAnthropic,
@@ -298,7 +307,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 			streaming:      true,
 			fixture:        fixtures.AntSingleInjectedTool,
 			providerFn:     newAnthropicProvider,
-			createReqFn:    createAnthropicMessagesReq,
+			createReqFn:    integrationtest.CreateAnthropicMessagesReq,
 			expectModel:    "claude-sonnet-4-20250514",
 			expectPath:     "/anthropic/v1/messages",
 			expectProvider: config.ProviderAnthropic,
@@ -309,7 +318,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 			bedrock:        true,
 			fixture:        fixtures.AntSingleInjectedTool,
 			providerFn:     newBedrockProvider,
-			createReqFn:    createAnthropicMessagesReq,
+			createReqFn:    integrationtest.CreateAnthropicMessagesReq,
 			expectModel:    "beddel",
 			expectPath:     "/anthropic/v1/messages",
 			expectProvider: config.ProviderAnthropic,
@@ -320,7 +329,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 			bedrock:        true,
 			fixture:        fixtures.AntSingleInjectedTool,
 			providerFn:     newBedrockProvider,
-			createReqFn:    createAnthropicMessagesReq,
+			createReqFn:    integrationtest.CreateAnthropicMessagesReq,
 			expectModel:    "beddel",
 			expectPath:     "/anthropic/v1/messages",
 			expectProvider: config.ProviderAnthropic,
@@ -330,7 +339,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 			streaming:      false,
 			fixture:        fixtures.OaiChatSingleInjectedTool,
 			providerFn:     newOpenAIProvider,
-			createReqFn:    createOpenAIChatCompletionsReq,
+			createReqFn:    integrationtest.CreateOpenAIChatCompletionsReq,
 			expectModel:    "gpt-4.1",
 			expectPath:     "/openai/v1/chat/completions",
 			expectProvider: config.ProviderOpenAI,
@@ -340,7 +349,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 			streaming:      true,
 			fixture:        fixtures.OaiChatSingleInjectedTool,
 			providerFn:     newOpenAIProvider,
-			createReqFn:    createOpenAIChatCompletionsReq,
+			createReqFn:    integrationtest.CreateOpenAIChatCompletionsReq,
 			expectModel:    "gpt-4.1",
 			expectPath:     "/openai/v1/chat/completions",
 			expectProvider: config.ProviderOpenAI,
@@ -364,7 +373,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 			}
 
 			recorderClient, mockMCP, resp := setupInjectedToolTest(
-				t, tc.fixture, tc.streaming, tc.providerFn, tracer, userID,
+				t, tc.fixture, tc.streaming, tc.providerFn, tracer, integrationtest.DefaultActorID,
 				tc.createReqFn, validatorFn,
 			)
 			defer resp.Body.Close()
@@ -379,7 +388,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 				attribute.String(tracing.InterceptionID, intcID),
 				attribute.String(tracing.Provider, tc.expectProvider),
 				attribute.String(tracing.Model, tc.expectModel),
-				attribute.String(tracing.InitiatorID, userID),
+				attribute.String(tracing.InitiatorID, integrationtest.DefaultActorID),
 				attribute.String(tracing.MCPInput, `{"owner":"admin"}`),
 				attribute.String(tracing.MCPToolName, "coder_list_workspaces"),
 				attribute.String(tracing.MCPServerName, tool.ServerName),
@@ -409,7 +418,7 @@ func TestTraceOpenAI(t *testing.T) {
 			fixture:    fixtures.OaiChatSimple,
 			streaming:  true,
 			expectPath: "/openai/v1/chat/completions",
-			reqFunc:    createOpenAIChatCompletionsReq,
+			reqFunc:    integrationtest.CreateOpenAIChatCompletionsReq,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -424,7 +433,7 @@ func TestTraceOpenAI(t *testing.T) {
 		{
 			name:       "trace_openai_chat_blocking",
 			fixture:    fixtures.OaiChatSimple,
-			reqFunc:    createOpenAIChatCompletionsReq,
+			reqFunc:    integrationtest.CreateOpenAIChatCompletionsReq,
 			streaming:  false,
 			expectPath: "/openai/v1/chat/completions",
 			expect: []expectTrace{
@@ -443,7 +452,7 @@ func TestTraceOpenAI(t *testing.T) {
 			fixture:    fixtures.OaiResponsesStreamingSimple,
 			streaming:  true,
 			expectPath: "/openai/v1/responses",
-			reqFunc:    createOpenAIResponsesReq,
+			reqFunc:    integrationtest.CreateOpenAIResponsesReq,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -460,7 +469,7 @@ func TestTraceOpenAI(t *testing.T) {
 			fixture:    fixtures.OaiResponsesBlockingSimple,
 			streaming:  false,
 			expectPath: "/openai/v1/responses",
-			reqFunc:    createOpenAIResponsesReq,
+			reqFunc:    integrationtest.CreateOpenAIResponsesReq,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -485,20 +494,24 @@ func TestTraceOpenAI(t *testing.T) {
 			defer func() { _ = tp.Shutdown(t.Context()) }()
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
-			provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			srv, recorder := newTestSrv(t, ctx, provider, nil, tracer)
+			upstream := integrationtest.NewMockUpstream(t, ctx, integrationtest.NewFixtureResponse(fix))
+			prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+				integrationtest.WithTracer(tracer),
+				integrationtest.WithWrappedRecorder(),
+			)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
-			req := tc.reqFunc(t, srv.URL, reqBody)
+			req := tc.reqFunc(t, ts.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			defer resp.Body.Close()
-			srv.Close()
+			ts.Close()
 
+			recorder := ts.Recorder
 			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
 			intcID := recorder.RecordedInterceptions()[0].ID
 
@@ -513,7 +526,7 @@ func TestTraceOpenAI(t *testing.T) {
 				attribute.String(tracing.InterceptionID, intcID),
 				attribute.String(tracing.Provider, config.ProviderOpenAI),
 				attribute.String(tracing.Model, gjson.Get(string(reqBody), "model").Str),
-				attribute.String(tracing.InitiatorID, userID),
+				attribute.String(tracing.InitiatorID, integrationtest.DefaultActorID),
 				attribute.Bool(tracing.Streaming, tc.streaming),
 			}
 			verifyTraces(t, sr, tc.expect, attrs)
@@ -537,7 +550,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			fixture:    fixtures.OaiChatMidStreamError,
 			streaming:  true,
 			expectPath: "/openai/v1/chat/completions",
-			reqFunc:    createOpenAIChatCompletionsReq,
+			reqFunc:    integrationtest.CreateOpenAIChatCompletionsReq,
 			expectCode: http.StatusOK,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -554,7 +567,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			fixture:    fixtures.OaiChatNonStreamError,
 			streaming:  false,
 			expectPath: "/openai/v1/chat/completions",
-			reqFunc:    createOpenAIChatCompletionsReq,
+			reqFunc:    integrationtest.CreateOpenAIChatCompletionsReq,
 			expectCode: http.StatusBadRequest,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -570,7 +583,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			streaming:  true,
 			fixture:    fixtures.OaiResponsesStreamingWrongResponseFormat,
 			expectPath: "/openai/v1/responses",
-			reqFunc:    createOpenAIResponsesReq,
+			reqFunc:    integrationtest.CreateOpenAIResponsesReq,
 			expectCode: http.StatusOK,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -587,7 +600,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			fixture:    fixtures.OaiResponsesBlockingWrongResponseFormat,
 			streaming:  false,
 			expectPath: "/openai/v1/responses",
-			reqFunc:    createOpenAIResponsesReq,
+			reqFunc:    integrationtest.CreateOpenAIResponsesReq,
 			// Fixture returns http 200 response with wrong body
 			// responses forward received response as is so
 			// expected code == 200 even though ProcessRequest
@@ -609,7 +622,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			allowOverflow: true, // 429 error causes retries
 
 			expectPath: "/openai/v1/responses",
-			reqFunc:    createOpenAIResponsesReq,
+			reqFunc:    integrationtest.CreateOpenAIResponsesReq,
 			expectCode: http.StatusTooManyRequests,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -626,7 +639,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			streaming: false,
 
 			expectPath: "/openai/v1/responses",
-			reqFunc:    createOpenAIResponsesReq,
+			reqFunc:    integrationtest.CreateOpenAIResponsesReq,
 			expectCode: http.StatusUnauthorized,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -651,22 +664,26 @@ func TestTraceOpenAIErr(t *testing.T) {
 
 			fix := fixtures.Parse(t, tc.fixture)
 
-			mockAPI := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+			mockAPI := integrationtest.NewMockUpstream(t, ctx, integrationtest.NewFixtureResponse(fix))
 			mockAPI.AllowOverflow = tc.allowOverflow
-			prov := provider.NewOpenAI(openaiCfg(mockAPI.URL, apiKey))
-			srv, recorder := newTestSrv(t, ctx, prov, nil, tracer)
+			prov := provider.NewOpenAI(integrationtest.OpenAICfg(mockAPI.URL, integrationtest.APIKey))
+			ts := integrationtest.NewBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+				integrationtest.WithTracer(tracer),
+				integrationtest.WithWrappedRecorder(),
+			)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
-			req := tc.reqFunc(t, srv.URL, reqBody)
+			req := tc.reqFunc(t, ts.URL, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			require.NoError(t, err)
 
 			require.Equal(t, tc.expectCode, resp.StatusCode)
 			defer resp.Body.Close()
-			srv.Close()
+			ts.Close()
 
+			recorder := ts.Recorder
 			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
 			intcID := recorder.RecordedInterceptions()[0].ID
 
@@ -681,7 +698,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 				attribute.String(tracing.InterceptionID, intcID),
 				attribute.String(tracing.Provider, config.ProviderOpenAI),
 				attribute.String(tracing.Model, gjson.Get(string(reqBody), "model").Str),
-				attribute.String(tracing.InitiatorID, userID),
+				attribute.String(tracing.InitiatorID, integrationtest.DefaultActorID),
 				attribute.Bool(tracing.Streaming, tc.streaming),
 			}
 			verifyTraces(t, sr, tc.expect, attrs)
@@ -694,24 +711,27 @@ func TestTracePassthrough(t *testing.T) {
 
 	fix := fixtures.Parse(t, fixtures.OaiChatFallthrough)
 
-	upstream := testutil.NewMockUpstream(t, t.Context(), testutil.NewFixtureResponse(fix))
+	upstream := integrationtest.NewMockUpstream(t, t.Context(), integrationtest.NewFixtureResponse(fix))
 
 	sr := tracetest.NewSpanRecorder()
 	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
 	tracer := tp.Tracer(t.Name())
 	defer func() { _ = tp.Shutdown(t.Context()) }()
 
-	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-	srv, _ := newTestSrv(t, t.Context(), provider, nil, tracer)
+	prov := provider.NewOpenAI(integrationtest.OpenAICfg(upstream.URL, integrationtest.APIKey))
+	ts := integrationtest.NewBridgeTestServer(t, t.Context(), []aibridge.Provider{prov},
+		integrationtest.WithTracer(tracer),
+		integrationtest.WithWrappedRecorder(),
+	)
 
-	req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/openai/v1/models", nil)
+	req, err := http.NewRequestWithContext(t.Context(), "GET", ts.URL+"/openai/v1/models", nil)
 	require.NoError(t, err)
 
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	srv.Close()
+	ts.Close()
 
 	spans := sr.Ended()
 	require.Len(t, spans, 1)
@@ -733,7 +753,7 @@ func TestNewServerProxyManagerTraces(t *testing.T) {
 	defer func() { _ = tp.Shutdown(t.Context()) }()
 
 	serverName := "serverName"
-	mockMCP := testutil.SetupMCPForTestWithName(t, serverName, tracer)
+	mockMCP := integrationtest.SetupMCPForTestWithName(t, serverName, tracer)
 	tool := mockMCP.ListTools()[0]
 
 	require.Len(t, sr.Ended(), 3)
@@ -776,13 +796,4 @@ func verifyTraces(t *testing.T, spanRecorder *tracetest.SpanRecorder, expect []e
 	}
 }
 
-func testBedrockCfg(url string) *config.AWSBedrock {
-	return &config.AWSBedrock{
-		Region:          "us-west-2",
-		AccessKey:       "test-access-key",
-		AccessKeySecret: "test-secret-key",
-		Model:           "beddel",  // This model should override the request's given one.
-		SmallFastModel:  "modrock", // Unused but needed for validation.
-		BaseURL:         url,
-	}
-}
+
