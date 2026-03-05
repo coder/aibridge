@@ -124,6 +124,131 @@ func TestAnthropicMessages(t *testing.T) {
 	})
 }
 
+func TestAnthropicMessagesModelThoughts(t *testing.T) {
+	t.Parallel()
+
+	t.Run("thinking captured with builtin tool", func(t *testing.T) {
+		t.Parallel()
+
+		cases := []struct {
+			streaming              bool
+			expectedToolCallID     string
+			expectedThinkingSubstr string
+		}{
+			{
+				streaming:              true,
+				expectedToolCallID:     "toolu_01RX68weRSquLx6HUTj65iBo",
+				expectedThinkingSubstr: "Let me find and read it.",
+			},
+			{
+				streaming:              false,
+				expectedToolCallID:     "toolu_01AusGgY5aKFhzWrFBv9JfHq",
+				expectedThinkingSubstr: "Let me find and read it.",
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("streaming=%v", tc.streaming), func(t *testing.T) {
+				t.Parallel()
+
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				t.Cleanup(cancel)
+
+				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
+				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+
+				recorderClient := &testutil.MockRecorder{}
+				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)}
+				b, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+				require.NoError(t, err)
+
+				mockSrv := httptest.NewUnstartedServer(b)
+				t.Cleanup(mockSrv.Close)
+				mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+					return aibcontext.AsActor(ctx, userID, nil)
+				}
+				mockSrv.Start()
+
+				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
+				require.NoError(t, err)
+				req := createAnthropicMessagesReq(t, mockSrv.URL, reqBody)
+				client := &http.Client{}
+				resp, err := client.Do(req)
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, resp.StatusCode)
+				defer resp.Body.Close()
+
+				if tc.streaming {
+					sp := aibridge.NewSSEParser()
+					require.NoError(t, sp.Parse(resp.Body))
+					assert.Contains(t, sp.AllEvents(), "message_start")
+					assert.Contains(t, sp.AllEvents(), "message_stop")
+				}
+
+				// Verify model thoughts were captured and associated with the tool call.
+				thoughts := recorderClient.RecordedModelThoughts()
+				require.Len(t, thoughts, 1)
+				assert.Contains(t, thoughts[0].Content, "The user wants me to read")
+				assert.Contains(t, thoughts[0].Content, tc.expectedThinkingSubstr)
+				assert.NotEmpty(t, thoughts[0].InterceptionID)
+				assert.Equal(t, tc.expectedToolCallID, thoughts[0].ProviderToolCallID)
+
+				// Verify tool usage was also recorded.
+				toolUsages := recorderClient.RecordedToolUsages()
+				require.Len(t, toolUsages, 1)
+				assert.Equal(t, "Read", toolUsages[0].Tool)
+				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
+
+				recorderClient.VerifyAllInterceptionsEnded(t)
+			})
+		}
+	})
+
+	t.Run("no thoughts without tool calls", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+		t.Cleanup(cancel)
+
+		// Use the simple fixture which has no tool calls — any thinking blocks
+		// should not be persisted since they can't be associated with a tool call.
+		fix := fixtures.Parse(t, fixtures.AntSimple)
+		upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+
+		recorderClient := &testutil.MockRecorder{}
+		logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+		providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)}
+		b, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+		require.NoError(t, err)
+
+		mockSrv := httptest.NewUnstartedServer(b)
+		t.Cleanup(mockSrv.Close)
+		mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+			return aibcontext.AsActor(ctx, userID, nil)
+		}
+		mockSrv.Start()
+
+		reqBody, err := sjson.SetBytes(fix.Request(), "stream", true)
+		require.NoError(t, err)
+		req := createAnthropicMessagesReq(t, mockSrv.URL, reqBody)
+		client := &http.Client{}
+		resp, err := client.Do(req)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+		defer resp.Body.Close()
+
+		sp := aibridge.NewSSEParser()
+		require.NoError(t, sp.Parse(resp.Body))
+
+		// No thoughts should be recorded when there are no tool calls.
+		thoughts := recorderClient.RecordedModelThoughts()
+		assert.Empty(t, thoughts)
+
+		recorderClient.VerifyAllInterceptionsEnded(t)
+	})
+}
+
 func TestAWSBedrockIntegration(t *testing.T) {
 	t.Parallel()
 

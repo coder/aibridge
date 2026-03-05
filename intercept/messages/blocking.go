@@ -135,6 +135,23 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 		accumulateUsage(&cumulativeUsage, resp.Usage)
 
+		// Capture any thinking blocks that were returned.
+		var thoughtRecords []*recorder.ModelThoughtRecord
+		if !i.isSmallFastModel() {
+			for _, block := range resp.Content {
+				switch variant := block.AsAny().(type) {
+				case anthropic.ThinkingBlock:
+					thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
+						InterceptionID: i.ID().String(),
+						Content:        variant.Thinking,
+					})
+				case anthropic.RedactedThinkingBlock:
+					// For redacted thinking, there's nothing useful we can capture.
+					continue
+				}
+			}
+		}
+
 		// Handle tool calls for non-streaming.
 		var pendingToolCalls []anthropic.ToolUseBlock
 		for _, c := range resp.Content {
@@ -158,10 +175,20 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Injected:       false,
 			})
 
+			// Associate the model thoughts with this tool call.
+			for _, thought := range thoughtRecords {
+				thought.ProviderToolCallID = toolUse.ID
+			}
 		}
 
-		// If no injected tool calls, we're done.
+		// If no injected tool calls, persist thoughts and we're done.
 		if len(pendingToolCalls) == 0 {
+			for _, thought := range thoughtRecords {
+				if thought.ProviderToolCallID == "" {
+					continue
+				}
+				_ = i.recorder.RecordModelThought(ctx, thought)
+			}
 			break
 		}
 
@@ -197,6 +224,11 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Injected:        true,
 				InvocationError: err,
 			})
+
+			// Associate the model thoughts with this tool call.
+			for _, thought := range thoughtRecords {
+				thought.ProviderToolCallID = tc.ID
+			}
 
 			if err != nil {
 				// Always provide a tool_result even if the tool call failed
@@ -281,6 +313,14 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			if len(toolResult.OfToolResult.Content) > 0 {
 				messages.Messages = append(messages.Messages, anthropic.NewUserMessage(toolResult))
 			}
+		}
+
+		// Only persist thoughts that are associated to a tool call.
+		for _, thought := range thoughtRecords {
+			if thought.ProviderToolCallID == "" {
+				continue
+			}
+			_ = i.recorder.RecordModelThought(ctx, thought)
 		}
 
 		// Sync the raw payload with updated messages so that withBody()
