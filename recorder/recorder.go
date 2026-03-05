@@ -116,6 +116,24 @@ func (r *RecorderWrapper) RecordToolUsage(ctx context.Context, req *ToolUsageRec
 	return err
 }
 
+func (r *RecorderWrapper) RecordModelThought(ctx context.Context, req *ModelThoughtRecord) (outErr error) {
+	ctx, span := r.tracer.Start(ctx, "Intercept.RecordModelThought", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+	defer tracing.EndSpanErr(span, &outErr)
+
+	client, err := r.clientFn()
+	if err != nil {
+		return fmt.Errorf("acquire client: %w", err)
+	}
+
+	req.CreatedAt = time.Now()
+	if err = client.RecordModelThought(ctx, req); err == nil {
+		return nil
+	}
+
+	r.logger.Warn(ctx, "failed to record model thought", slog.Error(err), slog.F("interception_id", req.InterceptionID))
+	return err
+}
+
 func NewRecorder(logger slog.Logger, tracer trace.Tracer, clientFn func() (Recorder, error)) *RecorderWrapper {
 	return &RecorderWrapper{
 		logger:   logger,
@@ -246,6 +264,22 @@ func (a *AsyncRecorder) RecordToolUsage(ctx context.Context, req *ToolUsageRecor
 			} else {
 				a.metrics.NonInjectedToolUseCount.WithLabelValues(a.provider, a.model, req.Tool).Add(1)
 			}
+		}
+	}()
+
+	return nil // Caller is not interested in error.
+}
+
+func (a *AsyncRecorder) RecordModelThought(ctx context.Context, req *ModelThoughtRecord) error {
+	a.wg.Add(1)
+	go func() {
+		defer a.wg.Done()
+		timedCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), a.timeout)
+		defer cancel()
+
+		err := a.wrapped.RecordModelThought(timedCtx, req)
+		if err != nil {
+			a.logger.Warn(timedCtx, "failed to record model thought", slog.Error(err), slog.F("payload", req))
 		}
 	}()
 
