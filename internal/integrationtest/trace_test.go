@@ -51,7 +51,6 @@ func TestTraceAnthropic(t *testing.T) {
 		{"Intercept.RecordPromptUsage", 1, codes.Unset},
 		{"Intercept.RecordTokenUsage", 1, codes.Unset},
 		{"Intercept.RecordToolUsage", 1, codes.Unset},
-		{"Intercept.RecordModelThought", 1, codes.Unset},
 		{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
 	}
 
@@ -64,7 +63,6 @@ func TestTraceAnthropic(t *testing.T) {
 		{"Intercept.RecordPromptUsage", 1, codes.Unset},
 		{"Intercept.RecordTokenUsage", 2, codes.Unset},
 		{"Intercept.RecordToolUsage", 1, codes.Unset},
-		{"Intercept.RecordModelThought", 1, codes.Unset},
 		{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
 	}
 

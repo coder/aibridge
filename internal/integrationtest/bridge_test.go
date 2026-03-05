@@ -186,19 +186,16 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 					assert.Contains(t, sp.AllEvents(), "message_stop")
 				}
 
-				// Verify model thoughts were captured and associated with the tool call.
-				thoughts := recorderClient.RecordedModelThoughts()
-				require.Len(t, thoughts, 1)
-				assert.Contains(t, thoughts[0].Content, "The user wants me to read")
-				assert.Contains(t, thoughts[0].Content, tc.expectedThinkingSubstr)
-				assert.NotEmpty(t, thoughts[0].InterceptionID)
-				assert.Equal(t, tc.expectedToolCallID, thoughts[0].ProviderToolCallID)
-
-				// Verify tool usage was also recorded.
+				// Verify tool usage was recorded with associated model thoughts.
 				toolUsages := recorderClient.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
 				assert.Equal(t, "Read", toolUsages[0].Tool)
 				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
+
+				// Model thoughts should be embedded in the tool usage record.
+				require.Len(t, toolUsages[0].ModelThoughts, 1)
+				assert.Contains(t, toolUsages[0].ModelThoughts[0].Content, "The user wants me to read")
+				assert.Contains(t, toolUsages[0].ModelThoughts[0].Content, tc.expectedThinkingSubstr)
 
 				recorderClient.VerifyAllInterceptionsEnded(t)
 			})
@@ -241,9 +238,10 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 		sp := aibridge.NewSSEParser()
 		require.NoError(t, sp.Parse(resp.Body))
 
-		// No thoughts should be recorded when there are no tool calls.
-		thoughts := recorderClient.RecordedModelThoughts()
-		assert.Empty(t, thoughts)
+		// No tool usages (and therefore no thoughts) should be recorded
+		// when there are no tool calls.
+		toolUsages := recorderClient.RecordedToolUsages()
+		assert.Empty(t, toolUsages)
 
 		recorderClient.VerifyAllInterceptionsEnded(t)
 	})
