@@ -12,7 +12,6 @@ import (
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/metrics"
-	"github.com/coder/aibridge/provider"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
@@ -24,7 +23,7 @@ func TestMetrics_Interception(t *testing.T) {
 	cases := []struct {
 		name           string
 		fixture        []byte
-		reqFunc        func(*testing.T, string, []byte) *http.Request
+		path string
 		expectStatus   string
 		expectModel    string
 		expectRoute    string
@@ -34,7 +33,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "ant_simple",
 			fixture:        fixtures.AntSimple,
-			reqFunc:        createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "claude-sonnet-4-0",
 			expectRoute:    "/v1/messages",
@@ -43,7 +42,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "ant_error",
 			fixture:        fixtures.AntNonStreamError,
-			reqFunc:        createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "claude-sonnet-4-0",
 			expectRoute:    "/v1/messages",
@@ -53,7 +52,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_chat_simple",
 			fixture:        fixtures.OaiChatSimple,
-			reqFunc:        createOpenAIChatCompletionsReq,
+			path: pathOpenAIChatCompletions,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4.1",
 			expectRoute:    "/v1/chat/completions",
@@ -62,7 +61,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_chat_error",
 			fixture:        fixtures.OaiChatNonStreamError,
-			reqFunc:        createOpenAIChatCompletionsReq,
+			path: pathOpenAIChatCompletions,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4.1",
 			expectRoute:    "/v1/chat/completions",
@@ -72,7 +71,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_responses_blocking_simple",
 			fixture:        fixtures.OaiResponsesBlockingSimple,
-			reqFunc:        createOpenAIResponsesReq,
+			path: pathOpenAIResponses,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
@@ -81,7 +80,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_responses_blocking_error",
 			fixture:        fixtures.OaiResponsesBlockingHttpErr,
-			reqFunc:        createOpenAIResponsesReq,
+			path: pathOpenAIResponses,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
@@ -91,7 +90,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_responses_streaming_simple",
 			fixture:        fixtures.OaiResponsesStreamingSimple,
-			reqFunc:        createOpenAIResponsesReq,
+			path: pathOpenAIResponses,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
@@ -100,7 +99,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_responses_streaming_error",
 			fixture:        fixtures.OaiResponsesStreamingHttpErr,
-			reqFunc:        createOpenAIResponsesReq,
+			path: pathOpenAIResponses,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
@@ -121,18 +120,12 @@ func TestMetrics_Interception(t *testing.T) {
 			upstream.AllowOverflow = tc.allowOverflow
 
 			m := aibridge.NewMetrics(prometheus.NewRegistry())
-			var prov aibridge.Provider
-			if tc.expectProvider == config.ProviderAnthropic {
-				prov = provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)
-			} else {
-				prov = provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
-			}
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+			ts := newBridgeTestServer(t, ctx, upstream.URL,
 				withMetrics(m),
 				withWrappedRecorder(),
 			)
 
-			req := tc.reqFunc(t, ts.URL, fix.Request())
+			req := ts.newRequest(t, tc.path, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -164,8 +157,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	prov := provider.NewAnthropic(anthropicCfg(srv.URL, apiKey), nil)
-	ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+	ts := newBridgeTestServer(t, ctx, srv.URL,
 		withMetrics(m),
 		withWrappedRecorder(),
 	)
@@ -174,7 +166,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		req := createAnthropicMessagesReq(t, ts.URL, fix.Request())
+		req := ts.newRequest(t, pathAnthropicMessages, fix.Request())
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
@@ -212,8 +204,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
-	ts := newBridgeTestServer(t, t.Context(), []aibridge.Provider{prov},
+	ts := newBridgeTestServer(t, t.Context(), upstream.URL,
 		withMetrics(m),
 		withWrappedRecorder(),
 	)
@@ -241,13 +232,12 @@ func TestMetrics_PromptCount(t *testing.T) {
 	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
-	ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+	ts := newBridgeTestServer(t, ctx, upstream.URL,
 		withMetrics(m),
 		withWrappedRecorder(),
 	)
 
-	req := createOpenAIChatCompletionsReq(t, ts.URL, fix.Request())
+	req := ts.newRequest(t, pathOpenAIChatCompletions, fix.Request())
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -269,13 +259,12 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	prov := provider.NewOpenAI(openAICfg(upstream.URL, apiKey))
-	ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+	ts := newBridgeTestServer(t, ctx, upstream.URL,
 		withMetrics(m),
 		withWrappedRecorder(),
 	)
 
-	req := createOpenAIChatCompletionsReq(t, ts.URL, fix.Request())
+	req := ts.newRequest(t, pathOpenAIChatCompletions, fix.Request())
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -298,17 +287,16 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	prov := provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)
 
 	// Setup mocked MCP server & tools.
 	mockMCP := setupMCPForTest(t, defaultTracer)
 
-	ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov},
+	ts := newBridgeTestServer(t, ctx, upstream.URL,
 		withMetrics(m),
 		withMCP(mockMCP),
 	)
 
-	req := createAnthropicMessagesReq(t, ts.URL, fix.Request())
+	req := ts.newRequest(t, pathAnthropicMessages, fix.Request())
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)

@@ -1,23 +1,163 @@
 package integrationtest
 
 import (
+	"bytes"
 	"context"
 	"net"
+	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
+	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
+	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/trace"
 )
+
+// Well-known bridged-route paths used by integration tests.
+const (
+	pathAnthropicMessages     = "/anthropic/v1/messages"
+	pathOpenAIChatCompletions = "/openai/v1/chat/completions"
+	pathOpenAIResponses       = "/openai/v1/responses"
+)
+
+// providerBedrock identifies a Bedrock provider in [withProvider]. There is no
+// config-level constant for Bedrock because it re-uses the Anthropic provider
+// with an AWS Bedrock configuration.
+const providerBedrock = "bedrock"
+
+// testBedrockCfg returns a test AWS Bedrock config pointing at the given URL.
+func testBedrockCfg(url string) *config.AWSBedrock {
+	return &config.AWSBedrock{
+		Region:          "us-west-2",
+		AccessKey:       "test-access-key",
+		AccessKeySecret: "test-secret-key",
+		Model:           "beddel",  // This model should override the request's given one.
+		SmallFastModel:  "modrock", // Unused but needed for validation.
+		BaseURL:         url,
+	}
+}
+
+// newDefaultProvider creates a Provider with default test configuration.
+func newDefaultProvider(providerType, addr string) aibridge.Provider {
+	switch providerType {
+	case config.ProviderAnthropic:
+		return provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
+	case config.ProviderOpenAI:
+		return provider.NewOpenAI(openAICfg(addr, apiKey))
+	case providerBedrock:
+		return provider.NewAnthropic(anthropicCfg(addr, apiKey), testBedrockCfg(addr))
+	default:
+		panic("unknown provider type: " + providerType)
+	}
+}
+
+// withProvider adds a default-configured provider of the given type.
+// When any provider option is used, the default "all providers" set is not created.
+func withProvider(providerType string) bridgeOption {
+	return func(c *bridgeConfig) {
+		c.providerBuilders = append(c.providerBuilders, func(addr string) aibridge.Provider {
+			return newDefaultProvider(providerType, addr)
+		})
+	}
+}
+
+// withCustomProvider adds a pre-built provider. The upstream URL passed to
+// [newBridgeTestServer] is ignored for this provider.
+// When any provider option is used, the default "all providers" set is not created.
+func withCustomProvider(p aibridge.Provider) bridgeOption {
+	return func(c *bridgeConfig) {
+		c.providerBuilders = append(c.providerBuilders, func(string) aibridge.Provider {
+			return p
+		})
+	}
+}
+
+// setupInjectedToolTest abstracts common setup required for injected-tool integration tests.
+// Extra bridge options (e.g. [withProvider]) are appended after the built-in
+// MCP / tracer / actor options. When no provider option is given the default
+// provider set (all providers) is used.
+func setupInjectedToolTest(
+	t *testing.T,
+	fixture []byte,
+	streaming bool,
+	tracer trace.Tracer,
+	actorID string,
+	path string,
+	toolRequestValidatorFn func(*http.Request, []byte),
+	opts ...bridgeOption,
+) (*testutil.MockRecorder, *mockMCP, *http.Response) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	t.Cleanup(cancel)
+
+	fix := fixtures.Parse(t, fixture)
+
+	// Setup mock server for multi-turn interaction.
+	// First request → tool call response, second → tool response.
+	firstResp := newFixtureResponse(fix)
+	toolResp := newFixtureToolResponse(fix)
+	toolResp.OnRequest = toolRequestValidatorFn
+	upstream := newMockUpstream(t, ctx, firstResp, toolResp)
+
+	mockMCP := setupMCPForTest(t, tracer)
+
+	allOpts := []bridgeOption{
+		withMCP(mockMCP),
+		withTracer(tracer),
+		withActor(actorID, nil),
+	}
+	allOpts = append(allOpts, opts...)
+	ts := newBridgeTestServer(t, ctx, upstream.URL, allOpts...)
+
+	// Add the stream param to the request.
+	reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
+	require.NoError(t, err)
+
+	req := ts.newRequest(t, path, reqBody)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	t.Cleanup(func() {
+		_ = resp.Body.Close()
+	})
+
+	// We must ALWAYS have 2 calls to the bridge for injected tool tests.
+	require.Eventually(t, func() bool {
+		return upstream.Calls.Load() == 2
+	}, time.Second*10, time.Millisecond*50)
+
+	return ts.Recorder, mockMCP, resp
+}
+
+func calculateTotalInputTokens(in []*recorder.TokenUsageRecord) int64 {
+	var total int64
+	for _, el := range in {
+		total += el.Input
+	}
+	return total
+}
+
+func calculateTotalOutputTokens(in []*recorder.TokenUsageRecord) int64 {
+	var total int64
+	for _, el := range in {
+		total += el.Output
+	}
+	return total
+}
 
 // defaultActorID is the actor ID used by default in test servers.
 const defaultActorID = "ae235cc1-9f8f-417d-a636-a7b170bac62e"
@@ -38,18 +178,29 @@ type bridgeTestServer struct {
 	Bridge   *aibridge.RequestBridge
 }
 
+// newRequest creates a JSON POST request targeting the given path on this server.
+func (s *bridgeTestServer) newRequest(t *testing.T, path string, body []byte) *http.Request {
+	t.Helper()
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL+path, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	return req
+}
+
 // bridgeOption configures a [bridgeTestServer].
 type bridgeOption func(*bridgeConfig)
 
 type bridgeConfig struct {
-	metrics      *metrics.Metrics
-	tracer       trace.Tracer
-	mcpProxy     mcp.ServerProxier
-	userID       string
-	metadata     recorder.Metadata
-	logger       slog.Logger
-	loggerSet    bool
-	wrapRecorder bool
+	providerBuilders []func(upstreamURL string) aibridge.Provider
+	metrics          *metrics.Metrics
+	tracer           trace.Tracer
+	mcpProxy         mcp.ServerProxier
+	userID           string
+	metadata         recorder.Metadata
+	logger           slog.Logger
+	loggerSet        bool
+	wrapRecorder     bool
 }
 
 // withMetrics sets the Prometheus metrics for the bridge.
@@ -85,6 +236,7 @@ func withWrappedRecorder() bridgeOption {
 
 // newBridgeTestServer creates a fully configured test server running
 // a RequestBridge with sensible defaults:
+//   - All standard providers (unless withProvider / withCustomProvider)
 //   - MockRecorder (raw, unless withWrappedRecorder)
 //   - NoopMCPManager (unless withMCP)
 //   - slogtest debug logger (unless withLogger)
@@ -93,7 +245,7 @@ func withWrappedRecorder() bridgeOption {
 func newBridgeTestServer(
 	t *testing.T,
 	ctx context.Context,
-	providers []aibridge.Provider,
+	upstreamURL string,
 	opts ...bridgeOption,
 ) *bridgeTestServer {
 	t.Helper()
@@ -112,6 +264,20 @@ func newBridgeTestServer(
 	}
 	if cfg.mcpProxy == nil {
 		cfg.mcpProxy = newNoopMCPManager()
+	}
+
+	// Resolve providers: use explicit builders when provided, otherwise
+	// create default providers for every supported type.
+	var providers []aibridge.Provider
+	if len(cfg.providerBuilders) > 0 {
+		for _, b := range cfg.providerBuilders {
+			providers = append(providers, b(upstreamURL))
+		}
+	} else {
+		providers = []aibridge.Provider{
+			newDefaultProvider(config.ProviderAnthropic, upstreamURL),
+			newDefaultProvider(config.ProviderOpenAI, upstreamURL),
+		}
 	}
 
 	mockRec := &testutil.MockRecorder{}

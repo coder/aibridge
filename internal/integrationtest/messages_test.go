@@ -15,7 +15,6 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/mcp"
-	"github.com/coder/aibridge/provider"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -58,14 +57,12 @@ func TestAnthropicMessages(t *testing.T) {
 				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
 				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-				ts := newBridgeTestServer(t, ctx,
-					[]aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)},
-				)
+				ts := newBridgeTestServer(t, ctx, upstream.URL)
 
 				// Make API call to aibridge for Anthropic /v1/messages
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
-				req := createAnthropicMessagesReq(t, ts.URL, reqBody)
+				req := ts.newRequest(t, pathAnthropicMessages, reqBody)
 				client := &http.Client{}
 				resp, err := client.Do(req)
 				require.NoError(t, err)
@@ -121,7 +118,7 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			t.Parallel()
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, newAnthropicProvider, defaultTracer, defaultActorID, createAnthropicMessagesReq, anthropicToolResultValidator(t))
+			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, defaultTracer, defaultActorID, pathAnthropicMessages, anthropicToolResultValidator(t))
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := recorderClient.RecordedToolUsages()
@@ -331,8 +328,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			fix := fixtures.Parse(t, fixtures.AntSimple)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			ts := newBridgeTestServer(t, ctx,
-				[]aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)},
+			ts := newBridgeTestServer(t, ctx, upstream.URL,
 				withMCP(mcpMgr),
 			)
 
@@ -340,7 +336,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			reqBody, err := sjson.SetBytes(fix.Request(), "tool_choice", tc.toolChoice)
 			require.NoError(t, err)
 
-			req := createAnthropicMessagesReq(t, ts.URL, reqBody)
+			req := ts.newRequest(t, pathAnthropicMessages, reqBody)
 			client := &http.Client{}
 			resp, err := client.Do(req)
 			require.NoError(t, err)
@@ -392,9 +388,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			// Create a mock server that captures the request body sent upstream.
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			ts := newBridgeTestServer(t, ctx,
-				[]aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)},
-			)
+			ts := newBridgeTestServer(t, ctx, upstream.URL)
 
 			// Inject adaptive thinking into the fixture request.
 			reqBody, err := sjson.SetBytes(fix.Request(), "thinking", map[string]string{"type": "adaptive"})
@@ -402,7 +396,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			reqBody, err = sjson.SetBytes(reqBody, "stream", streaming)
 			require.NoError(t, err)
 
-			req := createAnthropicMessagesReq(t, ts.URL, reqBody)
+			req := ts.newRequest(t, pathAnthropicMessages, reqBody)
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)

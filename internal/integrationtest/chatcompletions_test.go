@@ -11,7 +11,6 @@ import (
 
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/provider"
 	"github.com/openai/openai-go/v3"
 	oaissestream "github.com/openai/openai-go/v3/packages/ssestream"
 	"github.com/stretchr/testify/assert"
@@ -55,14 +54,12 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
 				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-				ts := newBridgeTestServer(t, ctx,
-					[]aibridge.Provider{provider.NewOpenAI(openAICfg(upstream.URL, apiKey))},
-				)
+				ts := newBridgeTestServer(t, ctx, upstream.URL)
 
 				// Make API call to aibridge for OpenAI /v1/chat/completions
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
-				req := createOpenAIChatCompletionsReq(t, ts.URL, reqBody)
+				req := ts.newRequest(t, pathOpenAIChatCompletions, reqBody)
 
 				client := &http.Client{}
 				resp, err := client.Do(req)
@@ -141,15 +138,14 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				// Setup MCP proxies with the tool from the fixture
 				mockMCP := setupMCPForTest(t, defaultTracer)
 
-				ts := newBridgeTestServer(t, ctx,
-					[]aibridge.Provider{provider.NewOpenAI(openAICfg(upstream.URL, apiKey))},
+				ts := newBridgeTestServer(t, ctx, upstream.URL,
 					withMCP(mockMCP),
 				)
 
 				// Add the stream param to the request.
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", true)
 				require.NoError(t, err)
-				req := createOpenAIChatCompletionsReq(t, ts.URL, reqBody)
+				req := ts.newRequest(t, pathOpenAIChatCompletions, reqBody)
 
 				client := &http.Client{}
 				resp, err := client.Do(req)
@@ -198,7 +194,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			t.Parallel()
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, newOpenAIProvider, defaultTracer, defaultActorID, createOpenAIChatCompletionsReq, openaiChatToolResultValidator(t))
+			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, defaultTracer, defaultActorID, pathOpenAIChatCompletions, openaiChatToolResultValidator(t))
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := recorderClient.RecordedToolUsages()

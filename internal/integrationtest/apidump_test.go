@@ -25,34 +25,34 @@ func TestAPIDump(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name              string
-		fixture           []byte
-		providersFunc     func(addr, dumpDir string) []aibridge.Provider
-		createRequestFunc createRequestFunc
+		name        string
+		fixture     []byte
+		newProvider func(addr, dumpDir string) aibridge.Provider
+		path        string
 	}{
 		{
 			name:    "anthropic",
 			fixture: fixtures.AntSimple,
-			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)}
+			newProvider: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)
 			},
-			createRequestFunc: createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 		},
 		{
 			name:    "openai_chat_completions",
 			fixture: fixtures.OaiChatSimple,
-			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
+			newProvider: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
-			createRequestFunc: createOpenAIChatCompletionsReq,
+			path: pathOpenAIChatCompletions,
 		},
 		{
 			name:    "openai_responses",
 			fixture: fixtures.OaiResponsesBlockingSimple,
-			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
+			newProvider: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
-			createRequestFunc: createOpenAIResponsesReq,
+			path: pathOpenAIResponses,
 		},
 	}
 
@@ -70,10 +70,11 @@ func TestAPIDump(t *testing.T) {
 			// Create temp dir for API dumps.
 			dumpDir := t.TempDir()
 
-			providers := tc.providersFunc(srv.URL, dumpDir)
-			ts := newBridgeTestServer(t, ctx, providers)
+			ts := newBridgeTestServer(t, ctx, srv.URL,
+				withCustomProvider(tc.newProvider(srv.URL, dumpDir)),
+			)
 
-			req := tc.createRequestFunc(t, ts.URL, fix.Request())
+			req := ts.newRequest(t, tc.path, fix.Request())
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -148,13 +149,13 @@ func TestAPIDumpPassthrough(t *testing.T) {
 
 	cases := []struct {
 		name           string
-		providerFunc   func(addr string, dumpDir string) aibridge.Provider
+		newProvider    func(addr string, dumpDir string) aibridge.Provider
 		requestPath    string
 		expectDumpName string
 	}{
 		{
 			name: "anthropic",
-			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
+			newProvider: func(addr string, dumpDir string) aibridge.Provider {
 				return provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)
 			},
 			requestPath:    "/anthropic/v1/models",
@@ -162,7 +163,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		},
 		{
 			name: "openai",
-			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
+			newProvider: func(addr string, dumpDir string) aibridge.Provider {
 				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
 			requestPath:    "/openai/v1/models",
@@ -170,7 +171,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		},
 		{
 			name: "copilot",
-			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
+			newProvider: func(addr string, dumpDir string) aibridge.Provider {
 				return provider.NewCopilot(config.Copilot{BaseURL: addr, APIDumpDir: dumpDir})
 			},
 			requestPath:    "/copilot/models",
@@ -193,8 +194,9 @@ func TestAPIDumpPassthrough(t *testing.T) {
 
 			dumpDir := t.TempDir()
 
-			prov := tc.providerFunc(upstream.URL, dumpDir)
-			ts := newBridgeTestServer(t, ctx, []aibridge.Provider{prov})
+			ts := newBridgeTestServer(t, ctx, upstream.URL,
+				withCustomProvider(tc.newProvider(upstream.URL, dumpDir)),
+			)
 
 			req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+tc.requestPath, nil)
 			require.NoError(t, err)
