@@ -110,8 +110,8 @@ func (ms *mockUpstream) receivedRequests() []receivedRequest {
 // The test fails if the number of requests doesn't match the number of
 // responses (when AllowOverflow is not set, default).
 //
-//	srv := testutil.newMockUpstream(t, ctx, testutil.newFixtureResponse(fix))                                          // simple
-//	srv := testutil.newMockUpstream(t, ctx, testutil.newFixtureResponse(fix), testutil.newFixtureToolResponse(fix))  // multi-turn
+//	srv := newMockUpstream(t, ctx, newFixtureResponse(fix))                        // simple
+//	srv := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix)) // multi-turn
 func newMockUpstream(t *testing.T, ctx context.Context, responses ...upstreamResponse) *mockUpstream {
 	t.Helper()
 	require.NotEmpty(t, responses, "at least one upstreamResponse required")

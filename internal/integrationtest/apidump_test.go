@@ -21,22 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func openaiCfgWithAPIDump(url, key, dumpDir string) config.OpenAI {
-	return config.OpenAI{
-		BaseURL:    url,
-		Key:        key,
-		APIDumpDir: dumpDir,
-	}
-}
-
-func anthropicCfgWithAPIDump(url, key, dumpDir string) config.Anthropic {
-	return config.Anthropic{
-		BaseURL:    url,
-		Key:        key,
-		APIDumpDir: dumpDir,
-	}
-}
-
 func TestAPIDump(t *testing.T) {
 	t.Parallel()
 

@@ -794,5 +794,3 @@ func verifyTraces(t *testing.T, spanRecorder *tracetest.SpanRecorder, expect []e
 		}
 	}
 }
-
-

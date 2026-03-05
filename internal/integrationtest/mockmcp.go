@@ -59,7 +59,9 @@ func setupMCPForTestWithName(t *testing.T, name string, tracer trace.Tracer) *mo
 	// which can break when httptest.Server calls CloseIdleConnections in parallel
 	// resulting in error `init MCP client: failed to send initialized notification: failed to send request: failed to send request: Post "http://127.0.0.1:43843": net/http: HTTP/1.x transport connection broken: http: CloseIdleConnections called`
 	// https://github.com/golang/go/blob/44ec057a3e89482cf775f5eaaf03b0b5fcab1fa4/src/net/http/httptest/server.go#L268
-	httpClient := &http.Client{Transport: &http.Transport{}}
+	httpTransport := &http.Transport{}
+	t.Cleanup(httpTransport.CloseIdleConnections)
+	httpClient := &http.Client{Transport: httpTransport}
 	proxy, err := mcp.NewStreamableHTTPServerProxy(name, mcpSrv.URL, nil, nil, nil, logger, tracer, transport.WithHTTPBasicClient(httpClient))
 	require.NoError(t, err)
 

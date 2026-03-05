@@ -26,16 +26,9 @@ const defaultActorID = "ae235cc1-9f8f-417d-a636-a7b170bac62e"
 var defaultTracer = otel.Tracer("integrationtest")
 
 // newLogger creates a test logger at Debug level.
-// Eliminates the repeated slogtest.Make(t, &slogtest.Options{...}).Leveled(slog.LevelDebug) pattern.
-func newLogger(t *testing.T, opts ...*slogtest.Options) slog.Logger {
+func newLogger(t *testing.T) slog.Logger {
 	t.Helper()
-	var o *slogtest.Options
-	if len(opts) > 0 {
-		o = opts[0]
-	} else {
-		o = &slogtest.Options{}
-	}
-	return slogtest.Make(t, o).Leveled(slog.LevelDebug)
+	return slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
 }
 
 // bridgeTestServer wraps an httptest.Server running a RequestBridge.
