@@ -6,9 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
@@ -44,18 +42,21 @@ func TestAnthropicMessages(t *testing.T) {
 		t.Parallel()
 
 		cases := []struct {
+			name                 string
 			streaming            bool
 			expectedInputTokens  int
 			expectedOutputTokens int
 			expectedToolCallID   string
 		}{
 			{
+				name:                 "streaming",
 				streaming:            true,
 				expectedInputTokens:  2,
 				expectedOutputTokens: 66,
 				expectedToolCallID:   "toolu_01RX68weRSquLx6HUTj65iBo",
 			},
 			{
+				name:                 "non-streaming",
 				streaming:            false,
 				expectedInputTokens:  5,
 				expectedOutputTokens: 84,
@@ -64,7 +65,7 @@ func TestAnthropicMessages(t *testing.T) {
 		}
 
 		for _, tc := range cases {
-			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), tc.streaming), func(t *testing.T) {
+			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -221,17 +222,20 @@ func TestOpenAIChatCompletions(t *testing.T) {
 		t.Parallel()
 
 		cases := []struct {
+			name                                      string
 			streaming                                 bool
 			expectedInputTokens, expectedOutputTokens int
 			expectedToolCallID                        string
 		}{
 			{
+				name:                 "streaming",
 				streaming:            true,
 				expectedInputTokens:  60,
 				expectedOutputTokens: 15,
 				expectedToolCallID:   "call_HjeqP7YeRkoNj0de9e3U4X4B",
 			},
 			{
+				name:                 "non-streaming",
 				streaming:            false,
 				expectedInputTokens:  60,
 				expectedOutputTokens: 15,
@@ -240,7 +244,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 		}
 
 		for _, tc := range cases {
-			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), tc.streaming), func(t *testing.T) {
+			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -1498,32 +1502,29 @@ func TestActorHeaders(t *testing.T) {
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 				t.Cleanup(cancel)
 
-				// Track headers received by the upstream server.
-				var receivedHeaders http.Header
-				srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					receivedHeaders = r.Header.Clone()
-					w.WriteHeader(http.StatusTeapot)
-				}))
-				srv.Config.BaseContext = func(_ net.Listener) context.Context {
-					return ctx
-				}
-				srv.Start()
-				t.Cleanup(srv.Close)
+				fix := fixtures.Parse(t, tc.fixture)
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 				metadataKey := "Username"
-				bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
-					withCustomProvider(tc.createProviderFn(srv.URL, apiKey, send)),
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+					withCustomProvider(tc.createProviderFn(upstream.URL, apiKey, send)),
 					withActor(defaultActorID, recorder.Metadata{
 						metadataKey: actorUsername,
 					}),
 				)
 
 				// Add the stream param to the request.
-				reqBody, err := sjson.SetBytes(fixtures.Request(t, tc.fixture), "stream", tc.streaming)
+				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
 
-				bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
-				require.NotEmpty(t, receivedHeaders)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
+				// Drain the body so streaming responses complete without
+				// a "connection reset" error in the mock upstream.
+				_, _ = io.ReadAll(resp.Body)
+
+				received := upstream.receivedRequests()
+				require.NotEmpty(t, received)
+				receivedHeaders := received[0].Header
 
 				// Verify that the actor headers were only received if intended.
 				found := make(map[string][]string)
