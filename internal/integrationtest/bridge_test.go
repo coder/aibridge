@@ -817,10 +817,6 @@ func TestAnthropicInjectedTools(t *testing.T) {
 	}
 }
 
-// anthropicToolResultValidator returns a request validator that asserts the second
-// upstream request contains the assistant's tool_use and user's tool_result messages
-// appended by the inner agentic loop. If the raw payload is not kept in sync with
-// the structured messages, the second request will be identical to the first.
 func TestOpenAIInjectedTools(t *testing.T) {
 	t.Parallel()
 
@@ -919,9 +915,10 @@ func TestOpenAIInjectedTools(t *testing.T) {
 	}
 }
 
-// openaiChatToolResultValidator returns a request validator that asserts the second
-// upstream request contains the assistant's tool_calls and a role=tool result message
-// appended by the inner agentic loop.
+// anthropicToolResultValidator returns a request validator that asserts the second
+// upstream request contains the assistant's tool_use and user's tool_result messages
+// appended by the inner agentic loop. If the raw payload is not kept in sync with
+// the structured messages, the second request will be identical to the first.
 func anthropicToolResultValidator(t *testing.T) func(*http.Request, []byte) {
 	t.Helper()
 
@@ -961,9 +958,9 @@ func anthropicToolResultValidator(t *testing.T) func(*http.Request, []byte) {
 	}
 }
 
-// TestAnthropicToolChoiceParallelDisabled verifies that parallel tool use is
-// correctly disabled based on the tool_choice parameter in the request.
-// See https://github.com/coder/aibridge/issues/2
+// openaiChatToolResultValidator returns a request validator that asserts the second
+// upstream request contains the assistant's tool_calls and a role=tool result message
+// appended by the inner agentic loop.
 func openaiChatToolResultValidator(t *testing.T) func(*http.Request, []byte) {
 	t.Helper()
 
@@ -1197,6 +1194,9 @@ func TestStableRequestEncoding(t *testing.T) {
 	}
 }
 
+// TestAnthropicToolChoiceParallelDisabled verifies that parallel tool use is
+// correctly disabled based on the tool_choice parameter in the request.
+// See https://github.com/coder/aibridge/issues/2
 func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 	t.Parallel()
 
