@@ -135,6 +135,13 @@ func TestGuessSessionID(t *testing.T) {
 			name:   "cursor_returns_empty",
 			client: ClientCursor,
 		},
+		// Other cases.
+		{
+			name:      "empty session ID value",
+			client:    ClientKilo,
+			headers:   map[string]string{"X-KILOCODE-TASKID": " "},
+			sessionID: nil,
+		},
 	}
 
 	for _, tc := range cases {
