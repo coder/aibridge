@@ -3,7 +3,6 @@ package integrationtest
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -944,32 +943,45 @@ func TestResponsesModelThoughts(t *testing.T) {
 		t.Parallel()
 
 		cases := []struct {
-			streaming          bool
+			name               string
+			fixture            []byte
 			expectedToolCallID string
+			expectedThoughts   []string
 		}{
 			{
-				streaming:          false,
+				name:               "single reasoning/blocking",
+				fixture:            fixtures.OaiResponsesBlockingSingleBuiltinTool,
 				expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
+				expectedThoughts:   []string{"The user wants to add 3 and 5"},
 			},
 			{
-				streaming:          true,
+				name:               "single reasoning/streaming",
+				fixture:            fixtures.OaiResponsesStreamingBuiltinTool,
 				expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
+				expectedThoughts:   []string{"The user wants to add 3 and 5"},
+			},
+			{
+				name:               "multiple reasoning items/blocking",
+				fixture:            fixtures.OaiResponsesBlockingMultiReasoningBuiltinTool,
+				expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
+				expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
+			},
+			{
+				name:               "multiple reasoning items/streaming",
+				fixture:            fixtures.OaiResponsesStreamingMultiReasoningBuiltinTool,
+				expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
+				expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
 			},
 		}
 
 		for _, tc := range cases {
-			t.Run(fmt.Sprintf("streaming=%v", tc.streaming), func(t *testing.T) {
+			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 				t.Cleanup(cancel)
 
-				var fix fixtures.Fixture
-				if tc.streaming {
-					fix = fixtures.Parse(t, fixtures.OaiResponsesStreamingBuiltinTool)
-				} else {
-					fix = fixtures.Parse(t, fixtures.OaiResponsesBlockingSingleBuiltinTool)
-				}
+				fix := fixtures.Parse(t, tc.fixture)
 				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
@@ -986,10 +998,10 @@ func TestResponsesModelThoughts(t *testing.T) {
 				require.Equal(t, "add", toolUsages[0].Tool)
 				require.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
 
-				// Model thoughts should be embedded in the tool usage record.
-				require.Len(t, toolUsages[0].ModelThoughts, 1)
-				require.Contains(t, toolUsages[0].ModelThoughts[0].Content, "The user wants to add 3 and 5")
-				require.Contains(t, toolUsages[0].ModelThoughts[0].Content, "Let me call the add function")
+				require.Len(t, toolUsages[0].ModelThoughts, len(tc.expectedThoughts))
+				for i, expected := range tc.expectedThoughts {
+					require.Contains(t, toolUsages[0].ModelThoughts[i].Content, expected)
+				}
 			})
 		}
 	})

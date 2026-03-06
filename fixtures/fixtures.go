@@ -15,6 +15,9 @@ var (
 	//go:embed anthropic/single_builtin_tool.txtar
 	AntSingleBuiltinTool []byte
 
+	//go:embed anthropic/multi_thinking_builtin_tool.txtar
+	AntMultiThinkingBuiltinTool []byte
+
 	//go:embed anthropic/single_injected_tool.txtar
 	AntSingleInjectedTool []byte
 
@@ -61,6 +64,9 @@ var (
 	//go:embed openai/responses/blocking/single_builtin_tool.txtar
 	OaiResponsesBlockingSingleBuiltinTool []byte
 
+	//go:embed openai/responses/blocking/multi_reasoning_builtin_tool.txtar
+	OaiResponsesBlockingMultiReasoningBuiltinTool []byte
+
 	//go:embed openai/responses/blocking/cached_input_tokens.txtar
 	OaiResponsesBlockingCachedInputTokens []byte
 
@@ -95,6 +101,9 @@ var (
 
 	//go:embed openai/responses/streaming/builtin_tool.txtar
 	OaiResponsesStreamingBuiltinTool []byte
+
+	//go:embed openai/responses/streaming/multi_reasoning_builtin_tool.txtar
+	OaiResponsesStreamingMultiReasoningBuiltinTool []byte
 
 	//go:embed openai/responses/streaming/cached_input_tokens.txtar
 	OaiResponsesStreamingCachedInputTokens []byte
