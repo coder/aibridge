@@ -19,6 +19,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// anthropicForwardHeaders lists headers from incoming requests that should be
+// forwarded to the Anthropic API.
+// TODO(ssncferreira): remove as part of https://github.com/coder/aibridge/issues/192
+var anthropicForwardHeaders = []string{
+	"Anthropic-Beta",
+}
+
 var _ Provider = &Anthropic{}
 
 // Anthropic allows for interactions with the Anthropic API.
@@ -100,11 +107,14 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 
+		cfg := p.cfg
+		cfg.ExtraHeaders = extractAnthropicHeaders(r)
+
 		var interceptor intercept.Interceptor
 		if req.Stream {
-			interceptor = messages.NewStreamingInterceptor(id, &req, payload, p.cfg, p.bedrockCfg, tracer)
+			interceptor = messages.NewStreamingInterceptor(id, &req, payload, cfg, p.bedrockCfg, tracer)
 		} else {
-			interceptor = messages.NewBlockingInterceptor(id, &req, payload, p.cfg, p.bedrockCfg, tracer)
+			interceptor = messages.NewBlockingInterceptor(id, &req, payload, cfg, p.bedrockCfg, tracer)
 		}
 		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
@@ -133,3 +143,17 @@ func (p *Anthropic) InjectAuthHeader(headers *http.Header) {
 func (p *Anthropic) CircuitBreakerConfig() *config.CircuitBreaker {
 	return p.cfg.CircuitBreaker
 }
+
+// extractAnthropicHeaders extracts headers required by the Anthropic API from
+// the incoming request.
+// TODO(ssncferreira): remove as part of https://github.com/coder/aibridge/issues/192
+func extractAnthropicHeaders(r *http.Request) map[string]string {
+	headers := make(map[string]string, len(anthropicForwardHeaders))
+	for _, h := range anthropicForwardHeaders {
+		if v := r.Header.Get(h); v != "" {
+			headers[h] = v
+		}
+	}
+	return headers
+}
+>>>>>>> 1e9e0d8 (fix: forward Anthropic-Beta header to Anthropic provider (#205))
