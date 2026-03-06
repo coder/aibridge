@@ -9,6 +9,7 @@ import (
 
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -29,6 +30,10 @@ type interceptionBase struct {
 	req *ChatCompletionNewParamsWrapper
 	cfg config.OpenAI
 
+	// clientHeaders holds the original client request headers to forward
+	// to upstream providers.
+	clientHeaders http.Header
+
 	logger slog.Logger
 	tracer trace.Tracer
 
@@ -37,7 +42,18 @@ type interceptionBase struct {
 }
 
 func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService {
-	opts := []option.RequestOption{option.WithAPIKey(i.cfg.Key), option.WithBaseURL(i.cfg.BaseURL)}
+	var opts []option.RequestOption
+
+	// Forward sanitized client headers to the upstream provider.
+	// Client headers are added first so that SDK auth appended
+	// below takes priority on any conflict.
+	for k, vals := range intercept.SanitizeClientHeaders(i.clientHeaders) {
+		for _, v := range vals {
+			opts = append(opts, option.WithHeader(k, v))
+		}
+	}
+
+	opts = append(opts, option.WithAPIKey(i.cfg.Key), option.WithBaseURL(i.cfg.BaseURL))
 
 	// Add extra headers if configured.
 	// Some providers require additional headers that are not added by the SDK.

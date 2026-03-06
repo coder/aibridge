@@ -32,15 +32,24 @@ type StreamingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string, tracer trace.Tracer) *StreamingResponsesInterceptor {
+func NewStreamingInterceptor(
+	id uuid.UUID,
+	req *ResponsesNewParamsWrapper,
+	reqPayload []byte,
+	cfg config.OpenAI,
+	model string,
+	clientHeaders http.Header,
+	tracer trace.Tracer,
+) *StreamingResponsesInterceptor {
 	return &StreamingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
-			id:         id,
-			req:        req,
-			reqPayload: reqPayload,
-			cfg:        cfg,
-			model:      model,
-			tracer:     tracer,
+			id:            id,
+			req:           req,
+			reqPayload:    reqPayload,
+			cfg:           cfg,
+			model:         model,
+			clientHeaders: clientHeaders,
+			tracer:        tracer,
 		},
 	}
 }

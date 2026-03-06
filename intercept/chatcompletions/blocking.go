@@ -28,12 +28,19 @@ type BlockingInterception struct {
 	interceptionBase
 }
 
-func NewBlockingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, cfg config.OpenAI, tracer trace.Tracer) *BlockingInterception {
+func NewBlockingInterceptor(
+	id uuid.UUID,
+	req *ChatCompletionNewParamsWrapper,
+	cfg config.OpenAI,
+	clientHeaders http.Header,
+	tracer trace.Tracer,
+) *BlockingInterception {
 	return &BlockingInterception{interceptionBase: interceptionBase{
-		id:     id,
-		req:    req,
-		cfg:    cfg,
-		tracer: tracer,
+		id:            id,
+		req:           req,
+		cfg:           cfg,
+		clientHeaders: clientHeaders,
+		tracer:        tracer,
 	}}
 }
 
