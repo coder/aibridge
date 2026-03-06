@@ -18,6 +18,7 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	aibconfig "github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -39,6 +40,10 @@ type interceptionBase struct {
 
 	cfg        aibconfig.Anthropic
 	bedrockCfg *aibconfig.AWSBedrock
+
+	// clientHeaders holds the original client request headers to forward
+	// to upstream providers.
+	clientHeaders http.Header
 
 	tracer trace.Tracer
 	logger slog.Logger
@@ -178,6 +183,15 @@ func (i *interceptionBase) isSmallFastModel() bool {
 }
 
 func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...option.RequestOption) (anthropic.MessageService, error) {
+	// Forward sanitized client headers to the upstream provider.
+	// Client headers are added first so that SDK auth appended
+	// below takes priority on any conflict.
+	for k, vals := range intercept.SanitizeClientHeaders(i.clientHeaders) {
+		for _, v := range vals {
+			opts = append(opts, option.WithHeader(k, v))
+		}
+	}
+
 	opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
 

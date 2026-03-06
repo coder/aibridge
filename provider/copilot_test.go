@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"cdr.dev/slog/v3"
@@ -24,6 +25,16 @@ func TestCopilot_InjectAuthHeader(t *testing.T) {
 	// so InjectAuthHeader should not modify any headers.
 	provider := NewCopilot(config.Copilot{})
 
+	t.Run("EmptyHeaders_NoneAdded", func(t *testing.T) {
+		t.Parallel()
+
+		headers := http.Header{}
+
+		provider.InjectAuthHeader(&headers)
+
+		assert.Empty(t, headers, "no headers should be added")
+	})
+
 	t.Run("ExistingHeaders_Unchanged", func(t *testing.T) {
 		t.Parallel()
 
@@ -37,16 +48,6 @@ func TestCopilot_InjectAuthHeader(t *testing.T) {
 			"Authorization header should remain unchanged")
 		assert.Equal(t, "custom-value", headers.Get("X-Custom-Header"),
 			"other headers should remain unchanged")
-	})
-
-	t.Run("EmptyHeaders_NoneAdded", func(t *testing.T) {
-		t.Parallel()
-
-		headers := http.Header{}
-
-		provider.InjectAuthHeader(&headers)
-
-		assert.Empty(t, headers, "no headers should be added")
 	})
 }
 
@@ -129,53 +130,6 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		assert.Contains(t, err.Error(), "unmarshal chat completions request body")
 	})
 
-	t.Run("ChatCompletions_ForwardsHeadersToUpstream", func(t *testing.T) {
-		t.Parallel()
-
-		var receivedHeaders http.Header
-
-		// Mock upstream that captures headers
-		mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			receivedHeaders = r.Header.Clone()
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`))
-		}))
-		t.Cleanup(mockUpstream.Close)
-
-		// Create provider with mock upstream URL
-		provider := NewCopilot(config.Copilot{
-			BaseURL: mockUpstream.URL,
-		})
-
-		body := `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`
-		req := httptest.NewRequest(http.MethodPost, routeCopilotChatCompletions, bytes.NewBufferString(body))
-		req.Header.Set("Authorization", "Bearer test-token")
-		req.Header.Set("Editor-Version", "vscode/1.85.0")
-		req.Header.Set("Copilot-Integration-Id", "test-integration")
-		req.Header.Set("X-Custom-Header", "should-not-forward")
-		w := httptest.NewRecorder()
-
-		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
-		require.NoError(t, err)
-		require.NotNil(t, interceptor)
-
-		// Setup and process request
-		logger := slog.Make()
-		interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
-
-		processReq := httptest.NewRequest(http.MethodPost, routeCopilotChatCompletions, nil)
-		err = interceptor.ProcessRequest(w, processReq)
-		require.NoError(t, err)
-
-		// Verify headers were forwarded
-		assert.Equal(t, "vscode/1.85.0", receivedHeaders.Get("Editor-Version"))
-		assert.Equal(t, "test-integration", receivedHeaders.Get("Copilot-Integration-Id"))
-
-		// Verify non-Copilot headers are not forwarded
-		assert.Empty(t, receivedHeaders.Get("X-Custom-Header"), "non-Copilot headers should not be forwarded")
-	})
-
 	t.Run("Responses_NonStreamingRequest_BlockingInterceptor", func(t *testing.T) {
 		t.Parallel()
 
@@ -221,53 +175,6 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		assert.Contains(t, err.Error(), "unmarshal responses request body")
 	})
 
-	t.Run("Responses_ForwardsHeadersToUpstream", func(t *testing.T) {
-		t.Parallel()
-
-		var receivedHeaders http.Header
-
-		// Mock upstream that captures headers
-		mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			receivedHeaders = r.Header.Clone()
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"id":"resp-123","object":"responses.response","created":1677652288,"model":"gpt-5-mini","output":[],"usage":{"input_tokens":5,"output_tokens":10,"total_tokens":15}}`))
-		}))
-		t.Cleanup(mockUpstream.Close)
-
-		// Create provider with mock upstream URL
-		provider := NewCopilot(config.Copilot{
-			BaseURL: mockUpstream.URL,
-		})
-
-		body := `{"model": "gpt-5-mini", "input": "hello", "stream": false}`
-		req := httptest.NewRequest(http.MethodPost, routeCopilotResponses, bytes.NewBufferString(body))
-		req.Header.Set("Authorization", "Bearer test-token")
-		req.Header.Set("Editor-Version", "vscode/1.85.0")
-		req.Header.Set("Copilot-Integration-Id", "test-integration")
-		req.Header.Set("X-Custom-Header", "should-not-forward")
-		w := httptest.NewRecorder()
-
-		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
-		require.NoError(t, err)
-		require.NotNil(t, interceptor)
-
-		// Setup and process request
-		logger := slog.Make()
-		interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
-
-		processReq := httptest.NewRequest(http.MethodPost, routeCopilotResponses, nil)
-		err = interceptor.ProcessRequest(w, processReq)
-		require.NoError(t, err)
-
-		// Verify headers were forwarded
-		assert.Equal(t, "vscode/1.85.0", receivedHeaders.Get("Editor-Version"))
-		assert.Equal(t, "test-integration", receivedHeaders.Get("Copilot-Integration-Id"))
-
-		// Verify non-Copilot headers are not forwarded
-		assert.Empty(t, receivedHeaders.Get("X-Custom-Header"), "non-Copilot headers should not be forwarded")
-	})
-
 	t.Run("UnknownRoute", func(t *testing.T) {
 		t.Parallel()
 
@@ -281,6 +188,84 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		require.ErrorIs(t, err, UnknownRoute)
 		require.Nil(t, interceptor)
 	})
+}
+
+// TestCopilot_ForwardsHeadersToUpstream verifies that custom client headers are forwarded
+// to the upstream, while filtered headers (hop-by-hop) are stripped, Copilot-specific
+// headers are always forwarded, and the per-user token is used for auth.
+func TestCopilot_ForwardsHeadersToUpstream(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name         string
+		route        string
+		body         string
+		mockResponse string
+	}{
+		{
+			name:         "chat-completions",
+			route:        routeCopilotChatCompletions,
+			body:         `{"model":"gpt-4","messages":[{"role":"user","content":"hello"}],"stream":false}`,
+			mockResponse: `{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`,
+		},
+		{
+			name:         "responses",
+			route:        routeCopilotResponses,
+			body:         `{"model":"gpt-5-mini","input":"hello","stream":false}`,
+			mockResponse: `{"id":"resp-123","object":"responses.response","created":1677652288,"model":"gpt-5-mini","output":[],"usage":{"input_tokens":5,"output_tokens":10,"total_tokens":15}}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var receivedHeaders http.Header
+
+			mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedHeaders = r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(tc.mockResponse))
+			}))
+			t.Cleanup(mockUpstream.Close)
+
+			p := NewCopilot(config.Copilot{
+				BaseURL: mockUpstream.URL,
+			})
+
+			req := httptest.NewRequest(http.MethodPost, tc.route, bytes.NewBufferString(tc.body))
+			req.Header.Set("Authorization", "Bearer user-token") // per-user key, must reach upstream
+			req.Header.Set("Editor-Version", "vscode/1.85.0")    // Copilot-specific, must reach upstream
+			req.Header.Set("Copilot-Integration-Id", "test-id")  // Copilot-specific, must reach upstream
+			req.Header.Set("X-Custom-Header", "custom-value")    // should be forwarded
+			req.Header.Set("X-Api-Key", "client-fake-key")       // should be stripped (re-injected by SDK)
+			req.Header.Set("Upgrade", "websocket")               // should be stripped (hop-by-hop)
+			w := httptest.NewRecorder()
+
+			interceptor, err := p.CreateInterceptor(w, req, testTracer)
+			require.NoError(t, err)
+			require.NotNil(t, interceptor)
+
+			interceptor.Setup(slog.Make(), &testutil.MockRecorder{}, nil)
+
+			err = interceptor.ProcessRequest(w, httptest.NewRequest(http.MethodPost, tc.route, nil))
+			require.NoError(t, err)
+
+			// Copilot-specific headers must reach the upstream.
+			assert.Equal(t, "vscode/1.85.0", receivedHeaders.Get("Editor-Version"))
+			assert.Equal(t, "test-id", receivedHeaders.Get("Copilot-Integration-Id"))
+			// Custom headers must reach the upstream.
+			assert.Equal(t, "custom-value", receivedHeaders.Get("X-Custom-Header"))
+			// Hop-by-hop headers must not reach the upstream.
+			assert.Empty(t, receivedHeaders.Get("Upgrade"))
+			// Per-user token must be used for auth as Copilot uses the client's token, not a global key.
+			assert.Equal(t, "Bearer user-token", receivedHeaders.Get("Authorization"))
+			// User-Agent must be set by the SDK, not forwarded from the client.
+			assert.True(t, strings.HasPrefix(receivedHeaders.Get("User-Agent"), "OpenAI/Go"),
+				"upstream User-Agent should be set by the SDK")
+		})
+	}
 }
 
 func Test_extractBearerToken(t *testing.T) {

@@ -17,6 +17,7 @@ import (
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
@@ -41,16 +42,30 @@ type responsesInterceptionBase struct {
 	req        *ResponsesNewParamsWrapper
 	reqPayload []byte
 	cfg        config.OpenAI
-	model      string
-	recorder   recorder.Recorder
-	mcpProxy   mcp.ServerProxier
-	logger     slog.Logger
-	metrics    metrics.Metrics
-	tracer     trace.Tracer
+	// clientHeaders holds the original client request headers to forward
+	// to upstream providers.
+	clientHeaders http.Header
+	model         string
+	recorder      recorder.Recorder
+	mcpProxy      mcp.ServerProxier
+	logger        slog.Logger
+	metrics       metrics.Metrics
+	tracer        trace.Tracer
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
-	opts := []option.RequestOption{option.WithBaseURL(i.cfg.BaseURL), option.WithAPIKey(i.cfg.Key)}
+	var opts []option.RequestOption
+
+	// Forward sanitized client headers to the upstream provider.
+	// Client headers are added first so that SDK auth appended
+	// below takes priority on any conflict.
+	for k, vals := range intercept.SanitizeClientHeaders(i.clientHeaders) {
+		for _, v := range vals {
+			opts = append(opts, option.WithHeader(k, v))
+		}
+	}
+
+	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL), option.WithAPIKey(i.cfg.Key))
 
 	// Add extra headers if configured.
 	// Some providers require additional headers that are not added by the SDK.
