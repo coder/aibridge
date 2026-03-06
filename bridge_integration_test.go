@@ -167,6 +167,109 @@ func TestAnthropicMessages(t *testing.T) {
 	})
 }
 
+func TestAnthropicMessagesModelThoughts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name               string
+		streaming          bool
+		fixture            []byte
+		expectedToolCallID string
+		expectedThoughts   []string // nil means no tool usages expected at all
+	}{
+		{
+			name:               "single thinking block/streaming",
+			streaming:          true,
+			fixture:            fixtures.AntSingleBuiltinTool,
+			expectedToolCallID: "toolu_01RX68weRSquLx6HUTj65iBo",
+			expectedThoughts:   []string{"The user wants me to read"},
+		},
+		{
+			name:               "single thinking block/blocking",
+			streaming:          false,
+			fixture:            fixtures.AntSingleBuiltinTool,
+			expectedToolCallID: "toolu_01AusGgY5aKFhzWrFBv9JfHq",
+			expectedThoughts:   []string{"The user wants me to read"},
+		},
+		{
+			name:               "multiple thinking blocks/streaming",
+			streaming:          true,
+			fixture:            fixtures.AntMultiThinkingBuiltinTool,
+			expectedToolCallID: "toolu_01RX68weRSquLx6HUTj65iBo",
+			expectedThoughts:   []string{"The user wants me to read", "I should use the Read tool"},
+		},
+		{
+			name:               "multiple thinking blocks/blocking",
+			streaming:          false,
+			fixture:            fixtures.AntMultiThinkingBuiltinTool,
+			expectedToolCallID: "toolu_01AusGgY5aKFhzWrFBv9JfHq",
+			expectedThoughts:   []string{"The user wants me to read", "I should use the Read tool"},
+		},
+		{
+			name:      "no thoughts without tool calls",
+			streaming: true,
+			fixture:   fixtures.AntSimple, // This fixture contains thoughts, but they're not associated with tool calls.
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+
+			recorderClient := &testutil.MockRecorder{}
+			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+			providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)}
+			b, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			require.NoError(t, err)
+
+			mockSrv := httptest.NewUnstartedServer(b)
+			t.Cleanup(mockSrv.Close)
+			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
+				return aibcontext.AsActor(ctx, userID, nil)
+			}
+			mockSrv.Start()
+
+			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
+			require.NoError(t, err)
+			req := createAnthropicMessagesReq(t, mockSrv.URL, reqBody)
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			defer resp.Body.Close()
+
+			if tc.streaming {
+				sp := aibridge.NewSSEParser()
+				require.NoError(t, sp.Parse(resp.Body))
+				assert.Contains(t, sp.AllEvents(), "message_start")
+				assert.Contains(t, sp.AllEvents(), "message_stop")
+			}
+
+			toolUsages := recorderClient.RecordedToolUsages()
+			if tc.expectedThoughts == nil {
+				assert.Empty(t, toolUsages)
+			} else {
+				require.Len(t, toolUsages, 1)
+				assert.Equal(t, "Read", toolUsages[0].Tool)
+				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
+
+				require.Len(t, toolUsages[0].ModelThoughts, len(tc.expectedThoughts))
+				for i, expected := range tc.expectedThoughts {
+					assert.Contains(t, toolUsages[0].ModelThoughts[i].Content, expected)
+				}
+			}
+
+			recorderClient.VerifyAllInterceptionsEnded(t)
+		})
+	}
+}
+
 func TestAWSBedrockIntegration(t *testing.T) {
 	t.Parallel()
 

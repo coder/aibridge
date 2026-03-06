@@ -252,6 +252,22 @@ newStream:
 
 			// Don't send message_stop until all tools have been called.
 			case string(constant.ValueOf[constant.MessageStop]()):
+
+				// Capture any thinking blocks that were returned.
+				var thoughtRecords []*recorder.ModelThoughtRecord
+				for _, block := range message.Content {
+					switch variant := block.AsAny().(type) {
+					case anthropic.ThinkingBlock:
+						thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
+							Content:   variant.Thinking,
+							CreatedAt: time.Now(),
+						})
+					case anthropic.RedactedThinkingBlock:
+						// For redacted thinking, there's nothing useful we can capture.
+						continue
+					}
+				}
+
 				if len(pendingToolCalls) > 0 {
 					// Append the whole message from this stream as context since we'll be sending a new request with the tool results.
 					messages.Messages = append(messages.Messages, message.ToParam())
@@ -304,7 +320,11 @@ newStream:
 							Args:            input,
 							Injected:        true,
 							InvocationError: err,
+							ModelThoughts:   thoughtRecords,
 						})
+						// Clear after first use to avoid duplicating across
+						// multiple tool calls in the same message.
+						thoughtRecords = nil
 
 						if err != nil {
 							// Always provide a tool_result even if the tool call failed
@@ -416,7 +436,11 @@ newStream:
 								Tool:           variant.Name,
 								Args:           variant.Input,
 								Injected:       false,
+								ModelThoughts:  thoughtRecords,
 							})
+							// Clear after first use to avoid duplicating across
+							// multiple tool calls in the same message.
+							thoughtRecords = nil
 						}
 					}
 				}

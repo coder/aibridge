@@ -384,6 +384,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Len(t, recordedTools, 1)
 				recordedTools[0].InterceptionID = tc.expectToolRecorded.InterceptionID // ignore interception id (interception id is not constant and response doesn't contain it)
 				recordedTools[0].CreatedAt = tc.expectToolRecorded.CreatedAt           // ignore time
+				recordedTools[0].ModelThoughts = tc.expectToolRecorded.ModelThoughts   // ignore model thoughts (tested separately)
 				require.Equal(t, tc.expectToolRecorded, recordedTools[0])
 			} else {
 				require.Empty(t, recordedTools)
@@ -936,6 +937,86 @@ func TestResponsesInjectedTool(t *testing.T) {
 				require.Equal(t, string(fix.StreamingToolCall()), string(body))
 			} else {
 				require.Equal(t, string(fix.NonStreamingToolCall()), string(body))
+			}
+		})
+	}
+}
+
+func TestResponsesModelThoughts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name               string
+		fixture            []byte
+		expectedToolCallID string
+		expectedThoughts   []string // nil means no tool usages expected at all
+	}{
+		{
+			name:               "single reasoning/blocking",
+			fixture:            fixtures.OaiResponsesBlockingSingleBuiltinTool,
+			expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
+			expectedThoughts:   []string{"The user wants to add 3 and 5"},
+		},
+		{
+			name:               "single reasoning/streaming",
+			fixture:            fixtures.OaiResponsesStreamingBuiltinTool,
+			expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
+			expectedThoughts:   []string{"The user wants to add 3 and 5"},
+		},
+		{
+			name:               "multiple reasoning items/blocking",
+			fixture:            fixtures.OaiResponsesBlockingMultiReasoningBuiltinTool,
+			expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
+			expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
+		},
+		{
+			name:               "multiple reasoning items/streaming",
+			fixture:            fixtures.OaiResponsesStreamingMultiReasoningBuiltinTool,
+			expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
+			expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
+		},
+		{
+			name:    "no thoughts without tool calls",
+			fixture: fixtures.OaiResponsesStreamingCodex, // This fixture contains reasoning, but it's not associated with tool calls.
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+
+			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
+			srv, mockRecorder := newTestSrv(t, ctx, prov, nil, testTracer)
+			defer srv.Close()
+
+			req := createOpenAIResponsesReq(t, srv.URL, fix.Request())
+			client := &http.Client{}
+			resp, err := client.Do(req)
+			require.NoError(t, err)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			defer resp.Body.Close()
+
+			_, err = io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			toolUsages := mockRecorder.RecordedToolUsages()
+			if tc.expectedThoughts == nil {
+				require.Empty(t, toolUsages)
+			} else {
+				require.Len(t, toolUsages, 1)
+				require.Equal(t, "add", toolUsages[0].Tool)
+				require.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
+
+				require.Len(t, toolUsages[0].ModelThoughts, len(tc.expectedThoughts))
+				for i, expected := range tc.expectedThoughts {
+					require.Contains(t, toolUsages[0].ModelThoughts[i].Content, expected)
+				}
 			}
 		})
 	}

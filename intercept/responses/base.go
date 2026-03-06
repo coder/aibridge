@@ -260,6 +260,9 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 		return
 	}
 
+	// Capture any reasoning items from the response output as model thoughts.
+	thoughtRecords := i.extractModelThoughts(response)
+
 	for _, item := range response.Output {
 		var args recorder.ToolArgs
 
@@ -280,9 +283,13 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 			Tool:           item.Name,
 			Args:           args,
 			Injected:       false,
+			ModelThoughts:  thoughtRecords,
 		}); err != nil {
 			i.logger.Warn(ctx, "failed to record tool usage", slog.Error(err), slog.F("tool", item.Name))
 		}
+		// Clear after first use to avoid duplicating across
+		// multiple tool calls in the same message.
+		thoughtRecords = nil
 	}
 }
 
@@ -324,6 +331,34 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 	}); err != nil {
 		i.logger.Warn(ctx, "failed to record token usage", slog.Error(err))
 	}
+}
+
+// extractModelThoughts extracts reasoning summary items from response output
+// and converts them to ModelThoughtRecords for association with tool usage.
+func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Response) []*recorder.ModelThoughtRecord {
+	if response == nil {
+		return nil
+	}
+
+	var thoughts []*recorder.ModelThoughtRecord
+	for _, item := range response.Output {
+		if item.Type != string(constant.ValueOf[constant.Reasoning]()) {
+			continue
+		}
+
+		reasoning := item.AsReasoning()
+		for _, summary := range reasoning.Summary {
+			if summary.Text == "" {
+				continue
+			}
+			thoughts = append(thoughts, &recorder.ModelThoughtRecord{
+				Content:   summary.Text,
+				CreatedAt: time.Now(),
+			})
+		}
+	}
+
+	return thoughts
 }
 
 // responseCopier helper struct to send original response to the client

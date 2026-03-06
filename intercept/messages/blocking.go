@@ -135,6 +135,21 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 		accumulateUsage(&cumulativeUsage, resp.Usage)
 
+		// Capture any thinking blocks that were returned.
+		var thoughtRecords []*recorder.ModelThoughtRecord
+		for _, block := range resp.Content {
+			switch variant := block.AsAny().(type) {
+			case anthropic.ThinkingBlock:
+				thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
+					Content:   variant.Thinking,
+					CreatedAt: time.Now(),
+				})
+			case anthropic.RedactedThinkingBlock:
+				// For redacted thinking, there's nothing useful we can capture.
+				continue
+			}
+		}
+
 		// Handle tool calls for non-streaming.
 		var pendingToolCalls []anthropic.ToolUseBlock
 		for _, c := range resp.Content {
@@ -156,8 +171,11 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Tool:           toolUse.Name,
 				Args:           toolUse.Input,
 				Injected:       false,
+				ModelThoughts:  thoughtRecords,
 			})
-
+			// Clear after first use to avoid duplicating across
+			// multiple tool calls in the same message.
+			thoughtRecords = nil
 		}
 
 		// If no injected tool calls, we're done.
@@ -196,7 +214,11 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Args:            tc.Input,
 				Injected:        true,
 				InvocationError: err,
+				ModelThoughts:   thoughtRecords,
 			})
+			// Clear after first use to avoid duplicating across
+			// multiple tool calls in the same message.
+			thoughtRecords = nil
 
 			if err != nil {
 				// Always provide a tool_result even if the tool call failed
