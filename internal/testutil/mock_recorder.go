@@ -73,6 +73,7 @@ func (m *MockRecorder) RecordedTokenUsages() []*recorder.TokenUsageRecord {
 	defer m.mu.Unlock()
 	return slices.Clone(m.tokenUsages)
 }
+
 // TotalInputTokens returns the sum of input tokens across all recorded token usages.
 func (m *MockRecorder) TotalInputTokens() int64 {
 	var total int64
