@@ -73,6 +73,23 @@ func (m *MockRecorder) RecordedTokenUsages() []*recorder.TokenUsageRecord {
 	defer m.mu.Unlock()
 	return slices.Clone(m.tokenUsages)
 }
+// TotalInputTokens returns the sum of input tokens across all recorded token usages.
+func (m *MockRecorder) TotalInputTokens() int64 {
+	var total int64
+	for _, el := range m.RecordedTokenUsages() {
+		total += el.Input
+	}
+	return total
+}
+
+// TotalOutputTokens returns the sum of output tokens across all recorded token usages.
+func (m *MockRecorder) TotalOutputTokens() int64 {
+	var total int64
+	for _, el := range m.RecordedTokenUsages() {
+		total += el.Output
+	}
+	return total
+}
 
 // RecordedPromptUsages returns a copy of recorded prompt usages in a thread-safe manner.
 // Note: This is a shallow clone (see RecordedTokenUsages for details).

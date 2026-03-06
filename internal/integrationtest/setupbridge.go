@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
@@ -26,59 +25,53 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Well-known bridged-route paths used by integration tests.
 const (
+	// Well-known bridged-route paths used by integration tests.
 	pathAnthropicMessages     = "/anthropic/v1/messages"
 	pathOpenAIChatCompletions = "/openai/v1/chat/completions"
 	pathOpenAIResponses       = "/openai/v1/responses"
+
+	// providerBedrock identifies a Bedrock provider in [withProvider].
+	providerBedrock = "bedrock"
+
+	// defaults
+	apiKey         = "api-key"
+	defaultActorID = "ae235cc1-9f8f-417d-a636-a7b170bac62e"
 )
 
-// providerBedrock identifies a Bedrock provider in [withProvider]. There is no
-// config-level constant for Bedrock because it re-uses the Anthropic provider
-// with an AWS Bedrock configuration.
-const providerBedrock = "bedrock"
+// defaultTracer is the default OTel tracer used in integration tests.
+var defaultTracer = otel.Tracer("integrationtest")
 
-// testBedrockCfg returns a test AWS Bedrock config pointing at the given URL.
-func testBedrockCfg(url string) *config.AWSBedrock {
-	return &config.AWSBedrock{
-		Region:          "us-west-2",
-		AccessKey:       "test-access-key",
-		AccessKeySecret: "test-secret-key",
-		Model:           "beddel",  // This model should override the request's given one.
-		SmallFastModel:  "modrock", // Unused but needed for validation.
-		BaseURL:         url,
-	}
+// bridgeTestServer wraps an httptest.Server running a RequestBridge.
+type bridgeTestServer struct {
+	*httptest.Server
+	Recorder *testutil.MockRecorder
+	Bridge   *aibridge.RequestBridge
 }
 
-// apiKey is the default API key used across integration tests.
-const apiKey = "api-key"
+// bridgeOption configures a [bridgeTestServer].
+type bridgeOption func(*bridgeConfig)
 
-// openAICfg creates a minimal OpenAI config for testing.
-func openAICfg(url, key string) config.OpenAI {
-	return config.OpenAI{
-		BaseURL: url,
-		Key:     key,
-	}
+type bridgeConfig struct {
+	providerBuilders []func(upstreamURL string) aibridge.Provider
+	metrics          *metrics.Metrics
+	tracer           trace.Tracer
+	mcpProxy         mcp.ServerProxier
+	userID           string
+	metadata         recorder.Metadata
+	logger           slog.Logger
+	loggerSet        bool
+	wrapRecorder     bool
 }
 
-func openaiCfgWithAPIDump(url, key, dumpDir string) config.OpenAI {
-	cfg := openAICfg(url, key)
-	cfg.APIDumpDir = dumpDir
-	return cfg
-}
+// newRequest creates a JSON POST request targeting the given path on this server.
+func (s *bridgeTestServer) newRequest(t *testing.T, path string, body []byte) *http.Request {
+	t.Helper()
 
-// anthropicCfg creates a minimal Anthropic config for testing.
-func anthropicCfg(url, key string) config.Anthropic {
-	return config.Anthropic{
-		BaseURL: url,
-		Key:     key,
-	}
-}
-
-func anthropicCfgWithAPIDump(url, key, dumpDir string) config.Anthropic {
-	cfg := anthropicCfg(url, key)
-	cfg.APIDumpDir = dumpDir
-	return cfg
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL+path, bytes.NewReader(body))
+	require.NoError(t, err)
+	req.Header.Set("Content-Type", "application/json")
+	return req
 }
 
 // newDefaultProvider creates a Provider with default test configuration.
@@ -114,6 +107,37 @@ func withCustomProvider(p aibridge.Provider) bridgeOption {
 			return p
 		})
 	}
+}
+
+// withMetrics sets the Prometheus metrics for the bridge.
+func withMetrics(m *metrics.Metrics) bridgeOption {
+	return func(c *bridgeConfig) { c.metrics = m }
+}
+
+// withTracer overrides the default tracer.
+func withTracer(t trace.Tracer) bridgeOption {
+	return func(c *bridgeConfig) { c.tracer = t }
+}
+
+// withMCP sets the MCP server proxier (default: NoopMCPManager).
+func withMCP(p mcp.ServerProxier) bridgeOption {
+	return func(c *bridgeConfig) { c.mcpProxy = p }
+}
+
+// withActor sets the actor ID and metadata for the BaseContext.
+func withActor(id string, md recorder.Metadata) bridgeOption {
+	return func(c *bridgeConfig) { c.userID = id; c.metadata = md }
+}
+
+// withLogger overrides the default slogtest debug logger.
+func withLogger(l slog.Logger) bridgeOption {
+	return func(c *bridgeConfig) { c.logger = l; c.loggerSet = true }
+}
+
+// withWrappedRecorder wraps the MockRecorder through aibridge.NewRecorder
+// (the production recorder wrapper). Use when testing the recorder pipeline.
+func withWrappedRecorder() bridgeOption {
+	return func(c *bridgeConfig) { c.wrapRecorder = true }
 }
 
 // setupInjectedToolTest abstracts common setup required for injected-tool integration tests.
@@ -172,97 +196,6 @@ func setupInjectedToolTest(
 	}, time.Second*10, time.Millisecond*50)
 
 	return ts.Recorder, mockMCP, resp
-}
-
-func calculateTotalInputTokens(in []*recorder.TokenUsageRecord) int64 {
-	var total int64
-	for _, el := range in {
-		total += el.Input
-	}
-	return total
-}
-
-func calculateTotalOutputTokens(in []*recorder.TokenUsageRecord) int64 {
-	var total int64
-	for _, el := range in {
-		total += el.Output
-	}
-	return total
-}
-
-// defaultActorID is the actor ID used by default in test servers.
-const defaultActorID = "ae235cc1-9f8f-417d-a636-a7b170bac62e"
-
-// defaultTracer is the default OTel tracer used in integration tests.
-var defaultTracer = otel.Tracer("integrationtest")
-
-// newLogger creates a test logger at Debug level.
-func newLogger(t *testing.T) slog.Logger {
-	t.Helper()
-	return slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-}
-
-// bridgeTestServer wraps an httptest.Server running a RequestBridge.
-type bridgeTestServer struct {
-	*httptest.Server
-	Recorder *testutil.MockRecorder
-	Bridge   *aibridge.RequestBridge
-}
-
-// newRequest creates a JSON POST request targeting the given path on this server.
-func (s *bridgeTestServer) newRequest(t *testing.T, path string, body []byte) *http.Request {
-	t.Helper()
-
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL+path, bytes.NewReader(body))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	return req
-}
-
-// bridgeOption configures a [bridgeTestServer].
-type bridgeOption func(*bridgeConfig)
-
-type bridgeConfig struct {
-	providerBuilders []func(upstreamURL string) aibridge.Provider
-	metrics          *metrics.Metrics
-	tracer           trace.Tracer
-	mcpProxy         mcp.ServerProxier
-	userID           string
-	metadata         recorder.Metadata
-	logger           slog.Logger
-	loggerSet        bool
-	wrapRecorder     bool
-}
-
-// withMetrics sets the Prometheus metrics for the bridge.
-func withMetrics(m *metrics.Metrics) bridgeOption {
-	return func(c *bridgeConfig) { c.metrics = m }
-}
-
-// withTracer overrides the default tracer.
-func withTracer(t trace.Tracer) bridgeOption {
-	return func(c *bridgeConfig) { c.tracer = t }
-}
-
-// withMCP sets the MCP server proxier (default: NoopMCPManager).
-func withMCP(p mcp.ServerProxier) bridgeOption {
-	return func(c *bridgeConfig) { c.mcpProxy = p }
-}
-
-// withActor sets the actor ID and metadata for the BaseContext.
-func withActor(id string, md recorder.Metadata) bridgeOption {
-	return func(c *bridgeConfig) { c.userID = id; c.metadata = md }
-}
-
-// withLogger overrides the default slogtest debug logger.
-func withLogger(l slog.Logger) bridgeOption {
-	return func(c *bridgeConfig) { c.logger = l; c.loggerSet = true }
-}
-
-// withWrappedRecorder wraps the MockRecorder through aibridge.NewRecorder
-// (the production recorder wrapper). Use when testing the recorder pipeline.
-func withWrappedRecorder() bridgeOption {
-	return func(c *bridgeConfig) { c.wrapRecorder = true }
 }
 
 // newBridgeTestServer creates a fully configured test server running
