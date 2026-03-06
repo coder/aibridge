@@ -123,9 +123,8 @@ func TestTraceAnthropic(t *testing.T) {
 			defer resp.Body.Close()
 			bridgeServer.Close()
 
-			recorder := bridgeServer.Recorder
-			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
-			intcID := recorder.RecordedInterceptions()[0].ID
+			require.Equal(t, 1, len(bridgeServer.Recorder.RecordedInterceptions()))
+			intcID := bridgeServer.Recorder.RecordedInterceptions()[0].ID
 
 			model := gjson.Get(string(reqBody), "model").Str
 			if tc.bedrock {
@@ -239,9 +238,8 @@ func TestTraceAnthropicErr(t *testing.T) {
 			defer resp.Body.Close()
 			bridgeServer.Close()
 
-			recorder := bridgeServer.Recorder
-			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
-			intcID := recorder.RecordedInterceptions()[0].ID
+			require.Equal(t, 1, len(bridgeServer.Recorder.RecordedInterceptions()))
+			intcID := bridgeServer.Recorder.RecordedInterceptions()[0].ID
 
 			totalCount := 0
 			for _, e := range tc.expect {
@@ -479,9 +477,8 @@ func TestTraceOpenAI(t *testing.T) {
 			defer resp.Body.Close()
 			bridgeServer.Close()
 
-			recorder := bridgeServer.Recorder
-			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
-			intcID := recorder.RecordedInterceptions()[0].ID
+			require.Equal(t, 1, len(bridgeServer.Recorder.RecordedInterceptions()))
+			intcID := bridgeServer.Recorder.RecordedInterceptions()[0].ID
 
 			totalCount := 0
 			for _, e := range tc.expect {
@@ -637,9 +634,8 @@ func TestTraceOpenAIErr(t *testing.T) {
 			defer resp.Body.Close()
 			bridgeServer.Close()
 
-			recorder := bridgeServer.Recorder
-			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
-			intcID := recorder.RecordedInterceptions()[0].ID
+			require.Equal(t, 1, len(bridgeServer.Recorder.RecordedInterceptions()))
+			intcID := bridgeServer.Recorder.RecordedInterceptions()[0].ID
 
 			totalCount := 0
 			for _, e := range tc.expect {
