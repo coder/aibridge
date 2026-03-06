@@ -1275,18 +1275,18 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// Setup MCP tools conditionally.
-			var mcpMgr mcp.ServerProxier
+			var mockMCP mcp.ServerProxier
 			if tc.withInjectedTools {
-				mcpMgr = setupMCPForTest(t, defaultTracer)
+				mockMCP = setupMCPForTest(t, defaultTracer)
 			} else {
-				mcpMgr = newNoopMCPManager()
+				mockMCP = newNoopMCPManager()
 			}
 
 			fix := fixtures.Parse(t, fixtures.AntSimple)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
-				withMCP(mcpMgr),
+				withMCP(mockMCP),
 			)
 
 			// Prepare request body with tool_choice set.
