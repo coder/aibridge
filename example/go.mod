@@ -3,7 +3,7 @@ module github.com/coder/aibridge/example
 go 1.25.6
 
 require (
-	cdr.dev/slog/v3 v3.0.0-rc1
+	cdr.dev/slog/v3 v3.0.0
 	github.com/coder/aibridge v0.0.0
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
