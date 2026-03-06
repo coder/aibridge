@@ -45,7 +45,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 		successBody    string
 		requestBody    string
 		headers        http.Header
-		path string
+		path           string
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 		expectProvider string
 		expectEndpoint string
@@ -62,8 +62,8 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			successBody:    anthropicSuccessResponse("claude-sonnet-4-20250514"),
 			requestBody:    `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			headers: http.Header{
-				"x-api-key":          {"test"},
-				"anthropic-version":  {"2023-06-01"},
+				"x-api-key":         {"test"},
+				"anthropic-version": {"2023-06-01"},
 			},
 			path: pathAnthropicMessages,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
@@ -82,8 +82,8 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			errorBody:      openAIRateLimitError,
 			successBody:    openAISuccessResponse("gpt-4o"),
 			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
-			headers: http.Header{"Authorization": {"Bearer test-key"}},
-			path: pathOpenAIChatCompletions,
+			headers:        http.Header{"Authorization": {"Bearer test-key"}},
+			path:           pathOpenAIChatCompletions,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -210,7 +210,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 		errorBody      string
 		requestBody    string
 		headers        http.Header
-		path string
+		path           string
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 		expectProvider string
 		expectEndpoint string
@@ -226,8 +226,8 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			errorBody:      anthropicRateLimitError,
 			requestBody:    `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			headers: http.Header{
-				"x-api-key":          {"test"},
-				"anthropic-version":  {"2023-06-01"},
+				"x-api-key":         {"test"},
+				"anthropic-version": {"2023-06-01"},
 			},
 			path: pathAnthropicMessages,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
@@ -245,8 +245,8 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			expectModel:    "gpt-4o",
 			errorBody:      openAIRateLimitError,
 			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
-			headers: http.Header{"Authorization": {"Bearer test-key"}},
-			path: pathOpenAIChatCompletions,
+			headers:        http.Header{"Authorization": {"Bearer test-key"}},
+			path:           pathOpenAIChatCompletions,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -345,7 +345,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 		successBody    string
 		requestBody    string
 		headers        http.Header
-		path string
+		path           string
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 		expectProvider string
 		expectEndpoint string
@@ -362,8 +362,8 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			successBody:    anthropicSuccessResponse("claude-sonnet-4-20250514"),
 			requestBody:    `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
 			headers: http.Header{
-				"x-api-key":          {"test"},
-				"anthropic-version":  {"2023-06-01"},
+				"x-api-key":         {"test"},
+				"anthropic-version": {"2023-06-01"},
 			},
 			path: pathAnthropicMessages,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
@@ -382,8 +382,8 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			errorBody:      openAIRateLimitError,
 			successBody:    openAISuccessResponse("gpt-4o"),
 			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
-			headers: http.Header{"Authorization": {"Bearer test-key"}},
-			path: pathOpenAIChatCompletions,
+			headers:        http.Header{"Authorization": {"Bearer test-key"}},
+			path:           pathOpenAIChatCompletions,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
