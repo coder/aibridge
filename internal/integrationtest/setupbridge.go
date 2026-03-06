@@ -59,14 +59,24 @@ type bridgeTestServer struct {
 	Bridge   *aibridge.RequestBridge
 }
 
-// newRequest creates a JSON POST request targeting the given path on this server.
-func (s *bridgeTestServer) newRequest(t *testing.T, path string, body []byte) *http.Request {
+// makeRequest builds and executes an HTTP request against this server.
+// Optional headers are applied after the default Content-Type.
+func (s *bridgeTestServer) makeRequest(t *testing.T, method string, path string, body []byte, header ...http.Header) *http.Response {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, s.URL+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(t.Context(), method, s.URL+path, bytes.NewReader(body))
 	require.NoError(t, err)
 	req.Header.Set("Content-Type", "application/json")
-	return req
+	for _, h := range header {
+		for k, vals := range h {
+			for _, v := range vals {
+				req.Header.Set(k, v)
+			}
+		}
+	}
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	return resp
 }
 
 type bridgeOption func(*bridgeConfig)
@@ -224,15 +234,13 @@ func setupInjectedToolTest(
 		withActor(defaultActorID, nil),
 	}
 	allOpts = append(allOpts, opts...)
-	ts := newBridgeTestServer(t, ctx, upstream.URL, allOpts...)
+	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, allOpts...)
 
 	// Add the stream param to the request.
 	reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 	require.NoError(t, err)
 
-	req := ts.newRequest(t, path, reqBody)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := bridgeServer.makeRequest(t, http.MethodPost, path, reqBody)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	t.Cleanup(func() {
 		_ = resp.Body.Close()
@@ -243,7 +251,7 @@ func setupInjectedToolTest(
 		return upstream.Calls.Load() == 2
 	}, time.Second*10, time.Millisecond*50)
 
-	return ts.Recorder, mockMCP, resp
+	return bridgeServer.Recorder, mockMCP, resp
 }
 
 // newDefaultProvider creates a Provider with default test configuration.
