@@ -155,29 +155,14 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
-				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-				recorderClient := &testutil.MockRecorder{}
-				logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)}
-				b, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
-				require.NoError(t, err)
-
-				mockSrv := httptest.NewUnstartedServer(b)
-				t.Cleanup(mockSrv.Close)
-				mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-					return aibcontext.AsActor(ctx, userID, nil)
-				}
-				mockSrv.Start()
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
-				req := createAnthropicMessagesReq(t, mockSrv.URL, reqBody)
-				client := &http.Client{}
-				resp, err := client.Do(req)
-				require.NoError(t, err)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 				require.Equal(t, http.StatusOK, resp.StatusCode)
-				defer resp.Body.Close()
 
 				if tc.streaming {
 					sp := aibridge.NewSSEParser()
@@ -187,7 +172,7 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 				}
 
 				// Verify tool usage was recorded with associated model thoughts.
-				toolUsages := recorderClient.RecordedToolUsages()
+				toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
 				assert.Equal(t, "Read", toolUsages[0].Tool)
 				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
@@ -197,7 +182,7 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 				assert.Contains(t, toolUsages[0].ModelThoughts[0].Content, "The user wants me to read")
 				assert.Contains(t, toolUsages[0].ModelThoughts[0].Content, tc.expectedThinkingSubstr)
 
-				recorderClient.VerifyAllInterceptionsEnded(t)
+				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -211,39 +196,24 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 		// Use the simple fixture which has no tool calls — any thinking blocks
 		// should not be persisted since they can't be associated with a tool call.
 		fix := fixtures.Parse(t, fixtures.AntSimple)
-		upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+		upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-		recorderClient := &testutil.MockRecorder{}
-		logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-		providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)}
-		b, err := aibridge.NewRequestBridge(ctx, providers, recorderClient, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
-		require.NoError(t, err)
-
-		mockSrv := httptest.NewUnstartedServer(b)
-		t.Cleanup(mockSrv.Close)
-		mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-			return aibcontext.AsActor(ctx, userID, nil)
-		}
-		mockSrv.Start()
+		bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 		reqBody, err := sjson.SetBytes(fix.Request(), "stream", true)
 		require.NoError(t, err)
-		req := createAnthropicMessagesReq(t, mockSrv.URL, reqBody)
-		client := &http.Client{}
-		resp, err := client.Do(req)
-		require.NoError(t, err)
+		resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 		require.Equal(t, http.StatusOK, resp.StatusCode)
-		defer resp.Body.Close()
 
 		sp := aibridge.NewSSEParser()
 		require.NoError(t, sp.Parse(resp.Body))
 
 		// No tool usages (and therefore no thoughts) should be recorded
 		// when there are no tool calls.
-		toolUsages := recorderClient.RecordedToolUsages()
+		toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 		assert.Empty(t, toolUsages)
 
-		recorderClient.VerifyAllInterceptionsEnded(t)
+		bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 	})
 }
 

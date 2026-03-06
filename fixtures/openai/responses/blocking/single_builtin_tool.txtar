@@ -51,6 +51,17 @@
   "model": "gpt-4.1-2025-04-14",
   "output": [
     {
+      "id": "rs_0da6045a8b68fa5200695fa23e100081a19bf68887d47ae93d",
+      "type": "reasoning",
+      "status": "completed",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "The user wants to add 3 and 5. Let me call the add function."
+        }
+      ]
+    },
+    {
       "id": "fc_0da6045a8b68fa5200695fa23e198081a19bf68887d47ae93d",
       "type": "function_call",
       "status": "completed",

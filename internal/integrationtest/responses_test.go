@@ -374,6 +374,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Len(t, recordedTools, 1)
 				recordedTools[0].InterceptionID = tc.expectToolRecorded.InterceptionID // ignore interception id (interception id is not constant and response doesn't contain it)
 				recordedTools[0].CreatedAt = tc.expectToolRecorded.CreatedAt           // ignore time
+				recordedTools[0].ModelThoughts = tc.expectToolRecorded.ModelThoughts   // ignore model thoughts (tested separately)
 				require.Equal(t, tc.expectToolRecorded, recordedTools[0])
 			} else {
 				require.Empty(t, recordedTools)
@@ -934,6 +935,89 @@ func TestResponsesInjectedTool(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResponsesModelThoughts(t *testing.T) {
+	t.Parallel()
+
+	t.Run("reasoning captured with builtin tool", func(t *testing.T) {
+		t.Parallel()
+
+		cases := []struct {
+			streaming          bool
+			expectedToolCallID string
+		}{
+			{
+				streaming:          false,
+				expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
+			},
+			{
+				streaming:          true,
+				expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(fmt.Sprintf("streaming=%v", tc.streaming), func(t *testing.T) {
+				t.Parallel()
+
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				t.Cleanup(cancel)
+
+				var fix fixtures.Fixture
+				if tc.streaming {
+					fix = fixtures.Parse(t, fixtures.OaiResponsesStreamingBuiltinTool)
+				} else {
+					fix = fixtures.Parse(t, fixtures.OaiResponsesBlockingSingleBuiltinTool)
+				}
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+
+				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+				require.Equal(t, http.StatusOK, resp.StatusCode)
+
+				_, err := io.ReadAll(resp.Body)
+				require.NoError(t, err)
+
+				// Verify tool usage was recorded with associated model thoughts.
+				toolUsages := bridgeServer.Recorder.RecordedToolUsages()
+				require.Len(t, toolUsages, 1)
+				require.Equal(t, "add", toolUsages[0].Tool)
+				require.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
+
+				// Model thoughts should be embedded in the tool usage record.
+				require.Len(t, toolUsages[0].ModelThoughts, 1)
+				require.Contains(t, toolUsages[0].ModelThoughts[0].Content, "The user wants to add 3 and 5")
+				require.Contains(t, toolUsages[0].ModelThoughts[0].Content, "Let me call the add function")
+			})
+		}
+	})
+
+	t.Run("no thoughts without tool calls", func(t *testing.T) {
+		t.Parallel()
+
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+		t.Cleanup(cancel)
+
+		// Use the simple fixture which has no tool calls — any reasoning
+		// should not be persisted since it can't be associated with a tool call.
+		fix := fixtures.Parse(t, fixtures.OaiResponsesStreamingSimple)
+		upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+
+		bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+
+		resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+		require.Equal(t, http.StatusOK, resp.StatusCode)
+
+		_, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		// No tool usages (and therefore no thoughts) should be recorded
+		// when there are no tool calls.
+		toolUsages := bridgeServer.Recorder.RecordedToolUsages()
+		require.Empty(t, toolUsages)
+	})
 }
 
 func requireResponsesError(t *testing.T, code int, message string, body []byte) {
