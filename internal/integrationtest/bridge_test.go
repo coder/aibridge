@@ -1119,7 +1119,6 @@ func TestErrorHandling(t *testing.T) {
 
 				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 				t.Cleanup(func() { _ = resp.Body.Close() })
-				bridgeServer.Close()
 
 				tc.responseHandlerFn(resp)
 				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
