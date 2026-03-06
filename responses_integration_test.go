@@ -44,7 +44,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 		expectToolRecorded   *recorder.ToolUsageRecord
 		expectTokenUsage     *recorder.TokenUsageRecord
 		userAgent            string
-		expectedClient       string
+		expectedClient       aibridge.Client
 	}{
 		{
 			name:                 "blocking_simple",
@@ -62,7 +62,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				},
 			},
 			userAgent:      "claude-cli/2.0.67 (external, cli)",
-			expectedClient: aibridge.ClientClaude,
+			expectedClient: aibridge.ClientClaudeCode,
 		},
 		{
 			name:                 "blocking_builtin_tool",
@@ -368,7 +368,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			require.Equal(t, intc.Provider, config.ProviderOpenAI)
 			require.Equal(t, intc.Model, tc.expectModel)
 			require.Equal(t, tc.userAgent, intc.UserAgent)
-			require.Equal(t, tc.expectedClient, intc.Client)
+			require.Equal(t, string(tc.expectedClient), intc.Client)
 
 			recordedPrompts := mockRecorder.RecordedPromptUsages()
 			if tc.expectPromptRecorded != "" {

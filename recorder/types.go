@@ -26,13 +26,14 @@ type ToolArgs any
 type Metadata map[string]any
 
 type InterceptionRecord struct {
-	Client                string
 	ID                    string
 	InitiatorID           string
 	Metadata              Metadata
 	Model                 string
 	Provider              string
 	StartedAt             time.Time
+	ClientSessionID       *string
+	Client                string
 	UserAgent             string
 	CorrelatingToolCallID *string
 }

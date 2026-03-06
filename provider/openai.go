@@ -116,7 +116,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 			return nil, fmt.Errorf("read body: %w", err)
 		}
 		var req responses.ResponsesNewParamsWrapper
-		if err := json.Unmarshal(payload, &req); err != nil {
+		if err := json.Unmarshal(payload, &req); err != nil { // TODO: should probably change to json.NewDecoder.
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 		if req.Stream {
