@@ -403,9 +403,7 @@ func TestFallthrough(t *testing.T) {
 			upstream := newMockUpstream(t, t.Context(), newFixtureResponse(fix))
 			ts := newBridgeTestServer(t, t.Context(), upstream.URL+tc.basePath)
 
-			req, err := http.NewRequestWithContext(t.Context(), "GET", fmt.Sprintf("%s%s", ts.URL, tc.requestPath), nil)
-			require.NoError(t, err)
-
+			req := ts.newRequest(t, tc.requestPath, nil)
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()

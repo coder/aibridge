@@ -206,16 +206,14 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 		withMetrics(m),
 	)
 
-	req, err := http.NewRequestWithContext(t.Context(), "GET", ts.URL+"/openai/v1/models", nil)
-	require.NoError(t, err)
-
+	req := ts.newRequest(t, "/openai/v1/models", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	count := promtest.ToFloat64(m.PassthroughCount.WithLabelValues(
-		config.ProviderOpenAI, "/models", "GET"))
+		config.ProviderOpenAI, "/models", http.MethodPost))
 	require.Equal(t, 1.0, count)
 }
 

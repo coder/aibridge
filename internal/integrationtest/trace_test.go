@@ -690,9 +690,7 @@ func TestTracePassthrough(t *testing.T) {
 		withTracer(tracer),
 	)
 
-	req, err := http.NewRequestWithContext(t.Context(), "GET", ts.URL+"/openai/v1/models", nil)
-	require.NoError(t, err)
-
+	req := ts.newRequest(t, "/openai/v1/models", nil)
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
 	defer resp.Body.Close()
@@ -704,7 +702,7 @@ func TestTracePassthrough(t *testing.T) {
 
 	assert.Equal(t, spans[0].Name(), "Passthrough")
 	want := []attribute.KeyValue{
-		attribute.String(tracing.PassthroughMethod, "GET"),
+		attribute.String(tracing.PassthroughMethod, http.MethodPost),
 		attribute.String(tracing.PassthroughUpstreamURL, upstream.URL+"/models"),
 		attribute.String(tracing.PassthroughURL, "/models"),
 	}
