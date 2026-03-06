@@ -3,6 +3,7 @@ package integrationtest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -939,61 +940,64 @@ func TestResponsesInjectedTool(t *testing.T) {
 func TestResponsesModelThoughts(t *testing.T) {
 	t.Parallel()
 
-	t.Run("reasoning captured with builtin tool", func(t *testing.T) {
-		t.Parallel()
+	cases := []struct {
+		name               string
+		fixture            []byte
+		expectedToolCallID string
+		expectedThoughts   []string // nil means no tool usages expected at all
+	}{
+		{
+			name:               "single reasoning/blocking",
+			fixture:            fixtures.OaiResponsesBlockingSingleBuiltinTool,
+			expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
+			expectedThoughts:   []string{"The user wants to add 3 and 5"},
+		},
+		{
+			name:               "single reasoning/streaming",
+			fixture:            fixtures.OaiResponsesStreamingBuiltinTool,
+			expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
+			expectedThoughts:   []string{"The user wants to add 3 and 5"},
+		},
+		{
+			name:               "multiple reasoning items/blocking",
+			fixture:            fixtures.OaiResponsesBlockingMultiReasoningBuiltinTool,
+			expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
+			expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
+		},
+		{
+			name:               "multiple reasoning items/streaming",
+			fixture:            fixtures.OaiResponsesStreamingMultiReasoningBuiltinTool,
+			expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
+			expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
+		},
+		{
+			name:    "no thoughts without tool calls",
+			fixture: fixtures.OaiResponsesStreamingCodex, // This fixture contains reasoning, but it's not associated with tool calls.
+		},
+	}
 
-		cases := []struct {
-			name               string
-			fixture            []byte
-			expectedToolCallID string
-			expectedThoughts   []string
-		}{
-			{
-				name:               "single reasoning/blocking",
-				fixture:            fixtures.OaiResponsesBlockingSingleBuiltinTool,
-				expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
-				expectedThoughts:   []string{"The user wants to add 3 and 5"},
-			},
-			{
-				name:               "single reasoning/streaming",
-				fixture:            fixtures.OaiResponsesStreamingBuiltinTool,
-				expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
-				expectedThoughts:   []string{"The user wants to add 3 and 5"},
-			},
-			{
-				name:               "multiple reasoning items/blocking",
-				fixture:            fixtures.OaiResponsesBlockingMultiReasoningBuiltinTool,
-				expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
-				expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
-			},
-			{
-				name:               "multiple reasoning items/streaming",
-				fixture:            fixtures.OaiResponsesStreamingMultiReasoningBuiltinTool,
-				expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
-				expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
-			},
-		}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				t.Parallel()
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-				t.Cleanup(cancel)
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-				fix := fixtures.Parse(t, tc.fixture)
-				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
-				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			require.Equal(t, http.StatusOK, resp.StatusCode)
 
-				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
-				require.Equal(t, http.StatusOK, resp.StatusCode)
+			_, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
 
-				_, err := io.ReadAll(resp.Body)
-				require.NoError(t, err)
-
-				// Verify tool usage was recorded with associated model thoughts.
-				toolUsages := bridgeServer.Recorder.RecordedToolUsages()
+			toolUsages := bridgeServer.Recorder.RecordedToolUsages()
+			if tc.expectedThoughts == nil {
+				require.Empty(t, toolUsages)
+			} else {
 				require.Len(t, toolUsages, 1)
 				require.Equal(t, "add", toolUsages[0].Tool)
 				require.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
@@ -1002,34 +1006,9 @@ func TestResponsesModelThoughts(t *testing.T) {
 				for i, expected := range tc.expectedThoughts {
 					require.Contains(t, toolUsages[0].ModelThoughts[i].Content, expected)
 				}
-			})
-		}
-	})
-
-	t.Run("no thoughts without tool calls", func(t *testing.T) {
-		t.Parallel()
-
-		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-		t.Cleanup(cancel)
-
-		// Use the simple fixture which has no tool calls — any reasoning
-		// should not be persisted since it can't be associated with a tool call.
-		fix := fixtures.Parse(t, fixtures.OaiResponsesStreamingCodex)
-		upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
-
-		bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
-
-		resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
-		require.Equal(t, http.StatusOK, resp.StatusCode)
-
-		_, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-
-		// No tool usages (and therefore no thoughts) should be recorded
-		// when there are no tool calls.
-		toolUsages := bridgeServer.Recorder.RecordedToolUsages()
-		require.Empty(t, toolUsages)
-	})
+			}
+		})
+	}
 }
 
 func requireResponsesError(t *testing.T, code int, message string, body []byte) {
