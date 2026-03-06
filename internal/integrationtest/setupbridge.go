@@ -41,15 +41,6 @@ const (
 
 var defaultTracer = otel.Tracer("integrationtest")
 
-// bridgeTestServer wraps an httptest.Server running a RequestBridge.
-type bridgeTestServer struct {
-	*httptest.Server
-	Recorder *testutil.MockRecorder
-	Bridge   *aibridge.RequestBridge
-}
-
-type bridgeOption func(*bridgeConfig)
-
 type bridgeConfig struct {
 	providerBuilders []func(upstreamURL string) aibridge.Provider
 	metrics          *metrics.Metrics
@@ -61,6 +52,13 @@ type bridgeConfig struct {
 	loggerSet        bool
 }
 
+// bridgeTestServer wraps an httptest.Server running a RequestBridge.
+type bridgeTestServer struct {
+	*httptest.Server
+	Recorder *testutil.MockRecorder
+	Bridge   *aibridge.RequestBridge
+}
+
 // newRequest creates a JSON POST request targeting the given path on this server.
 func (s *bridgeTestServer) newRequest(t *testing.T, path string, body []byte) *http.Request {
 	t.Helper()
@@ -70,6 +68,8 @@ func (s *bridgeTestServer) newRequest(t *testing.T, path string, body []byte) *h
 	req.Header.Set("Content-Type", "application/json")
 	return req
 }
+
+type bridgeOption func(*bridgeConfig)
 
 // withProvider adds a default-configured provider of the given type.
 // When any provider option is used, the default "all providers" set is not created.

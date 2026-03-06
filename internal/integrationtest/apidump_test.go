@@ -198,9 +198,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 				withCustomProvider(tc.newProvider(upstream.URL, dumpDir)),
 			)
 
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+tc.requestPath, nil)
-			require.NoError(t, err)
-
+			req := ts.newRequest(t, tc.requestPath, nil)
 			resp, err := http.DefaultClient.Do(req)
 			require.NoError(t, err)
 			defer resp.Body.Close()
@@ -239,7 +237,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 			require.NoError(t, err)
 			dumpReq, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(reqDumpData)))
 			require.NoError(t, err)
-			require.Equal(t, http.MethodGet, dumpReq.Method)
+			require.Equal(t, http.MethodPost, dumpReq.Method)
 
 			// Verify response dump.
 			respDumpData, err := os.ReadFile(respDumpFile)
