@@ -139,7 +139,6 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
 				_, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				resp.Body.Close()
 				return resp
 			}
 
@@ -293,7 +292,6 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
 				_, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				resp.Body.Close()
 				return resp
 			}
 
@@ -440,7 +438,6 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
 				_, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				resp.Body.Close()
 				return resp
 			}
 
@@ -564,7 +561,6 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 		})
 		_, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		resp.Body.Close()
 		return resp
 	}
 

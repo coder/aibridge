@@ -48,8 +48,7 @@ type bridgeConfig struct {
 	mcpProxy         mcp.ServerProxier
 	userID           string
 	metadata         recorder.Metadata
-	logger           slog.Logger
-	loggerSet        bool
+	logger slog.Logger
 }
 
 // bridgeTestServer wraps an httptest.Server running a RequestBridge.
@@ -76,6 +75,7 @@ func (s *bridgeTestServer) makeRequest(t *testing.T, method string, path string,
 	}
 	resp, err := http.DefaultClient.Do(req)
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = resp.Body.Close() })
 	return resp
 }
 
@@ -126,7 +126,7 @@ func withActor(id string, md recorder.Metadata) bridgeOption {
 // a RequestBridge with sensible defaults:
 //   - All standard providers (unless withProvider / withCustomProvider)
 //   - NoopMCPManager (unless withMCP)
-//   - slogtest debug logger (unless withLogger)
+//   - slogtest debug logger
 //   - defaultTracer (unless withTracer)
 //   - defaultActorID (unless withActor)
 func newBridgeTestServer(
@@ -146,9 +146,7 @@ func newBridgeTestServer(
 	if cfg.tracer == nil {
 		cfg.tracer = defaultTracer
 	}
-	if !cfg.loggerSet {
-		cfg.logger = newLogger(t)
-	}
+	cfg.logger = newLogger(t)
 	if cfg.mcpProxy == nil {
 		cfg.mcpProxy = newNoopMCPManager()
 	}
@@ -168,8 +166,7 @@ func newBridgeTestServer(
 	}
 
 	mockRec := &testutil.MockRecorder{}
-	var rec aibridge.Recorder = mockRec
-	rec = aibridge.NewRecorder(cfg.logger, cfg.tracer, func() (aibridge.Recorder, error) {
+	rec := aibridge.NewRecorder(cfg.logger, cfg.tracer, func() (aibridge.Recorder, error) {
 		return mockRec, nil
 	})
 
@@ -237,9 +234,6 @@ func setupInjectedToolTest(
 
 	resp := bridgeServer.makeRequest(t, http.MethodPost, path, reqBody)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	t.Cleanup(func() {
-		_ = resp.Body.Close()
-	})
 
 	// We must ALWAYS have 2 calls to the bridge for injected tool tests.
 	require.Eventually(t, func() bool {

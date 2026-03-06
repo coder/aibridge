@@ -76,7 +76,6 @@ func TestAPIDump(t *testing.T) {
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			defer resp.Body.Close()
 			_, _ = io.ReadAll(resp.Body)
 
 			// Verify dump files were created.
@@ -196,8 +195,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 				withCustomProvider(tc.providerFunc(upstream.URL, dumpDir)),
 			)
 
-			resp := bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
-			defer resp.Body.Close()
+			bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
 
 			// Find dump files in the passthrough directory.
 			passthroughDir := filepath.Join(dumpDir, tc.name, "passthrough")

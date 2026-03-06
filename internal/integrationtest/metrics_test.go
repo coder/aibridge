@@ -126,7 +126,6 @@ func TestMetrics_Interception(t *testing.T) {
 			)
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
-			defer resp.Body.Close()
 			_, _ = io.ReadAll(resp.Body)
 
 			count := promtest.ToFloat64(m.InterceptionCount.WithLabelValues(
@@ -207,7 +206,6 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	)
 
 	resp := bridgeServer.makeRequest(t, http.MethodGet, "/openai/v1/models", nil)
-	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	count := promtest.ToFloat64(m.PassthroughCount.WithLabelValues(
@@ -231,7 +229,6 @@ func TestMetrics_PromptCount(t *testing.T) {
 
 	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
 
 	prompts := promtest.ToFloat64(m.PromptCount.WithLabelValues(
@@ -255,7 +252,6 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 
 	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
 
 	count := promtest.ToFloat64(m.NonInjectedToolUseCount.WithLabelValues(
@@ -285,7 +281,6 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 
 	resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
 
 	// Wait until full roundtrip has completed.
