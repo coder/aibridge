@@ -506,31 +506,29 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				raw, err := io.ReadAll(r.Body)
-				require.NoError(t, err)
-				defer r.Body.Close()
-
-				var receivedRequest map[string]any
-				require.NoError(t, json.Unmarshal(raw, &receivedRequest))
-				if tc.expectParallelToolCalls {
-					parallelToolCalls, ok := receivedRequest["parallel_tool_calls"].(bool)
-					require.True(t, ok, "parallel_tool_calls should be present in upstream request")
-					require.Equal(t, tc.expectParallelToolCallsValue, parallelToolCalls)
-				} else {
-					_, ok := receivedRequest["parallel_tool_calls"]
-					require.False(t, ok, "parallel_tool_calls should not be present when not set")
-				}
-
-				w.WriteHeader(http.StatusOK)
-			}))
-			t.Cleanup(upstream.Close)
-
+			fix := fixtures.OaiResponsesBlockingSimple
+			if tc.streaming {
+				fix = fixtures.OaiResponsesStreamingSimple
+			}
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fixtures.Parse(t, fix)))
 			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, []byte(tc.request))
-			_, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
+			_, _ = io.ReadAll(resp.Body)
+
+			received := upstream.receivedRequests()
+			require.Len(t, received, 1)
+
+			var receivedRequest map[string]any
+			require.NoError(t, json.Unmarshal(received[0].Body, &receivedRequest))
+			if tc.expectParallelToolCalls {
+				parallelToolCalls, ok := receivedRequest["parallel_tool_calls"].(bool)
+				require.True(t, ok, "parallel_tool_calls should be present in upstream request")
+				require.Equal(t, tc.expectParallelToolCallsValue, parallelToolCalls)
+			} else {
+				_, ok := receivedRequest["parallel_tool_calls"]
+				require.False(t, ok, "parallel_tool_calls should not be present when not set")
+			}
 		})
 	}
 }
