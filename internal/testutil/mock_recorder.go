@@ -76,8 +76,10 @@ func (m *MockRecorder) RecordedTokenUsages() []*recorder.TokenUsageRecord {
 
 // TotalInputTokens returns the sum of input tokens across all recorded token usages.
 func (m *MockRecorder) TotalInputTokens() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var total int64
-	for _, el := range m.RecordedTokenUsages() {
+	for _, el := range m.tokenUsages {
 		total += el.Input
 	}
 	return total
@@ -85,8 +87,10 @@ func (m *MockRecorder) TotalInputTokens() int64 {
 
 // TotalOutputTokens returns the sum of output tokens across all recorded token usages.
 func (m *MockRecorder) TotalOutputTokens() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	var total int64
-	for _, el := range m.RecordedTokenUsages() {
+	for _, el := range m.tokenUsages {
 		total += el.Output
 	}
 	return total
