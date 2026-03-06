@@ -169,15 +169,12 @@ func TestSimple(t *testing.T) {
 					fix := fixtures.Parse(t, tc.fixture)
 					upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-					ts := newBridgeTestServer(t, ctx, upstream.URL+tc.basePath)
+					bridgeServer := newBridgeTestServer(t, ctx, upstream.URL+tc.basePath)
 
 					// When: calling the "API server" with the fixture's request body.
 					reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 					require.NoError(t, err)
-					req := ts.newRequest(t, tc.path, reqBody)
-					req.Header.Set("User-Agent", tc.userAgent)
-					resp, err := http.DefaultClient.Do(req)
-					require.NoError(t, err)
+					resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody, http.Header{"User-Agent": {tc.userAgent}})
 					require.Equal(t, http.StatusOK, resp.StatusCode)
 					defer resp.Body.Close()
 
@@ -195,7 +192,7 @@ func TestSimple(t *testing.T) {
 					resp.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 					// Then: I expect the prompt to have been tracked.
-					promptUsages := ts.Recorder.RecordedPromptUsages()
+					promptUsages := bridgeServer.Recorder.RecordedPromptUsages()
 					require.NotEmpty(t, promptUsages, "no prompts tracked")
 					assert.Contains(t, promptUsages[0].Prompt, "how many angels can dance on the head of a pin")
 
@@ -206,18 +203,18 @@ func TestSimple(t *testing.T) {
 					require.NoError(t, err, "failed to retrieve response ID")
 					require.Nilf(t, uuid.Validate(id), "%s is not a valid UUID", id)
 
-					tokenUsages := ts.Recorder.RecordedTokenUsages()
+					tokenUsages := bridgeServer.Recorder.RecordedTokenUsages()
 					require.GreaterOrEqual(t, len(tokenUsages), 1)
 					require.Equal(t, tokenUsages[0].MsgID, tc.expectedMsgID)
 
 					// Validate user agent and client have been recorded.
-					interceptions := ts.Recorder.RecordedInterceptions()
+					interceptions := bridgeServer.Recorder.RecordedInterceptions()
 					require.Len(t, interceptions, 1, "expected exactly one interception, got: %v", interceptions)
 					assert.Equal(t, id, interceptions[0].ID)
 					assert.Equal(t, tc.userAgent, interceptions[0].UserAgent)
 					assert.Equal(t, string(tc.expectedClient), interceptions[0].Client)
 
-					ts.Recorder.VerifyAllInterceptionsEnded(t)
+					bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 				})
 			}
 		})
@@ -401,11 +398,9 @@ func TestFallthrough(t *testing.T) {
 
 			fix := fixtures.Parse(t, tc.fixture)
 			upstream := newMockUpstream(t, t.Context(), newFixtureResponse(fix))
-			ts := newBridgeTestServer(t, t.Context(), upstream.URL+tc.basePath)
+			bridgeServer := newBridgeTestServer(t, t.Context(), upstream.URL+tc.basePath)
 
-			req := ts.newRequest(t, tc.requestPath, nil)
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
 			defer resp.Body.Close()
 
 			require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -485,19 +480,17 @@ func TestErrorHandling(t *testing.T) {
 						fix := fixtures.Parse(t, tc.fixture)
 						upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-						ts := newBridgeTestServer(t, ctx, upstream.URL)
+						bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 						// Add the stream param to the request.
 						reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 						require.NoError(t, err)
 
-						req := ts.newRequest(t, tc.path, reqBody)
-						resp, err := http.DefaultClient.Do(req)
+						resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
 						t.Cleanup(func() { _ = resp.Body.Close() })
-						require.NoError(t, err)
 
 						tc.responseHandlerFn(resp)
-						ts.Recorder.VerifyAllInterceptionsEnded(t)
+						bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 					})
 				}
 			})
@@ -559,16 +552,14 @@ func TestErrorHandling(t *testing.T) {
 				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 				upstream.StatusCode = http.StatusInternalServerError
 
-				ts := newBridgeTestServer(t, ctx, upstream.URL)
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
-				req := ts.newRequest(t, tc.path, fix.Request())
-				resp, err := http.DefaultClient.Do(req)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 				t.Cleanup(func() { _ = resp.Body.Close() })
-				require.NoError(t, err)
-				ts.Close()
+				bridgeServer.Close()
 
 				tc.responseHandlerFn(resp)
-				ts.Recorder.VerifyAllInterceptionsEnded(t)
+				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -618,15 +609,13 @@ func TestStableRequestEncoding(t *testing.T) {
 			}
 			upstream := newMockUpstream(t, ctx, responses...)
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 				withMCP(mockMCP),
 			)
 
 			// Make multiple requests and verify they all have identical payloads.
 			for range count {
-				req := ts.newRequest(t, tc.path, fix.Request())
-				resp, err := http.DefaultClient.Do(req)
-				require.NoError(t, err)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 				_ = resp.Body.Close()
 			}
@@ -690,11 +679,9 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 				t.Setenv(key, val)
 			}
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
-			req := ts.newRequest(t, tc.path, fix.Request())
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			defer resp.Body.Close()
 
@@ -807,7 +794,7 @@ func TestActorHeaders(t *testing.T) {
 				t.Cleanup(srv.Close)
 
 				metadataKey := "Username"
-				ts := newBridgeTestServer(t, ctx, srv.URL,
+				bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
 					withCustomProvider(tc.createProviderFn(srv.URL, apiKey, send)),
 					withActor(defaultActorID, recorder.Metadata{
 						metadataKey: actorUsername,
@@ -818,9 +805,7 @@ func TestActorHeaders(t *testing.T) {
 				reqBody, err := sjson.SetBytes(fixtures.Request(t, tc.fixture), "stream", tc.streaming)
 				require.NoError(t, err)
 
-				req := ts.newRequest(t, tc.path, reqBody)
-				resp, err := http.DefaultClient.Do(req)
-				require.NoError(t, err)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
 				require.NotEmpty(t, receivedHeaders)
 				defer resp.Body.Close()
 
@@ -880,15 +865,12 @@ func TestAnthropicMessages(t *testing.T) {
 				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
 				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-				ts := newBridgeTestServer(t, ctx, upstream.URL)
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 				// Make API call to aibridge for Anthropic /v1/messages
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
-				req := ts.newRequest(t, pathAnthropicMessages, reqBody)
-				client := &http.Client{}
-				resp, err := client.Do(req)
-				require.NoError(t, err)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 				defer resp.Body.Close()
 
@@ -907,13 +889,13 @@ func TestAnthropicMessages(t *testing.T) {
 					// One for message_start, one for message_delta.
 					expectedTokenRecordings = 2
 				}
-				tokenUsages := ts.Recorder.RecordedTokenUsages()
+				tokenUsages := bridgeServer.Recorder.RecordedTokenUsages()
 				require.Len(t, tokenUsages, expectedTokenRecordings)
 
-				assert.EqualValues(t, tc.expectedInputTokens, ts.Recorder.TotalInputTokens(), "input tokens miscalculated")
-				assert.EqualValues(t, tc.expectedOutputTokens, ts.Recorder.TotalOutputTokens(), "output tokens miscalculated")
+				assert.EqualValues(t, tc.expectedInputTokens, bridgeServer.Recorder.TotalInputTokens(), "input tokens miscalculated")
+				assert.EqualValues(t, tc.expectedOutputTokens, bridgeServer.Recorder.TotalOutputTokens(), "output tokens miscalculated")
 
-				toolUsages := ts.Recorder.RecordedToolUsages()
+				toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
 				assert.Equal(t, "Read", toolUsages[0].Tool)
 				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
@@ -923,11 +905,11 @@ func TestAnthropicMessages(t *testing.T) {
 				require.Contains(t, args, "file_path")
 				assert.Equal(t, "/tmp/blah/foo", args["file_path"])
 
-				promptUsages := ts.Recorder.RecordedPromptUsages()
+				promptUsages := bridgeServer.Recorder.RecordedPromptUsages()
 				require.Len(t, promptUsages, 1)
 				assert.Equal(t, "read the foo file", promptUsages[0].Prompt)
 
-				ts.Recorder.VerifyAllInterceptionsEnded(t)
+				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -1150,7 +1132,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			fix := fixtures.Parse(t, fixtures.AntSimple)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 				withMCP(mcpMgr),
 			)
 
@@ -1158,10 +1140,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			reqBody, err := sjson.SetBytes(fix.Request(), "tool_choice", tc.toolChoice)
 			require.NoError(t, err)
 
-			req := ts.newRequest(t, pathAnthropicMessages, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			_ = resp.Body.Close()
 
@@ -1210,7 +1189,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			// Create a mock server that captures the request body sent upstream.
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 			// Inject adaptive thinking into the fixture request.
 			reqBody, err := sjson.SetBytes(fix.Request(), "thinking", map[string]string{"type": "adaptive"})
@@ -1218,9 +1197,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			reqBody, err = sjson.SetBytes(reqBody, "stream", streaming)
 			require.NoError(t, err)
 
-			req := ts.newRequest(t, pathAnthropicMessages, reqBody)
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			_, _ = io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
@@ -1268,16 +1245,12 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
 				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-				ts := newBridgeTestServer(t, ctx, upstream.URL)
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 				// Make API call to aibridge for OpenAI /v1/chat/completions
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
-				req := ts.newRequest(t, pathOpenAIChatCompletions, reqBody)
-
-				client := &http.Client{}
-				resp, err := client.Do(req)
-				require.NoError(t, err)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 				defer resp.Body.Close()
 
@@ -1295,12 +1268,12 @@ func TestOpenAIChatCompletions(t *testing.T) {
 					assert.Equal(t, "[DONE]", lastEvent.Data)
 				}
 
-				tokenUsages := ts.Recorder.RecordedTokenUsages()
+				tokenUsages := bridgeServer.Recorder.RecordedTokenUsages()
 				require.Len(t, tokenUsages, 1)
-				assert.EqualValues(t, tc.expectedInputTokens, ts.Recorder.TotalInputTokens(), "input tokens miscalculated")
-				assert.EqualValues(t, tc.expectedOutputTokens, ts.Recorder.TotalOutputTokens(), "output tokens miscalculated")
+				assert.EqualValues(t, tc.expectedInputTokens, bridgeServer.Recorder.TotalInputTokens(), "input tokens miscalculated")
+				assert.EqualValues(t, tc.expectedOutputTokens, bridgeServer.Recorder.TotalOutputTokens(), "output tokens miscalculated")
 
-				toolUsages := ts.Recorder.RecordedToolUsages()
+				toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
 				assert.Equal(t, "read_file", toolUsages[0].Tool)
 				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
@@ -1308,11 +1281,11 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				require.Contains(t, toolUsages[0].Args, "path")
 				assert.Equal(t, "README.md", toolUsages[0].Args.(map[string]any)["path"])
 
-				promptUsages := ts.Recorder.RecordedPromptUsages()
+				promptUsages := bridgeServer.Recorder.RecordedPromptUsages()
 				require.Len(t, promptUsages, 1)
 				assert.Equal(t, "how large is the README.md file in my current path", promptUsages[0].Prompt)
 
-				ts.Recorder.VerifyAllInterceptionsEnded(t)
+				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -1352,18 +1325,14 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				// Setup MCP proxies with the tool from the fixture
 				mockMCP := setupMCPForTest(t, defaultTracer)
 
-				ts := newBridgeTestServer(t, ctx, upstream.URL,
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 					withMCP(mockMCP),
 				)
 
 				// Add the stream param to the request.
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", true)
 				require.NoError(t, err)
-				req := ts.newRequest(t, pathOpenAIChatCompletions, reqBody)
-
-				client := &http.Client{}
-				resp, err := client.Do(req)
-				require.NoError(t, err)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 
 				// Verify SSE headers are sent correctly
@@ -1390,11 +1359,11 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				}
 
 				// Verify tool usage was recorded
-				toolUsages := ts.Recorder.RecordedToolUsages()
+				toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
 				assert.Equal(t, mockToolName, toolUsages[0].Tool)
 
-				ts.Recorder.VerifyAllInterceptionsEnded(t)
+				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 			})
 		}
 	})
@@ -1546,14 +1515,12 @@ func TestAWSBedrockIntegration(t *testing.T) {
 			SmallFastModel:  "test-haiku",
 		}
 
-		ts := newBridgeTestServer(t, ctx, "http://unused",
+		bridgeServer := newBridgeTestServer(t, ctx, "http://unused",
 			withCustomProvider(provider.NewAnthropic(anthropicCfg("http://unused", apiKey), bedrockCfg)),
 			withLogger(newLogger(t)),
 		)
 
-		req := ts.newRequest(t, pathAnthropicMessages, fixtures.Request(t, fixtures.AntSingleBuiltinTool))
-		resp, err := http.DefaultClient.Do(req)
-		require.NoError(t, err)
+		resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fixtures.Request(t, fixtures.AntSingleBuiltinTool))
 		defer resp.Body.Close()
 
 		require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
@@ -1584,7 +1551,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 					BaseURL:         upstream.URL,      // Use the mock server.
 				}
 
-				ts := newBridgeTestServer(t, ctx, upstream.URL,
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 					withCustomProvider(provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)),
 					withLogger(newLogger(t)),
 				)
@@ -1593,10 +1560,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				// We override the AWS Bedrock client to route requests through our mock server.
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 				require.NoError(t, err)
-				req := ts.newRequest(t, pathAnthropicMessages, reqBody)
-				client := &http.Client{}
-				resp, err := client.Do(req)
-				require.NoError(t, err)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 				defer resp.Body.Close()
 
 				// For streaming responses, consume the body to allow the stream to complete.
@@ -1620,10 +1584,10 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				require.False(t, gjson.GetBytes(received[0].Body, "model").Exists(), "model should be stripped from body")
 				require.False(t, gjson.GetBytes(received[0].Body, "stream").Exists(), "stream should be stripped from body")
 
-				interceptions := ts.Recorder.RecordedInterceptions()
+				interceptions := bridgeServer.Recorder.RecordedInterceptions()
 				require.Len(t, interceptions, 1)
 				require.Equal(t, interceptions[0].Model, bedrockCfg.Model)
-				ts.Recorder.VerifyAllInterceptionsEnded(t)
+				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 			})
 		}
 	})
