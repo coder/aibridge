@@ -174,27 +174,50 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 		t.Parallel()
 
 		cases := []struct {
+			name               string
 			streaming          bool
+			fixture            []byte
 			expectedToolCallID string
+			expectedThoughts   []string
 		}{
 			{
+				name:               "single thinking block/streaming",
 				streaming:          true,
+				fixture:            fixtures.AntSingleBuiltinTool,
 				expectedToolCallID: "toolu_01RX68weRSquLx6HUTj65iBo",
+				expectedThoughts:   []string{"The user wants me to read"},
 			},
 			{
+				name:               "single thinking block/blocking",
 				streaming:          false,
+				fixture:            fixtures.AntSingleBuiltinTool,
 				expectedToolCallID: "toolu_01AusGgY5aKFhzWrFBv9JfHq",
+				expectedThoughts:   []string{"The user wants me to read"},
+			},
+			{
+				name:               "multiple thinking blocks/streaming",
+				streaming:          true,
+				fixture:            fixtures.AntMultiThinkingBuiltinTool,
+				expectedToolCallID: "toolu_01RX68weRSquLx6HUTj65iBo",
+				expectedThoughts:   []string{"The user wants me to read", "I should use the Read tool"},
+			},
+			{
+				name:               "multiple thinking blocks/blocking",
+				streaming:          false,
+				fixture:            fixtures.AntMultiThinkingBuiltinTool,
+				expectedToolCallID: "toolu_01AusGgY5aKFhzWrFBv9JfHq",
+				expectedThoughts:   []string{"The user wants me to read", "I should use the Read tool"},
 			},
 		}
 
 		for _, tc := range cases {
-			t.Run(fmt.Sprintf("streaming=%v", tc.streaming), func(t *testing.T) {
+			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
 				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 				t.Cleanup(cancel)
 
-				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
+				fix := fixtures.Parse(t, tc.fixture)
 				upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
 
 				recorderClient := &testutil.MockRecorder{}
@@ -232,9 +255,10 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 				assert.Equal(t, "Read", toolUsages[0].Tool)
 				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
 
-				// Model thoughts should be embedded in the tool usage record.
-				require.Len(t, toolUsages[0].ModelThoughts, 1)
-				assert.Contains(t, toolUsages[0].ModelThoughts[0].Content, "The user wants me to read")
+				require.Len(t, toolUsages[0].ModelThoughts, len(tc.expectedThoughts))
+				for i, expected := range tc.expectedThoughts {
+					assert.Contains(t, toolUsages[0].ModelThoughts[i].Content, expected)
+				}
 
 				recorderClient.VerifyAllInterceptionsEnded(t)
 			})
