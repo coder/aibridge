@@ -120,7 +120,6 @@ func TestTraceAnthropic(t *testing.T) {
 			require.NoError(t, err)
 			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			defer resp.Body.Close()
 			bridgeServer.Close()
 
 			require.Equal(t, 1, len(bridgeServer.Recorder.RecordedInterceptions()))
@@ -235,7 +234,6 @@ func TestTraceAnthropicErr(t *testing.T) {
 			} else {
 				require.Equal(t, tc.expectCode, resp.StatusCode)
 			}
-			defer resp.Body.Close()
 			bridgeServer.Close()
 
 			require.Equal(t, 1, len(bridgeServer.Recorder.RecordedInterceptions()))
@@ -350,11 +348,10 @@ func TestInjectedToolsTrace(t *testing.T) {
 				validatorFn = openaiChatToolResultValidator(t)
 			}
 
-			recorderClient, mockMCP, resp := setupInjectedToolTest(
+			recorderClient, mockMCP, _ := setupInjectedToolTest(
 				t, tc.fixture, tc.streaming, tracer,
 				tc.path, validatorFn, tc.opts...,
 			)
-			defer resp.Body.Close()
 
 			require.Len(t, recorderClient.RecordedInterceptions(), 1)
 			intcID := recorderClient.RecordedInterceptions()[0].ID
@@ -474,7 +471,6 @@ func TestTraceOpenAI(t *testing.T) {
 			require.NoError(t, err)
 			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			defer resp.Body.Close()
 			bridgeServer.Close()
 
 			require.Equal(t, 1, len(bridgeServer.Recorder.RecordedInterceptions()))
@@ -631,7 +627,6 @@ func TestTraceOpenAIErr(t *testing.T) {
 			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
 
 			require.Equal(t, tc.expectCode, resp.StatusCode)
-			defer resp.Body.Close()
 			bridgeServer.Close()
 
 			require.Equal(t, 1, len(bridgeServer.Recorder.RecordedInterceptions()))
@@ -670,7 +665,6 @@ func TestTracePassthrough(t *testing.T) {
 	)
 
 	resp := bridgeServer.makeRequest(t, http.MethodGet, "/openai/v1/models", nil)
-	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	bridgeServer.Close()
 
