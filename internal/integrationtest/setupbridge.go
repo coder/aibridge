@@ -71,20 +71,6 @@ func (s *bridgeTestServer) newRequest(t *testing.T, path string, body []byte) *h
 	return req
 }
 
-// newDefaultProvider creates a Provider with default test configuration.
-func newDefaultProvider(providerType string, addr string) aibridge.Provider {
-	switch providerType {
-	case config.ProviderAnthropic:
-		return provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
-	case config.ProviderOpenAI:
-		return provider.NewOpenAI(openAICfg(addr, apiKey))
-	case providerBedrock:
-		return provider.NewAnthropic(anthropicCfg(addr, apiKey), bedrockCfg(addr))
-	default:
-		panic("unknown provider type: " + providerType)
-	}
-}
-
 // withProvider adds a default-configured provider of the given type.
 // When any provider option is used, the default "all providers" set is not created.
 func withProvider(providerType string) bridgeOption {
@@ -129,64 +115,6 @@ func withActor(id string, md recorder.Metadata) bridgeOption {
 // withLogger overrides the default slogtest debug logger.
 func withLogger(l slog.Logger) bridgeOption {
 	return func(c *bridgeConfig) { c.logger = l; c.loggerSet = true }
-}
-
-// setupInjectedToolTest abstracts common setup required for injected-tool integration tests.
-// Extra bridge options (e.g. [withProvider]) are appended after the built-in
-// MCP / tracer / actor options. When no provider option is given the default
-// provider set (all providers) is used.
-func setupInjectedToolTest(
-	t *testing.T,
-	fixture []byte,
-	streaming bool,
-	tracer trace.Tracer,
-	actorID string,
-	path string,
-	toolRequestValidatorFn func(*http.Request, []byte),
-	opts ...bridgeOption,
-) (*testutil.MockRecorder, *mockMCP, *http.Response) {
-	t.Helper()
-
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-	t.Cleanup(cancel)
-
-	fix := fixtures.Parse(t, fixture)
-
-	// Setup mock server for multi-turn interaction.
-	// First request → tool call response, second → tool response.
-	firstResp := newFixtureResponse(fix)
-	toolResp := newFixtureToolResponse(fix)
-	toolResp.OnRequest = toolRequestValidatorFn
-	upstream := newMockUpstream(t, ctx, firstResp, toolResp)
-
-	mockMCP := setupMCPForTest(t, tracer)
-
-	allOpts := []bridgeOption{
-		withMCP(mockMCP),
-		withTracer(tracer),
-		withActor(actorID, nil),
-	}
-	allOpts = append(allOpts, opts...)
-	ts := newBridgeTestServer(t, ctx, upstream.URL, allOpts...)
-
-	// Add the stream param to the request.
-	reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
-	require.NoError(t, err)
-
-	req := ts.newRequest(t, path, reqBody)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	t.Cleanup(func() {
-		_ = resp.Body.Close()
-	})
-
-	// We must ALWAYS have 2 calls to the bridge for injected tool tests.
-	require.Eventually(t, func() bool {
-		return upstream.Calls.Load() == 2
-	}, time.Second*10, time.Millisecond*50)
-
-	return ts.Recorder, mockMCP, resp
 }
 
 // newBridgeTestServer creates a fully configured test server running
@@ -258,5 +186,76 @@ func newBridgeTestServer(
 		Server:   srv,
 		Recorder: mockRec,
 		Bridge:   bridge,
+	}
+}
+
+// setupInjectedToolTest abstracts common setup required for injected-tool integration tests.
+// Extra bridge options (e.g. [withProvider]) are appended after the built-in
+// MCP / tracer / actor options. When no provider option is given the default
+// provider set (all providers) is used.
+func setupInjectedToolTest(
+	t *testing.T,
+	fixture []byte,
+	streaming bool,
+	tracer trace.Tracer,
+	path string,
+	toolRequestValidatorFn func(*http.Request, []byte),
+	opts ...bridgeOption,
+) (*testutil.MockRecorder, *mockMCP, *http.Response) {
+	t.Helper()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	t.Cleanup(cancel)
+
+	fix := fixtures.Parse(t, fixture)
+
+	// Setup mock server for multi-turn interaction.
+	// First request → tool call response, second → tool response.
+	firstResp := newFixtureResponse(fix)
+	toolResp := newFixtureToolResponse(fix)
+	toolResp.OnRequest = toolRequestValidatorFn
+	upstream := newMockUpstream(t, ctx, firstResp, toolResp)
+
+	mockMCP := setupMCPForTest(t, tracer)
+
+	allOpts := []bridgeOption{
+		withMCP(mockMCP),
+		withTracer(tracer),
+		withActor(defaultActorID, nil),
+	}
+	allOpts = append(allOpts, opts...)
+	ts := newBridgeTestServer(t, ctx, upstream.URL, allOpts...)
+
+	// Add the stream param to the request.
+	reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
+	require.NoError(t, err)
+
+	req := ts.newRequest(t, path, reqBody)
+	resp, err := http.DefaultClient.Do(req)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	t.Cleanup(func() {
+		_ = resp.Body.Close()
+	})
+
+	// We must ALWAYS have 2 calls to the bridge for injected tool tests.
+	require.Eventually(t, func() bool {
+		return upstream.Calls.Load() == 2
+	}, time.Second*10, time.Millisecond*50)
+
+	return ts.Recorder, mockMCP, resp
+}
+
+// newDefaultProvider creates a Provider with default test configuration.
+func newDefaultProvider(providerType string, addr string) aibridge.Provider {
+	switch providerType {
+	case config.ProviderAnthropic:
+		return provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
+	case config.ProviderOpenAI:
+		return provider.NewOpenAI(openAICfg(addr, apiKey))
+	case providerBedrock:
+		return provider.NewAnthropic(anthropicCfg(addr, apiKey), bedrockCfg(addr))
+	default:
+		panic("unknown provider type: " + providerType)
 	}
 }

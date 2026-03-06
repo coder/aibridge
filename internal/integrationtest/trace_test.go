@@ -355,7 +355,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 			}
 
 			recorderClient, mockMCP, resp := setupInjectedToolTest(
-				t, tc.fixture, tc.streaming, tracer, defaultActorID,
+				t, tc.fixture, tc.streaming, tracer,
 				tc.path, validatorFn, tc.opts...,
 			)
 			defer resp.Body.Close()
