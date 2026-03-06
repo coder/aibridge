@@ -25,15 +25,15 @@ func TestAPIDump(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name        string
-		fixture     []byte
-		newProvider func(addr, dumpDir string) aibridge.Provider
-		path        string
+		name         string
+		fixture      []byte
+		providerFunc func(addr, dumpDir string) aibridge.Provider
+		path         string
 	}{
 		{
 			name:    "anthropic",
 			fixture: fixtures.AntSimple,
-			newProvider: func(addr, dumpDir string) aibridge.Provider {
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
 				return provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)
 			},
 			path: pathAnthropicMessages,
@@ -41,7 +41,7 @@ func TestAPIDump(t *testing.T) {
 		{
 			name:    "openai_chat_completions",
 			fixture: fixtures.OaiChatSimple,
-			newProvider: func(addr, dumpDir string) aibridge.Provider {
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
 				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
 			path: pathOpenAIChatCompletions,
@@ -49,7 +49,7 @@ func TestAPIDump(t *testing.T) {
 		{
 			name:    "openai_responses",
 			fixture: fixtures.OaiResponsesBlockingSimple,
-			newProvider: func(addr, dumpDir string) aibridge.Provider {
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
 				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
 			path: pathOpenAIResponses,
@@ -71,7 +71,7 @@ func TestAPIDump(t *testing.T) {
 			dumpDir := t.TempDir()
 
 			bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
-				withCustomProvider(tc.newProvider(srv.URL, dumpDir)),
+				withCustomProvider(tc.providerFunc(srv.URL, dumpDir)),
 			)
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
@@ -147,13 +147,13 @@ func TestAPIDumpPassthrough(t *testing.T) {
 
 	cases := []struct {
 		name           string
-		newProvider    func(addr string, dumpDir string) aibridge.Provider
+		providerFunc   func(addr string, dumpDir string) aibridge.Provider
 		requestPath    string
 		expectDumpName string
 	}{
 		{
 			name: "anthropic",
-			newProvider: func(addr string, dumpDir string) aibridge.Provider {
+			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
 				return provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)
 			},
 			requestPath:    "/anthropic/v1/models",
@@ -161,7 +161,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		},
 		{
 			name: "openai",
-			newProvider: func(addr string, dumpDir string) aibridge.Provider {
+			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
 				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
 			requestPath:    "/openai/v1/models",
@@ -169,7 +169,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		},
 		{
 			name: "copilot",
-			newProvider: func(addr string, dumpDir string) aibridge.Provider {
+			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
 				return provider.NewCopilot(config.Copilot{BaseURL: addr, APIDumpDir: dumpDir})
 			},
 			requestPath:    "/copilot/models",
@@ -193,7 +193,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 			dumpDir := t.TempDir()
 
 			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
-				withCustomProvider(tc.newProvider(upstream.URL, dumpDir)),
+				withCustomProvider(tc.providerFunc(upstream.URL, dumpDir)),
 			)
 
 			resp := bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
