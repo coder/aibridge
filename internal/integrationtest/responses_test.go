@@ -334,14 +334,9 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			fix := fixtures.Parse(t, tc.fixture)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
-			req := ts.newRequest(t, pathOpenAIResponses, fix.Request())
-			req.Header.Set("User-Agent", tc.userAgent)
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request(), http.Header{"User-Agent": {tc.userAgent}})
 			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			got, err := io.ReadAll(resp.Body)
@@ -353,7 +348,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Equal(t, string(fix.NonStreaming()), string(got))
 			}
 
-			interceptions := ts.Recorder.RecordedInterceptions()
+			interceptions := bridgeServer.Recorder.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
 			intc := interceptions[0]
 			require.Equal(t, intc.InitiatorID, defaultActorID)
@@ -362,7 +357,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			require.Equal(t, tc.userAgent, intc.UserAgent)
 			require.Equal(t, string(tc.expectedClient), intc.Client)
 
-			recordedPrompts := ts.Recorder.RecordedPromptUsages()
+			recordedPrompts := bridgeServer.Recorder.RecordedPromptUsages()
 			if tc.expectPromptRecorded != "" {
 				require.Len(t, recordedPrompts, 1)
 				promptEq := func(pur *recorder.PromptUsageRecord) bool { return pur.Prompt == tc.expectPromptRecorded }
@@ -371,7 +366,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Empty(t, recordedPrompts)
 			}
 
-			recordedTools := ts.Recorder.RecordedToolUsages()
+			recordedTools := bridgeServer.Recorder.RecordedToolUsages()
 			if tc.expectToolRecorded != nil {
 				require.Len(t, recordedTools, 1)
 				recordedTools[0].InterceptionID = tc.expectToolRecorded.InterceptionID // ignore interception id (interception id is not constant and response doesn't contain it)
@@ -381,7 +376,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Empty(t, recordedTools)
 			}
 
-			recordedTokens := ts.Recorder.RecordedTokenUsages()
+			recordedTokens := bridgeServer.Recorder.RecordedTokenUsages()
 			if tc.expectTokenUsage != nil {
 				require.Len(t, recordedTokens, 1)
 				recordedTokens[0].InterceptionID = tc.expectTokenUsage.InterceptionID // ignore interception id
@@ -425,15 +420,11 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 			// Create a request with background mode enabled
 			reqBytes := responsesRequestBytes(t, tc.streaming, keyVal{"background", true})
-			req := ts.newRequest(t, pathOpenAIResponses, reqBytes)
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
 			defer resp.Body.Close()
 
 			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
@@ -537,15 +528,11 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
-			req := ts.newRequest(t, pathOpenAIResponses, []byte(tc.request))
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, []byte(tc.request))
 			defer resp.Body.Close()
-			_, err = io.ReadAll(resp.Body)
+			_, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 		})
 	}
@@ -597,14 +584,10 @@ func TestClientAndConnectionError(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// tc.addr may be an intentionally invalid URL; use withCustomProvider.
-			ts := newBridgeTestServer(t, ctx, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))))
+			bridgeServer := newBridgeTestServer(t, ctx, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))))
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := ts.newRequest(t, pathOpenAIResponses, reqBytes)
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
 			defer resp.Body.Close()
 
 			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
@@ -613,7 +596,7 @@ func TestClientAndConnectionError(t *testing.T) {
 			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 			requireResponsesError(t, http.StatusInternalServerError, tc.errContains, body)
-			require.Empty(t, ts.Recorder.RecordedPromptUsages())
+			require.Empty(t, bridgeServer.Recorder.RecordedPromptUsages())
 		})
 	}
 }
@@ -679,14 +662,10 @@ func TestUpstreamError(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := ts.newRequest(t, pathOpenAIResponses, reqBytes)
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
 			defer resp.Body.Close()
 
 			require.Equal(t, tc.statusCode, resp.StatusCode)
@@ -861,11 +840,9 @@ func TestResponsesInjectedTool(t *testing.T) {
 				mockMCP.setToolError(tc.mcpToolName, tc.expectToolError)
 			}
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL, withMCP(mockMCP))
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, withMCP(mockMCP))
 
-			req := ts.newRequest(t, pathOpenAIResponses, fix.Request())
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
 			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -882,7 +859,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 			require.Len(t, invocations, 1, "expected MCP tool to be invoked once")
 
 			// Verify the injected tool usage was recorded.
-			toolUsages := ts.Recorder.RecordedToolUsages()
+			toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 			require.Len(t, toolUsages, 1)
 			require.Equal(t, tc.mcpToolName, toolUsages[0].Tool)
 			require.Equal(t, tc.expectToolArgs, toolUsages[0].Args)
@@ -892,11 +869,11 @@ func TestResponsesInjectedTool(t *testing.T) {
 			}
 
 			// Verify prompt was recorded.
-			prompts := ts.Recorder.RecordedPromptUsages()
+			prompts := bridgeServer.Recorder.RecordedPromptUsages()
 			require.Len(t, prompts, 1)
 			require.Equal(t, tc.expectPrompt, prompts[0].Prompt)
 
-			tokenUsages := ts.Recorder.RecordedTokenUsages()
+			tokenUsages := bridgeServer.Recorder.RecordedTokenUsages()
 			require.Len(t, tokenUsages, len(tc.expectTokenUsages))
 			for i := range tokenUsages {
 				tokenUsages[i].InterceptionID = "" // ignore interception ID and time creation when comparing
