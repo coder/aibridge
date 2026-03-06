@@ -181,6 +181,12 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
 
+	// Add extra headers if configured.
+	// Some providers require additional headers that are not added by the SDK.
+	for key, value := range i.cfg.ExtraHeaders {
+		opts = append(opts, option.WithHeader(key, value))
+	}
+
 	// Add API dump middleware if configured
 	if mw := apidump.NewBridgeMiddleware(i.cfg.APIDumpDir, aibconfig.ProviderAnthropic, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))

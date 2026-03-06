@@ -14,6 +14,7 @@ type Anthropic struct {
 	APIDumpDir       string
 	CircuitBreaker   *CircuitBreaker
 	SendActorHeaders bool
+	ExtraHeaders     map[string]string
 }
 
 type AWSBedrock struct {
