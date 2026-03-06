@@ -912,8 +912,8 @@ func TestAnthropicMessages(t *testing.T) {
 				tokenUsages := ts.Recorder.RecordedTokenUsages()
 				require.Len(t, tokenUsages, expectedTokenRecordings)
 
-				assert.EqualValues(t, tc.expectedInputTokens, calculateTotalInputTokens(tokenUsages), "input tokens miscalculated")
-				assert.EqualValues(t, tc.expectedOutputTokens, calculateTotalOutputTokens(tokenUsages), "output tokens miscalculated")
+				assert.EqualValues(t, tc.expectedInputTokens, ts.Recorder.TotalInputTokens(), "input tokens miscalculated")
+				assert.EqualValues(t, tc.expectedOutputTokens, ts.Recorder.TotalOutputTokens(), "output tokens miscalculated")
 
 				toolUsages := ts.Recorder.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
@@ -1008,9 +1008,8 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			assert.EqualValues(t, 204, message.Usage.OutputTokens)
 
 			// Ensure tokens used during injected tool invocation are accounted for.
-			tokenUsages := recorderClient.RecordedTokenUsages()
-			assert.EqualValues(t, 15308, calculateTotalInputTokens(tokenUsages))
-			assert.EqualValues(t, 204, calculateTotalOutputTokens(tokenUsages))
+			assert.EqualValues(t, 15308, recorderClient.TotalInputTokens())
+			assert.EqualValues(t, 204, recorderClient.TotalOutputTokens())
 
 			// Ensure we received exactly one prompt.
 			promptUsages := recorderClient.RecordedPromptUsages()
@@ -1300,8 +1299,8 @@ func TestOpenAIChatCompletions(t *testing.T) {
 
 				tokenUsages := ts.Recorder.RecordedTokenUsages()
 				require.Len(t, tokenUsages, 1)
-				assert.EqualValues(t, tc.expectedInputTokens, calculateTotalInputTokens(tokenUsages), "input tokens miscalculated")
-				assert.EqualValues(t, tc.expectedOutputTokens, calculateTotalOutputTokens(tokenUsages), "output tokens miscalculated")
+				assert.EqualValues(t, tc.expectedInputTokens, ts.Recorder.TotalInputTokens(), "input tokens miscalculated")
+				assert.EqualValues(t, tc.expectedOutputTokens, ts.Recorder.TotalOutputTokens(), "output tokens miscalculated")
 
 				toolUsages := ts.Recorder.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)
@@ -1491,9 +1490,8 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			assert.EqualValues(t, 105, message.Usage.CompletionTokens)
 
 			// Ensure tokens used during injected tool invocation are accounted for.
-			tokenUsages := recorderClient.RecordedTokenUsages()
-			require.EqualValues(t, 5047, calculateTotalInputTokens(tokenUsages))
-			require.EqualValues(t, 105, calculateTotalOutputTokens(tokenUsages))
+			require.EqualValues(t, 5047, recorderClient.TotalInputTokens())
+			require.EqualValues(t, 105, recorderClient.TotalOutputTokens())
 
 			// Ensure we received exactly one prompt.
 			promptUsages := recorderClient.RecordedPromptUsages()

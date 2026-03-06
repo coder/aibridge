@@ -31,6 +31,13 @@ type mockMCP struct {
 	calls *callAccumulator
 }
 
+// callAccumulator tracks all tool invocations by name and each instance's arguments.
+type callAccumulator struct {
+	calls      map[string][]any
+	callsMu    sync.Mutex
+	toolErrors map[string]string
+}
+
 // getCallsByTool returns recorded arguments for a given tool name.
 func (m *mockMCP) getCallsByTool(name string) []any {
 	return m.calls.getCallsByTool(name)
@@ -82,13 +89,6 @@ func setupMCPForTestWithName(t *testing.T, name string, tracer trace.Tracer) *mo
 
 func newNoopMCPManager() mcp.ServerProxier {
 	return mcp.NewServerProxyManager(nil, noop.NewTracerProvider().Tracer(""))
-}
-
-// callAccumulator tracks all tool invocations by name and each instance's arguments.
-type callAccumulator struct {
-	calls      map[string][]any
-	callsMu    sync.Mutex
-	toolErrors map[string]string
 }
 
 func newCallAccumulator() *callAccumulator {
