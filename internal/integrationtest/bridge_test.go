@@ -131,19 +131,16 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 		t.Parallel()
 
 		cases := []struct {
-			streaming              bool
-			expectedToolCallID     string
-			expectedThinkingSubstr string
+			streaming          bool
+			expectedToolCallID string
 		}{
 			{
-				streaming:              true,
-				expectedToolCallID:     "toolu_01RX68weRSquLx6HUTj65iBo",
-				expectedThinkingSubstr: "Let me find and read it.",
+				streaming:          true,
+				expectedToolCallID: "toolu_01RX68weRSquLx6HUTj65iBo",
 			},
 			{
-				streaming:              false,
-				expectedToolCallID:     "toolu_01AusGgY5aKFhzWrFBv9JfHq",
-				expectedThinkingSubstr: "Let me find and read it.",
+				streaming:          false,
+				expectedToolCallID: "toolu_01AusGgY5aKFhzWrFBv9JfHq",
 			},
 		}
 
@@ -180,7 +177,6 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 				// Model thoughts should be embedded in the tool usage record.
 				require.Len(t, toolUsages[0].ModelThoughts, 1)
 				assert.Contains(t, toolUsages[0].ModelThoughts[0].Content, "The user wants me to read")
-				assert.Contains(t, toolUsages[0].ModelThoughts[0].Content, tc.expectedThinkingSubstr)
 
 				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 			})

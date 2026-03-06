@@ -1002,7 +1002,7 @@ func TestResponsesModelThoughts(t *testing.T) {
 
 		// Use the simple fixture which has no tool calls — any reasoning
 		// should not be persisted since it can't be associated with a tool call.
-		fix := fixtures.Parse(t, fixtures.OaiResponsesStreamingSimple)
+		fix := fixtures.Parse(t, fixtures.OaiResponsesStreamingCodex)
 		upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 		bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
