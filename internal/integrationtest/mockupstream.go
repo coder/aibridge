@@ -35,6 +35,34 @@ type upstreamResponse struct {
 	OnRequest func(r *http.Request, body []byte)
 }
 
+// newFixtureResponse creates an upstreamResponse from a parsed fixture archive.
+// It reads whichever of 'streaming' and 'non-streaming' sections exist;
+// not every fixture has both (e.g. error fixtures may only define one).
+func newFixtureResponse(fix fixtures.Fixture) upstreamResponse {
+	var resp upstreamResponse
+	if fix.Has(fixtures.SectionStreaming) {
+		resp.Streaming = fix.Streaming()
+	}
+	if fix.Has(fixtures.SectionNonStreaming) {
+		resp.Blocking = fix.NonStreaming()
+	}
+	return resp
+}
+
+// newFixtureToolResponse creates an upstreamResponse from the tool-call fixture files.
+// It reads whichever of 'streaming/tool-call' and 'non-streaming/tool-call'
+// sections exist.
+func newFixtureToolResponse(fix fixtures.Fixture) upstreamResponse {
+	var resp upstreamResponse
+	if fix.Has(fixtures.SectionStreamingToolCall) {
+		resp.Streaming = fix.StreamingToolCall()
+	}
+	if fix.Has(fixtures.SectionNonStreamToolCall) {
+		resp.Blocking = fix.NonStreamingToolCall()
+	}
+	return resp
+}
+
 // receivedRequest captures the details of a single request handled by mockUpstream.
 type receivedRequest struct {
 	Method string
@@ -68,34 +96,6 @@ type mockUpstream struct {
 
 	t         *testing.T
 	responses []upstreamResponse
-}
-
-// newFixtureResponse creates an upstreamResponse from a parsed fixture archive.
-// It reads whichever of 'streaming' and 'non-streaming' sections exist;
-// not every fixture has both (e.g. error fixtures may only define one).
-func newFixtureResponse(fix fixtures.Fixture) upstreamResponse {
-	var resp upstreamResponse
-	if fix.Has(fixtures.SectionStreaming) {
-		resp.Streaming = fix.Streaming()
-	}
-	if fix.Has(fixtures.SectionNonStreaming) {
-		resp.Blocking = fix.NonStreaming()
-	}
-	return resp
-}
-
-// newFixtureToolResponse creates an upstreamResponse from the tool-call fixture files.
-// It reads whichever of 'streaming/tool-call' and 'non-streaming/tool-call'
-// sections exist.
-func newFixtureToolResponse(fix fixtures.Fixture) upstreamResponse {
-	var resp upstreamResponse
-	if fix.Has(fixtures.SectionStreamingToolCall) {
-		resp.Streaming = fix.StreamingToolCall()
-	}
-	if fix.Has(fixtures.SectionNonStreamToolCall) {
-		resp.Blocking = fix.NonStreamingToolCall()
-	}
-	return resp
 }
 
 // receivedRequests returns a copy of all requests received so far.
