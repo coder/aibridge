@@ -9,9 +9,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coder/aibridge/config"
+	"cdr.dev/slog/v3"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace/noop"
 	"golang.org/x/sync/errgroup"
+
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/internal/testutil"
 )
 
 type message struct {
@@ -148,6 +153,82 @@ func generateResponsesPayload(payloadSize int, inputCount int, stream bool) []by
 		panic(err)
 	}
 	return bodyBytes
+}
+
+// TestOpenAI_ForwardsHeadersToUpstream verifies that custom client headers are forwarded
+// to the upstream, while filtered headers (auth, hop-by-hop) are stripped and the
+// configured API key is always used.
+func TestOpenAI_ForwardsHeadersToUpstream(t *testing.T) {
+	t.Parallel()
+
+	const configuredKey = "configured-key"
+
+	testCases := []struct {
+		name         string
+		route        string
+		body         string
+		mockResponse string
+	}{
+		{
+			name:         "chat-completions",
+			route:        routeChatCompletions,
+			body:         `{"model":"gpt-4","messages":[{"role":"user","content":"hello"}],"stream":false}`,
+			mockResponse: `{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`,
+		},
+		{
+			name:         "responses",
+			route:        routeResponses,
+			body:         `{"model":"gpt-5-mini","input":"hello","stream":false}`,
+			mockResponse: `{"id":"resp-123","object":"realtime.response","created":1677652288,"model":"gpt-5-mini","output":[],"usage":{"input_tokens":5,"output_tokens":10,"total_tokens":15}}`,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var receivedHeaders http.Header
+
+			mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedHeaders = r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(tc.mockResponse))
+			}))
+			t.Cleanup(mockUpstream.Close)
+
+			p := NewOpenAI(config.OpenAI{
+				BaseURL: mockUpstream.URL,
+				Key:     configuredKey,
+			})
+
+			req := httptest.NewRequest(http.MethodPost, tc.route, bytes.NewBufferString(tc.body))
+			req.Header.Set("X-Custom-Header", "custom-value")         // should be forwarded
+			req.Header.Set("Authorization", "Bearer client-fake-key") // should be stripped (re-injected by SDK)
+			req.Header.Set("X-Api-Key", "client-fake-key")            // should be stripped (re-injected by SDK)
+			req.Header.Set("Upgrade", "websocket")                    // should be stripped (hop-by-hop)
+			w := httptest.NewRecorder()
+
+			interceptor, err := p.CreateInterceptor(w, req, testTracer)
+			require.NoError(t, err)
+			require.NotNil(t, interceptor)
+
+			interceptor.Setup(slog.Make(), &testutil.MockRecorder{}, nil)
+
+			err = interceptor.ProcessRequest(w, httptest.NewRequest(http.MethodPost, tc.route, nil))
+			require.NoError(t, err)
+
+			// Custom headers must reach the upstream.
+			assert.Equal(t, "custom-value", receivedHeaders.Get("X-Custom-Header"))
+			// Hop-by-hop headers must not reach the upstream.
+			assert.Empty(t, receivedHeaders.Get("Upgrade"))
+			// Configured key must be used, not the client-provided fake.
+			assert.Equal(t, "Bearer "+configuredKey, receivedHeaders.Get("Authorization"))
+			// User-Agent must be set by the SDK, not forwarded from the client.
+			assert.True(t, strings.HasPrefix(receivedHeaders.Get("User-Agent"), "OpenAI/Go"),
+				"upstream User-Agent should be set by the SDK")
+		})
+	}
 }
 
 func BenchmarkOpenAI_CreateInterceptor_ChatCompletions(b *testing.B) {

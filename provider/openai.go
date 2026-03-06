@@ -105,9 +105,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.cfg, tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.cfg, r.Header, tracer)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.cfg, tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.cfg, r.Header, tracer)
 		}
 
 	case routeResponses:
@@ -120,9 +120,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 		if req.Stream {
-			interceptor = responses.NewStreamingInterceptor(id, &req, payload, p.cfg, string(req.Model), tracer)
+			interceptor = responses.NewStreamingInterceptor(id, &req, payload, p.cfg, string(req.Model), r.Header, tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, &req, payload, p.cfg, string(req.Model), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, &req, payload, p.cfg, string(req.Model), r.Header, tracer)
 		}
 
 	default:

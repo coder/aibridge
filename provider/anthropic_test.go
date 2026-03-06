@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"cdr.dev/slog/v3"
@@ -187,4 +188,54 @@ func Test_anthropicIsFailure(t *testing.T) {
 	for _, tt := range tests {
 		assert.Equal(t, tt.isFailure, anthropicIsFailure(tt.statusCode), "status code %d", tt.statusCode)
 	}
+}
+
+// TestAnthropic_ForwardsHeadersToUpstream verifies that custom client headers are forwarded
+// to the upstream, while filtered headers (auth, hop-by-hop) are stripped and the
+// configured API key is always used.
+func TestAnthropic_ForwardsHeadersToUpstream(t *testing.T) {
+	t.Parallel()
+
+	var receivedHeaders http.Header
+
+	mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedHeaders = r.Header.Clone()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(`{"id":"msg-123","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-3-haiku-20240307","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`))
+	}))
+	t.Cleanup(mockUpstream.Close)
+
+	const configuredKey = "configured-key"
+	p := NewAnthropic(config.Anthropic{
+		BaseURL: mockUpstream.URL,
+		Key:     configuredKey,
+	}, nil)
+
+	body := `{"model":"claude-3-haiku-20240307","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"stream":false}`
+	req := httptest.NewRequest(http.MethodPost, routeMessages, bytes.NewBufferString(body))
+	req.Header.Set("X-Custom-Header", "custom-value")         // should be forwarded
+	req.Header.Set("Authorization", "Bearer client-fake-key") // should be stripped (re-injected by SDK)
+	req.Header.Set("X-Api-Key", "client-fake-key")            // should be stripped (re-injected by SDK)
+	req.Header.Set("Upgrade", "websocket")                    // should be stripped (hop-by-hop)
+	w := httptest.NewRecorder()
+
+	interceptor, err := p.CreateInterceptor(w, req, testTracer)
+	require.NoError(t, err)
+	require.NotNil(t, interceptor)
+
+	interceptor.Setup(slog.Make(), &testutil.MockRecorder{}, nil)
+
+	err = interceptor.ProcessRequest(w, httptest.NewRequest(http.MethodPost, routeMessages, nil))
+	require.NoError(t, err)
+
+	// Custom headers must reach the upstream.
+	assert.Equal(t, "custom-value", receivedHeaders.Get("X-Custom-Header"))
+	// Hop-by-hop headers must not reach the upstream.
+	assert.Empty(t, receivedHeaders.Get("Upgrade"))
+	// Configured key must be used, not the client-provided fake.
+	assert.Equal(t, configuredKey, receivedHeaders.Get("X-Api-Key"))
+	// User-Agent must be set by the SDK, not forwarded from the client.
+	assert.True(t, strings.HasPrefix(receivedHeaders.Get("User-Agent"), "Anthropic/Go"),
+		"upstream User-Agent should be set by the SDK")
 }

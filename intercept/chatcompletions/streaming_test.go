@@ -82,7 +82,7 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 			}
 
 			tracer := otel.Tracer("test")
-			interceptor := NewStreamingInterceptor(uuid.New(), req, cfg, tracer)
+			interceptor := NewStreamingInterceptor(uuid.New(), req, cfg, nil, tracer)
 
 			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)

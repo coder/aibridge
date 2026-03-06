@@ -33,12 +33,19 @@ type StreamingInterception struct {
 	interceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, cfg config.OpenAI, tracer trace.Tracer) *StreamingInterception {
+func NewStreamingInterceptor(
+	id uuid.UUID,
+	req *ChatCompletionNewParamsWrapper,
+	cfg config.OpenAI,
+	clientHeaders http.Header,
+	tracer trace.Tracer,
+) *StreamingInterception {
 	return &StreamingInterception{interceptionBase: interceptionBase{
-		id:     id,
-		req:    req,
-		cfg:    cfg,
-		tracer: tracer,
+		id:            id,
+		req:           req,
+		cfg:           cfg,
+		clientHeaders: clientHeaders,
+		tracer:        tracer,
 	}}
 }
 

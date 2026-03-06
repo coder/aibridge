@@ -25,15 +25,24 @@ type BlockingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewBlockingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string, tracer trace.Tracer) *BlockingResponsesInterceptor {
+func NewBlockingInterceptor(
+	id uuid.UUID,
+	req *ResponsesNewParamsWrapper,
+	reqPayload []byte,
+	cfg config.OpenAI,
+	model string,
+	clientHeaders http.Header,
+	tracer trace.Tracer,
+) *BlockingResponsesInterceptor {
 	return &BlockingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
-			id:         id,
-			req:        req,
-			reqPayload: reqPayload,
-			cfg:        cfg,
-			model:      model,
-			tracer:     tracer,
+			id:            id,
+			req:           req,
+			reqPayload:    reqPayload,
+			cfg:           cfg,
+			model:         model,
+			clientHeaders: clientHeaders,
+			tracer:        tracer,
 		},
 	}
 }
