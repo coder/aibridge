@@ -1,10 +1,8 @@
-package aibridge_test
+package integrationtest
 
 import (
-	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,18 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
-	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel"
 )
 
 // Common response bodies for circuit breaker tests.
@@ -51,8 +44,8 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 		errorBody      string
 		successBody    string
 		requestBody    string
-		setupHeaders   func(req *http.Request)
-		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
+		headers        http.Header
+		path           string
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 		expectProvider string
 		expectEndpoint string
@@ -68,11 +61,11 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			errorBody:      anthropicRateLimitError,
 			successBody:    anthropicSuccessResponse("claude-sonnet-4-20250514"),
 			requestBody:    `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
-			setupHeaders: func(req *http.Request) {
-				req.Header.Set("x-api-key", "test")
-				req.Header.Set("anthropic-version", "2023-06-01")
+			headers: http.Header{
+				"x-api-key":         {"test"},
+				"anthropic-version": {"2023-06-01"},
 			},
-			createRequest: createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
@@ -89,10 +82,8 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			errorBody:      openAIRateLimitError,
 			successBody:    openAISuccessResponse("gpt-4o"),
 			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
-			setupHeaders: func(req *http.Request) {
-				req.Header.Set("Authorization", "Bearer test-key")
-			},
-			createRequest: createOpenAIChatCompletionsReq,
+			headers:        http.Header{"Authorization": {"Bearer test-key"}},
+			path:           pathOpenAIChatCompletions,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -127,7 +118,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			}))
 			defer mockUpstream.Close()
 
-			metrics := metrics.NewMetrics(prometheus.NewRegistry())
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
 			// Create provider with circuit breaker config
 			cbConfig := &config.CircuitBreaker{
@@ -136,61 +127,43 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 				Timeout:          50 * time.Millisecond,
 				MaxRequests:      1,
 			}
-			prov := tc.createProvider(mockUpstream.URL, cbConfig)
 
 			ctx := t.Context()
-			tracer := otel.Tracer("forTesting")
-			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-			bridge, err := aibridge.NewRequestBridge(ctx,
-				[]provider.Provider{prov},
-				&testutil.MockRecorder{},
-				testutil.NewNoopMCPManager(),
-				logger,
-				metrics,
-				tracer,
+			bridgeServer := newBridgeTestServer(t, ctx, mockUpstream.URL,
+				withCustomProvider(tc.createProvider(mockUpstream.URL, cbConfig)),
+				withMetrics(m),
+				withActor("test-user-id", nil),
 			)
-			require.NoError(t, err)
 
-			mockSrv := httptest.NewUnstartedServer(bridge)
-			t.Cleanup(mockSrv.Close)
-			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibridge.AsActor(ctx, "test-user-id", nil)
-			}
-			mockSrv.Start()
-
-			makeRequest := func() *http.Response {
-				req := tc.createRequest(t, mockSrv.URL, []byte(tc.requestBody))
-				tc.setupHeaders(req)
-				resp, err := http.DefaultClient.Do(req)
+			doRequest := func() *http.Response {
+				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
+				_, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				_, err = io.ReadAll(resp.Body)
-				require.NoError(t, err)
-				resp.Body.Close()
 				return resp
 			}
 
 			// Phase 1: Trip the circuit breaker
 			// First FailureThreshold requests hit upstream, get 429
 			for i := uint32(0); i < cbConfig.FailureThreshold; i++ {
-				resp := makeRequest()
+				resp := doRequest()
 				assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 			}
 			assert.Equal(t, int32(cbConfig.FailureThreshold), upstreamCalls.Load())
 
 			// Phase 2: Verify circuit is open
 			// Request should be blocked by circuit breaker (no upstream call)
-			resp := makeRequest()
+			resp := doRequest()
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 			assert.Equal(t, int32(cbConfig.FailureThreshold), upstreamCalls.Load(), "No new upstream call when circuit is open")
 
 			// Verify metrics show circuit is open
-			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			trips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, trips, "CircuitBreakerTrips should be 1")
 
-			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			state := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, state, "CircuitBreakerState should be 1 (open)")
 
-			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			rejects := promtest.ToFloat64(m.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, rejects, "CircuitBreakerRejects should be 1")
 
 			// Phase 3: Wait for timeout to transition to half-open
@@ -201,18 +174,18 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 
 			// Phase 4: Recovery - request in half-open state should succeed and close circuit
 			upstreamCallsBefore := upstreamCalls.Load()
-			resp = makeRequest()
+			resp = doRequest()
 			assert.Equal(t, http.StatusOK, resp.StatusCode, "Request should succeed in half-open state")
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should reach upstream in half-open state")
 
 			// Verify circuit is now closed
-			state = promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			state = promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 0.0, state, "CircuitBreakerState should be 0 (closed) after recovery")
 
 			// Phase 5: Verify circuit is fully functional again
 			// Multiple requests should all succeed and reach upstream
 			for i := 0; i < 3; i++ {
-				resp = makeRequest()
+				resp = doRequest()
 				assert.Equal(t, http.StatusOK, resp.StatusCode, "Request should succeed after circuit closes")
 			}
 
@@ -220,7 +193,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+4, upstreamCalls.Load(), "All requests should reach upstream after circuit closes")
 
 			// Rejects count should not have increased
-			rejects = promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			rejects = promtest.ToFloat64(m.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, rejects, "CircuitBreakerRejects should still be 1 (no new rejects)")
 		})
 	}
@@ -235,8 +208,8 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 		name           string
 		errorBody      string
 		requestBody    string
-		setupHeaders   func(req *http.Request)
-		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
+		headers        http.Header
+		path           string
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 		expectProvider string
 		expectEndpoint string
@@ -251,11 +224,11 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			expectModel:    "claude-sonnet-4-20250514",
 			errorBody:      anthropicRateLimitError,
 			requestBody:    `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
-			setupHeaders: func(req *http.Request) {
-				req.Header.Set("x-api-key", "test")
-				req.Header.Set("anthropic-version", "2023-06-01")
+			headers: http.Header{
+				"x-api-key":         {"test"},
+				"anthropic-version": {"2023-06-01"},
 			},
-			createRequest: createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
@@ -271,10 +244,8 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			expectModel:    "gpt-4o",
 			errorBody:      openAIRateLimitError,
 			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
-			setupHeaders: func(req *http.Request) {
-				req.Header.Set("Authorization", "Bearer test-key")
-			},
-			createRequest: createOpenAIChatCompletionsReq,
+			headers:        http.Header{"Authorization": {"Bearer test-key"}},
+			path:           pathOpenAIChatCompletions,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -301,7 +272,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			}))
 			defer mockUpstream.Close()
 
-			metrics := metrics.NewMetrics(prometheus.NewRegistry())
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
 			cbConfig := &config.CircuitBreaker{
 				FailureThreshold: 2,
@@ -309,50 +280,32 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 				Timeout:          50 * time.Millisecond,
 				MaxRequests:      1,
 			}
-			prov := tc.createProvider(mockUpstream.URL, cbConfig)
 
 			ctx := t.Context()
-			tracer := otel.Tracer("forTesting")
-			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-			bridge, err := aibridge.NewRequestBridge(ctx,
-				[]provider.Provider{prov},
-				&testutil.MockRecorder{},
-				testutil.NewNoopMCPManager(),
-				logger,
-				metrics,
-				tracer,
+			bridgeServer := newBridgeTestServer(t, ctx, mockUpstream.URL,
+				withCustomProvider(tc.createProvider(mockUpstream.URL, cbConfig)),
+				withMetrics(m),
+				withActor("test-user-id", nil),
 			)
-			require.NoError(t, err)
 
-			mockSrv := httptest.NewUnstartedServer(bridge)
-			t.Cleanup(mockSrv.Close)
-			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibridge.AsActor(ctx, "test-user-id", nil)
-			}
-			mockSrv.Start()
-
-			makeRequest := func() *http.Response {
-				req := tc.createRequest(t, mockSrv.URL, []byte(tc.requestBody))
-				tc.setupHeaders(req)
-				resp, err := http.DefaultClient.Do(req)
+			doRequest := func() *http.Response {
+				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
+				_, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				_, err = io.ReadAll(resp.Body)
-				require.NoError(t, err)
-				resp.Body.Close()
 				return resp
 			}
 
 			// Phase 1: Trip the circuit
 			for i := uint32(0); i < cbConfig.FailureThreshold; i++ {
-				resp := makeRequest()
+				resp := doRequest()
 				assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 			}
 
 			// Verify circuit is open
-			resp := makeRequest()
+			resp := doRequest()
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 
-			trips := promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			trips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, trips, "CircuitBreakerTrips should be 1")
 
 			// Phase 2: Wait for half-open state
@@ -360,20 +313,20 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 
 			// Phase 3: Request in half-open state fails, circuit should re-open
 			upstreamCallsBefore := upstreamCalls.Load()
-			resp = makeRequest()
+			resp = doRequest()
 			assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode, "Request should fail in half-open state")
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should reach upstream in half-open state")
 
 			// Circuit should be open again - next request should be rejected immediately
-			resp = makeRequest()
+			resp = doRequest()
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, "Circuit should be open again after half-open failure")
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should NOT reach upstream when circuit re-opens")
 
 			// Verify metrics: trips should be 2 now (tripped twice)
-			trips = promtest.ToFloat64(metrics.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			trips = promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 2.0, trips, "CircuitBreakerTrips should be 2 after half-open failure")
 
-			state := promtest.ToFloat64(metrics.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			state := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, state, "CircuitBreakerState should be 1 (open) after half-open failure")
 		})
 	}
@@ -389,8 +342,8 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 		errorBody      string
 		successBody    string
 		requestBody    string
-		setupHeaders   func(req *http.Request)
-		createRequest  func(t *testing.T, baseURL string, input []byte) *http.Request
+		headers        http.Header
+		path           string
 		createProvider func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider
 		expectProvider string
 		expectEndpoint string
@@ -406,11 +359,11 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			errorBody:      anthropicRateLimitError,
 			successBody:    anthropicSuccessResponse("claude-sonnet-4-20250514"),
 			requestBody:    `{"model":"claude-sonnet-4-20250514","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`,
-			setupHeaders: func(req *http.Request) {
-				req.Header.Set("x-api-key", "test")
-				req.Header.Set("anthropic-version", "2023-06-01")
+			headers: http.Header{
+				"x-api-key":         {"test"},
+				"anthropic-version": {"2023-06-01"},
 			},
-			createRequest: createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewAnthropic(config.Anthropic{
 					BaseURL:        baseURL,
@@ -427,10 +380,8 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			errorBody:      openAIRateLimitError,
 			successBody:    openAISuccessResponse("gpt-4o"),
 			requestBody:    `{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}`,
-			setupHeaders: func(req *http.Request) {
-				req.Header.Set("Authorization", "Bearer test-key")
-			},
-			createRequest: createOpenAIChatCompletionsReq,
+			headers:        http.Header{"Authorization": {"Bearer test-key"}},
+			path:           pathOpenAIChatCompletions,
 			createProvider: func(baseURL string, cbConfig *config.CircuitBreaker) provider.Provider {
 				return provider.NewOpenAI(config.OpenAI{
 					BaseURL:        baseURL,
@@ -466,7 +417,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			}))
 			defer mockUpstream.Close()
 
-			metrics := metrics.NewMetrics(prometheus.NewRegistry())
+			m := metrics.NewMetrics(prometheus.NewRegistry())
 
 			const maxRequests = 2
 			cbConfig := &config.CircuitBreaker{
@@ -475,47 +426,29 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				Timeout:          50 * time.Millisecond,
 				MaxRequests:      maxRequests, // Allow only 2 concurrent requests in half-open
 			}
-			prov := tc.createProvider(mockUpstream.URL, cbConfig)
 
 			ctx := t.Context()
-			tracer := otel.Tracer("forTesting")
-			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-			bridge, err := aibridge.NewRequestBridge(ctx,
-				[]provider.Provider{prov},
-				&testutil.MockRecorder{},
-				testutil.NewNoopMCPManager(),
-				logger,
-				metrics,
-				tracer,
+			bridgeServer := newBridgeTestServer(t, ctx, mockUpstream.URL,
+				withCustomProvider(tc.createProvider(mockUpstream.URL, cbConfig)),
+				withMetrics(m),
+				withActor("test-user-id", nil),
 			)
-			require.NoError(t, err)
 
-			mockSrv := httptest.NewUnstartedServer(bridge)
-			t.Cleanup(mockSrv.Close)
-			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibridge.AsActor(ctx, "test-user-id", nil)
-			}
-			mockSrv.Start()
-
-			makeRequest := func() *http.Response {
-				req := tc.createRequest(t, mockSrv.URL, []byte(tc.requestBody))
-				tc.setupHeaders(req)
-				resp, err := http.DefaultClient.Do(req)
+			doRequest := func() *http.Response {
+				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
+				_, err := io.ReadAll(resp.Body)
 				require.NoError(t, err)
-				_, err = io.ReadAll(resp.Body)
-				require.NoError(t, err)
-				resp.Body.Close()
 				return resp
 			}
 
 			// Phase 1: Trip the circuit
 			for i := uint32(0); i < cbConfig.FailureThreshold; i++ {
-				resp := makeRequest()
+				resp := doRequest()
 				assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 			}
 
 			// Verify circuit is open
-			resp := makeRequest()
+			resp := doRequest()
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 
 			// Phase 2: Wait for half-open state and switch upstream to success
@@ -532,7 +465,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					resp := makeRequest()
+					resp := doRequest()
 					responses <- resp.StatusCode
 				}()
 			}
@@ -562,7 +495,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				"%d requests should be rejected (ErrTooManyRequests)", totalRequests-maxRequests)
 
 			// Verify rejects metric increased
-			rejects := promtest.ToFloat64(metrics.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			rejects := promtest.ToFloat64(m.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, float64(1+totalRequests-maxRequests), rejects,
 				"CircuitBreakerRejects should include half-open rejections")
 		})
@@ -609,54 +542,37 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 		Timeout:          500 * time.Millisecond,
 		MaxRequests:      1,
 	}
-	prov := provider.NewAnthropic(config.Anthropic{
-		BaseURL:        mockUpstream.URL,
-		Key:            "test-key",
-		CircuitBreaker: cbConfig,
-	}, nil)
-
 	ctx := t.Context()
-	tracer := otel.Tracer("forTesting")
-	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-	bridge, err := aibridge.NewRequestBridge(ctx,
-		[]provider.Provider{prov},
-		&testutil.MockRecorder{},
-		testutil.NewNoopMCPManager(),
-		logger,
-		m,
-		tracer,
+	bridgeServer := newBridgeTestServer(t, ctx, mockUpstream.URL,
+		withCustomProvider(provider.NewAnthropic(config.Anthropic{
+			BaseURL:        mockUpstream.URL,
+			Key:            "test-key",
+			CircuitBreaker: cbConfig,
+		}, nil)),
+		withMetrics(m),
+		withActor("test-user-id", nil),
 	)
-	require.NoError(t, err)
 
-	mockSrv := httptest.NewUnstartedServer(bridge)
-	t.Cleanup(mockSrv.Close)
-	mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibridge.AsActor(ctx, "test-user-id", nil)
-	}
-	mockSrv.Start()
-
-	makeRequest := func(model string) *http.Response {
+	doRequest := func(model string) *http.Response {
 		body := fmt.Sprintf(`{"model":"%s","max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`, model)
-		req := createAnthropicMessagesReq(t, mockSrv.URL, []byte(body))
-		req.Header.Set("x-api-key", "test")
-		req.Header.Set("anthropic-version", "2023-06-01")
-		resp, err := http.DefaultClient.Do(req)
+		resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, []byte(body), http.Header{
+			"x-api-key":         {"test"},
+			"anthropic-version": {"2023-06-01"},
+		})
+		_, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		_, err = io.ReadAll(resp.Body)
-		require.NoError(t, err)
-		resp.Body.Close()
 		return resp
 	}
 
 	// Phase 1: Trip the circuit for sonnet model
 	for i := uint32(0); i < cbConfig.FailureThreshold; i++ {
-		resp := makeRequest("claude-sonnet-4-20250514")
+		resp := doRequest("claude-sonnet-4-20250514")
 		assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	}
 	assert.Equal(t, int32(cbConfig.FailureThreshold), sonnetCalls.Load())
 
 	// Verify sonnet circuit is open
-	resp := makeRequest("claude-sonnet-4-20250514")
+	resp := doRequest("claude-sonnet-4-20250514")
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, "Sonnet circuit should be open")
 	assert.Equal(t, int32(cbConfig.FailureThreshold), sonnetCalls.Load(), "No new sonnet calls when circuit is open")
 
@@ -668,13 +584,13 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	assert.Equal(t, 1.0, sonnetState, "Sonnet CircuitBreakerState should be 1 (open)")
 
 	// Phase 2: Haiku model should still work (independent circuit)
-	resp = makeRequest("claude-3-5-haiku-20241022")
+	resp = doRequest("claude-3-5-haiku-20241022")
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "Haiku should succeed while sonnet circuit is open")
 	assert.Equal(t, int32(1), haikuCalls.Load(), "Haiku call should reach upstream")
 
 	// Make multiple haiku requests - all should succeed
 	for i := 0; i < 3; i++ {
-		resp = makeRequest("claude-3-5-haiku-20241022")
+		resp = doRequest("claude-3-5-haiku-20241022")
 		assert.Equal(t, http.StatusOK, resp.StatusCode, "Haiku should continue to succeed")
 	}
 	assert.Equal(t, int32(4), haikuCalls.Load(), "All haiku calls should reach upstream")
@@ -690,7 +606,7 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	time.Sleep(cbConfig.Timeout + 10*time.Millisecond)
 	sonnetShouldFail.Store(false)
 
-	resp = makeRequest("claude-sonnet-4-20250514")
+	resp = doRequest("claude-sonnet-4-20250514")
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "Sonnet should recover after timeout")
 
 	// Verify sonnet circuit is now closed

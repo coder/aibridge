@@ -1,27 +1,21 @@
-package aibridge_test
+package integrationtest
 
 import (
+	"bytes"
 	"context"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
-	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/metrics"
-	"github.com/coder/aibridge/provider"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
-	"go.opentelemetry.io/otel/trace"
 )
 
 func TestMetrics_Interception(t *testing.T) {
@@ -30,7 +24,7 @@ func TestMetrics_Interception(t *testing.T) {
 	cases := []struct {
 		name           string
 		fixture        []byte
-		reqFunc        func(*testing.T, string, []byte) *http.Request
+		path           string
 		expectStatus   string
 		expectModel    string
 		expectRoute    string
@@ -40,7 +34,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "ant_simple",
 			fixture:        fixtures.AntSimple,
-			reqFunc:        createAnthropicMessagesReq,
+			path:           pathAnthropicMessages,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "claude-sonnet-4-0",
 			expectRoute:    "/v1/messages",
@@ -49,7 +43,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "ant_error",
 			fixture:        fixtures.AntNonStreamError,
-			reqFunc:        createAnthropicMessagesReq,
+			path:           pathAnthropicMessages,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "claude-sonnet-4-0",
 			expectRoute:    "/v1/messages",
@@ -59,7 +53,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_chat_simple",
 			fixture:        fixtures.OaiChatSimple,
-			reqFunc:        createOpenAIChatCompletionsReq,
+			path:           pathOpenAIChatCompletions,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4.1",
 			expectRoute:    "/v1/chat/completions",
@@ -68,7 +62,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_chat_error",
 			fixture:        fixtures.OaiChatNonStreamError,
-			reqFunc:        createOpenAIChatCompletionsReq,
+			path:           pathOpenAIChatCompletions,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4.1",
 			expectRoute:    "/v1/chat/completions",
@@ -78,7 +72,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_responses_blocking_simple",
 			fixture:        fixtures.OaiResponsesBlockingSimple,
-			reqFunc:        createOpenAIResponsesReq,
+			path:           pathOpenAIResponses,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
@@ -87,7 +81,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_responses_blocking_error",
 			fixture:        fixtures.OaiResponsesBlockingHttpErr,
-			reqFunc:        createOpenAIResponsesReq,
+			path:           pathOpenAIResponses,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
@@ -97,7 +91,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_responses_streaming_simple",
 			fixture:        fixtures.OaiResponsesStreamingSimple,
-			reqFunc:        createOpenAIResponsesReq,
+			path:           pathOpenAIResponses,
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
@@ -106,7 +100,7 @@ func TestMetrics_Interception(t *testing.T) {
 		{
 			name:           "oai_responses_streaming_error",
 			fixture:        fixtures.OaiResponsesStreamingHttpErr,
-			reqFunc:        createOpenAIResponsesReq,
+			path:           pathOpenAIResponses,
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
@@ -123,29 +117,22 @@ func TestMetrics_Interception(t *testing.T) {
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 			upstream.AllowOverflow = tc.allowOverflow
 
-			metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-			var prov aibridge.Provider
-			if tc.expectProvider == config.ProviderAnthropic {
-				prov = provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)
-			} else {
-				prov = provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			}
-			srv, _ := newTestSrv(t, ctx, prov, metrics, testTracer)
+			m := aibridge.NewMetrics(prometheus.NewRegistry())
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+				withMetrics(m),
+			)
 
-			req := tc.reqFunc(t, srv.URL, fix.Request())
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 			_, _ = io.ReadAll(resp.Body)
 
-			count := promtest.ToFloat64(metrics.InterceptionCount.WithLabelValues(
-				tc.expectProvider, tc.expectModel, tc.expectStatus, tc.expectRoute, "POST", userID))
+			count := promtest.ToFloat64(m.InterceptionCount.WithLabelValues(
+				tc.expectProvider, tc.expectModel, tc.expectStatus, tc.expectRoute, "POST", defaultActorID))
 			require.Equal(t, 1.0, count)
-			require.Equal(t, 1, promtest.CollectAndCount(metrics.InterceptionDuration))
-			require.Equal(t, 1, promtest.CollectAndCount(metrics.InterceptionCount))
+			require.Equal(t, 1, promtest.CollectAndCount(m.InterceptionDuration))
+			require.Equal(t, 1, promtest.CollectAndCount(m.InterceptionCount))
 		})
 	}
 }
@@ -166,15 +153,17 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	}))
 	t.Cleanup(srv.Close)
 
-	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := provider.NewAnthropic(anthropicCfg(srv.URL, apiKey), nil)
-	bridgeSrv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
+	m := aibridge.NewMetrics(prometheus.NewRegistry())
+	bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
+		withMetrics(m),
+	)
 
 	// Make request in background.
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		req := createAnthropicMessagesReq(t, bridgeSrv.URL, fix.Request())
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, bridgeServer.URL+pathAnthropicMessages, bytes.NewReader(fix.Request()))
+		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
@@ -185,7 +174,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	// Wait until request is detected as inflight.
 	require.Eventually(t, func() bool {
 		return promtest.ToFloat64(
-			metrics.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
+			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 1
 	}, time.Second*10, time.Millisecond*50)
 
@@ -200,7 +189,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	// Metric is not updated immediately after request completes, so wait until it is.
 	require.Eventually(t, func() bool {
 		return promtest.ToFloat64(
-			metrics.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
+			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 0
 	}, time.Second*10, time.Millisecond*50)
 }
@@ -211,19 +200,15 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	t.Cleanup(upstream.Close)
 
-	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-	srv, _ := newTestSrv(t, t.Context(), provider, metrics, testTracer)
+	m := aibridge.NewMetrics(prometheus.NewRegistry())
+	bridgeServer := newBridgeTestServer(t, t.Context(), upstream.URL,
+		withMetrics(m),
+	)
 
-	req, err := http.NewRequestWithContext(t.Context(), "GET", srv.URL+"/openai/v1/models", nil)
-	require.NoError(t, err)
-
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	defer resp.Body.Close()
+	resp := bridgeServer.makeRequest(t, http.MethodGet, "/openai/v1/models", nil)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	count := promtest.ToFloat64(metrics.PassthroughCount.WithLabelValues(
+	count := promtest.ToFloat64(m.PassthroughCount.WithLabelValues(
 		config.ProviderOpenAI, "/models", "GET"))
 	require.Equal(t, 1.0, count)
 }
@@ -235,21 +220,19 @@ func TestMetrics_PromptCount(t *testing.T) {
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixtures.OaiChatSimple)
-	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
+	m := aibridge.NewMetrics(prometheus.NewRegistry())
+	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+		withMetrics(m),
+	)
 
-	req := createOpenAIChatCompletionsReq(t, srv.URL, fix.Request())
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
 
-	prompts := promtest.ToFloat64(metrics.PromptCount.WithLabelValues(
-		config.ProviderOpenAI, "gpt-4.1", userID))
+	prompts := promtest.ToFloat64(m.PromptCount.WithLabelValues(
+		config.ProviderOpenAI, "gpt-4.1", defaultActorID))
 	require.Equal(t, 1.0, prompts)
 }
 
@@ -260,20 +243,18 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
-	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-	srv, _ := newTestSrv(t, ctx, provider, metrics, testTracer)
+	m := aibridge.NewMetrics(prometheus.NewRegistry())
+	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+		withMetrics(m),
+	)
 
-	req := createOpenAIChatCompletionsReq(t, srv.URL, fix.Request())
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
 
-	count := promtest.ToFloat64(metrics.NonInjectedToolUseCount.WithLabelValues(
+	count := promtest.ToFloat64(m.NonInjectedToolUseCount.WithLabelValues(
 		config.ProviderOpenAI, "gpt-4.1", "read_file"))
 	require.Equal(t, 1.0, count)
 }
@@ -286,31 +267,20 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 
 	// First request returns the tool invocation, the second returns the mocked response to the tool result.
 	fix := fixtures.Parse(t, fixtures.AntSingleInjectedTool)
-	upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix), testutil.NewFixtureToolResponse(fix))
+	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix))
 
-	recorder := &testutil.MockRecorder{}
-	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-	metrics := aibridge.NewMetrics(prometheus.NewRegistry())
-	provider := provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), nil)
+	m := aibridge.NewMetrics(prometheus.NewRegistry())
 
 	// Setup mocked MCP server & tools.
-	mockMCP := testutil.SetupMCPForTest(t, testTracer)
+	mockMCP := setupMCPForTest(t, defaultTracer)
 
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, recorder, mockMCP, logger, metrics, testTracer)
-	require.NoError(t, err)
+	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+		withMetrics(m),
+		withMCP(mockMCP),
+	)
 
-	srv := httptest.NewUnstartedServer(bridge)
-	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibcontext.AsActor(ctx, userID, nil)
-	}
-	srv.Start()
-	t.Cleanup(srv.Close)
-
-	req := createAnthropicMessagesReq(t, srv.URL, fix.Request())
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
 
 	// Wait until full roundtrip has completed.
@@ -318,35 +288,13 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 		return upstream.Calls.Load() == 2
 	}, time.Second*10, time.Millisecond*50)
 
+	recorder := bridgeServer.Recorder
 	require.Len(t, recorder.ToolUsages(), 1)
 	require.True(t, recorder.ToolUsages()[0].Injected)
 	require.NotNil(t, recorder.ToolUsages()[0].ServerURL)
 	actualServerURL := *recorder.ToolUsages()[0].ServerURL
 
-	count := promtest.ToFloat64(metrics.InjectedToolUseCount.WithLabelValues(
-		config.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, testutil.MockToolName))
+	count := promtest.ToFloat64(m.InjectedToolUseCount.WithLabelValues(
+		config.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName))
 	require.Equal(t, 1.0, count)
-}
-
-func newTestSrv(t *testing.T, ctx context.Context, provider aibridge.Provider, metrics *metrics.Metrics, tracer trace.Tracer) (*httptest.Server, *testutil.MockRecorder) {
-	t.Helper()
-
-	logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
-	mockRecorder := &testutil.MockRecorder{}
-	clientFn := func() (aibridge.Recorder, error) {
-		return mockRecorder, nil
-	}
-	wrappedRecorder := aibridge.NewRecorder(logger, tracer, clientFn)
-
-	bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{provider}, wrappedRecorder, testutil.NewNoopMCPManager(), logger, metrics, tracer)
-	require.NoError(t, err)
-
-	srv := httptest.NewUnstartedServer(bridge)
-	srv.Config.BaseContext = func(_ net.Listener) context.Context {
-		return aibcontext.AsActor(ctx, userID, nil)
-	}
-	srv.Start()
-	t.Cleanup(srv.Close)
-
-	return srv, mockRecorder
 }

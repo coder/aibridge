@@ -1,11 +1,10 @@
-package aibridge_test
+package integrationtest
 
 import (
 	"bufio"
 	"bytes"
 	"context"
 	"io"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,66 +13,46 @@ import (
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
-	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/intercept/apidump"
-	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/provider"
 	"github.com/stretchr/testify/require"
 )
-
-func openaiCfgWithAPIDump(url, key, dumpDir string) config.OpenAI {
-	return config.OpenAI{
-		BaseURL:    url,
-		Key:        key,
-		APIDumpDir: dumpDir,
-	}
-}
-
-func anthropicCfgWithAPIDump(url, key, dumpDir string) config.Anthropic {
-	return config.Anthropic{
-		BaseURL:    url,
-		Key:        key,
-		APIDumpDir: dumpDir,
-	}
-}
 
 func TestAPIDump(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name              string
-		fixture           []byte
-		providersFunc     func(addr, dumpDir string) []aibridge.Provider
-		createRequestFunc createRequestFunc
+		name         string
+		fixture      []byte
+		providerFunc func(addr, dumpDir string) aibridge.Provider
+		path         string
 	}{
 		{
 			name:    "anthropic",
 			fixture: fixtures.AntSimple,
-			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)}
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)
 			},
-			createRequestFunc: createAnthropicMessagesReq,
+			path: pathAnthropicMessages,
 		},
 		{
 			name:    "openai_chat_completions",
 			fixture: fixtures.OaiChatSimple,
-			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
-			createRequestFunc: createOpenAIChatCompletionsReq,
+			path: pathOpenAIChatCompletions,
 		},
 		{
 			name:    "openai_responses",
 			fixture: fixtures.OaiResponsesBlockingSimple,
-			providersFunc: func(addr, dumpDir string) []aibridge.Provider {
-				return []aibridge.Provider{provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))}
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
-			createRequestFunc: createOpenAIResponsesReq,
+			path: pathOpenAIResponses,
 		},
 	}
 
@@ -81,44 +60,32 @@ func TestAPIDump(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
 			// Setup mock upstream server.
 			fix := fixtures.Parse(t, tc.fixture)
-			srv := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+			srv := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 			// Create temp dir for API dumps.
 			dumpDir := t.TempDir()
 
-			recorderClient := &testutil.MockRecorder{}
-			b, err := aibridge.NewRequestBridge(t.Context(), tc.providersFunc(srv.URL, dumpDir), recorderClient, testutil.NewNoopMCPManager(), logger, nil, testTracer)
-			require.NoError(t, err)
+			bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
+				withCustomProvider(tc.providerFunc(srv.URL, dumpDir)),
+			)
 
-			mockSrv := httptest.NewUnstartedServer(b)
-			t.Cleanup(mockSrv.Close)
-			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibcontext.AsActor(ctx, userID, nil)
-			}
-			mockSrv.Start()
-
-			req := tc.createRequestFunc(t, mockSrv.URL, fix.Request())
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			defer resp.Body.Close()
 			_, _ = io.ReadAll(resp.Body)
 
 			// Verify dump files were created.
-			interceptions := recorderClient.RecordedInterceptions()
+			interceptions := bridgeServer.Recorder.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
 			interceptionID := interceptions[0].ID
 
 			// Find dump files for this interception by walking the dump directory.
 			var reqDumpFile, respDumpFile string
-			err = filepath.Walk(dumpDir, func(path string, info os.FileInfo, err error) error {
+			err := filepath.Walk(dumpDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}
@@ -167,7 +134,7 @@ func TestAPIDump(t *testing.T) {
 			expectedRespBody := fix.NonStreaming()
 			require.JSONEq(t, string(expectedRespBody), string(dumpRespBody), "response body JSON should match semantically")
 
-			recorderClient.VerifyAllInterceptionsEnded(t)
+			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 		})
 	}
 }
@@ -213,8 +180,6 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
@@ -226,30 +191,16 @@ func TestAPIDumpPassthrough(t *testing.T) {
 
 			dumpDir := t.TempDir()
 
-			recorderClient := &testutil.MockRecorder{}
-			prov := tc.providerFunc(upstream.URL, dumpDir)
-			provs := []aibridge.Provider{prov}
-			b, err := aibridge.NewRequestBridge(t.Context(), provs, recorderClient, testutil.NewNoopMCPManager(), logger, nil, testTracer)
-			require.NoError(t, err)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+				withCustomProvider(tc.providerFunc(upstream.URL, dumpDir)),
+			)
 
-			bridgeSrv := httptest.NewUnstartedServer(b)
-			t.Cleanup(bridgeSrv.Close)
-			bridgeSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibcontext.AsActor(ctx, userID, nil)
-			}
-			bridgeSrv.Start()
-
-			req, err := http.NewRequestWithContext(ctx, http.MethodGet, bridgeSrv.URL+tc.requestPath, nil)
-			require.NoError(t, err)
-
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+			bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
 
 			// Find dump files in the passthrough directory.
 			passthroughDir := filepath.Join(dumpDir, tc.name, "passthrough")
 			var reqDumpFile, respDumpFile string
-			err = filepath.Walk(passthroughDir, func(path string, info os.FileInfo, err error) error {
+			err := filepath.Walk(passthroughDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}

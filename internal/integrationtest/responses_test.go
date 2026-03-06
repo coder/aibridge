@@ -1,7 +1,6 @@
-package aibridge_test
+package integrationtest
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -14,13 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
-	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
 	"github.com/openai/openai-go/v3/responses"
@@ -335,22 +330,13 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
-			ctx = aibcontext.AsActor(ctx, userID, nil)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			provider := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			srv, mockRecorder := newTestSrv(t, ctx, provider, nil, testTracer)
-			defer srv.Close()
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
-			req := createOpenAIResponsesReq(t, srv.URL, fix.Request())
-			req.Header.Set("User-Agent", tc.userAgent)
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request(), http.Header{"User-Agent": {tc.userAgent}})
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			got, err := io.ReadAll(resp.Body)
 
@@ -361,16 +347,16 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Equal(t, string(fix.NonStreaming()), string(got))
 			}
 
-			interceptions := mockRecorder.RecordedInterceptions()
+			interceptions := bridgeServer.Recorder.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
 			intc := interceptions[0]
-			require.Equal(t, intc.InitiatorID, userID)
+			require.Equal(t, intc.InitiatorID, defaultActorID)
 			require.Equal(t, intc.Provider, config.ProviderOpenAI)
 			require.Equal(t, intc.Model, tc.expectModel)
 			require.Equal(t, tc.userAgent, intc.UserAgent)
 			require.Equal(t, string(tc.expectedClient), intc.Client)
 
-			recordedPrompts := mockRecorder.RecordedPromptUsages()
+			recordedPrompts := bridgeServer.Recorder.RecordedPromptUsages()
 			if tc.expectPromptRecorded != "" {
 				require.Len(t, recordedPrompts, 1)
 				promptEq := func(pur *recorder.PromptUsageRecord) bool { return pur.Prompt == tc.expectPromptRecorded }
@@ -379,7 +365,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Empty(t, recordedPrompts)
 			}
 
-			recordedTools := mockRecorder.RecordedToolUsages()
+			recordedTools := bridgeServer.Recorder.RecordedToolUsages()
 			if tc.expectToolRecorded != nil {
 				require.Len(t, recordedTools, 1)
 				recordedTools[0].InterceptionID = tc.expectToolRecorded.InterceptionID // ignore interception id (interception id is not constant and response doesn't contain it)
@@ -389,7 +375,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Empty(t, recordedTools)
 			}
 
-			recordedTokens := mockRecorder.RecordedTokenUsages()
+			recordedTokens := bridgeServer.Recorder.RecordedTokenUsages()
 			if tc.expectTokenUsage != nil {
 				require.Len(t, recordedTokens, 1)
 				recordedTokens[0].InterceptionID = tc.expectTokenUsage.InterceptionID // ignore interception id
@@ -433,18 +419,11 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			srv, _ := newTestSrv(t, ctx, prov, nil, testTracer)
-			defer srv.Close()
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 			// Create a request with background mode enabled
 			reqBytes := responsesRequestBytes(t, tc.streaming, keyVal{"background", true})
-			req := createOpenAIResponsesReq(t, srv.URL, reqBytes)
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
 
 			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 			require.Equal(t, http.StatusNotImplemented, resp.StatusCode)
@@ -527,38 +506,29 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				raw, err := io.ReadAll(r.Body)
-				require.NoError(t, err)
-				defer r.Body.Close()
+			fix := fixtures.OaiResponsesBlockingSimple
+			if tc.streaming {
+				fix = fixtures.OaiResponsesStreamingSimple
+			}
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fixtures.Parse(t, fix)))
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
-				var receivedRequest map[string]any
-				require.NoError(t, json.Unmarshal(raw, &receivedRequest))
-				if tc.expectParallelToolCalls {
-					parallelToolCalls, ok := receivedRequest["parallel_tool_calls"].(bool)
-					require.True(t, ok, "parallel_tool_calls should be present in upstream request")
-					require.Equal(t, tc.expectParallelToolCallsValue, parallelToolCalls)
-				} else {
-					_, ok := receivedRequest["parallel_tool_calls"]
-					require.False(t, ok, "parallel_tool_calls should not be present when not set")
-				}
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, []byte(tc.request))
+			_, _ = io.ReadAll(resp.Body)
 
-				w.WriteHeader(http.StatusOK)
-			}))
-			t.Cleanup(upstream.Close)
+			received := upstream.receivedRequests()
+			require.Len(t, received, 1)
 
-			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			srv, _ := newTestSrv(t, ctx, prov, nil, testTracer)
-			defer srv.Close()
-
-			req := createOpenAIResponsesReq(t, srv.URL, []byte(tc.request))
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
-			_, err = io.ReadAll(resp.Body)
-			require.NoError(t, err)
+			var receivedRequest map[string]any
+			require.NoError(t, json.Unmarshal(received[0].Body, &receivedRequest))
+			if tc.expectParallelToolCalls {
+				parallelToolCalls, ok := receivedRequest["parallel_tool_calls"].(bool)
+				require.True(t, ok, "parallel_tool_calls should be present in upstream request")
+				require.Equal(t, tc.expectParallelToolCallsValue, parallelToolCalls)
+			} else {
+				_, ok := receivedRequest["parallel_tool_calls"]
+				require.False(t, ok, "parallel_tool_calls should not be present when not set")
+			}
 		})
 	}
 }
@@ -608,17 +578,11 @@ func TestClientAndConnectionError(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			prov := provider.NewOpenAI(openaiCfg(tc.addr, apiKey))
-			srv, mockRecorder := newTestSrv(t, ctx, prov, nil, testTracer)
-			defer srv.Close()
+			// tc.addr may be an intentionally invalid URL; use withCustomProvider.
+			bridgeServer := newBridgeTestServer(t, ctx, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))))
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := createOpenAIResponsesReq(t, srv.URL, reqBytes)
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
 
 			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 			require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
@@ -626,7 +590,7 @@ func TestClientAndConnectionError(t *testing.T) {
 			body, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 			requireResponsesError(t, http.StatusInternalServerError, tc.errContains, body)
-			require.Empty(t, mockRecorder.RecordedPromptUsages())
+			require.Empty(t, bridgeServer.Recorder.RecordedPromptUsages())
 		})
 	}
 }
@@ -692,17 +656,10 @@ func TestUpstreamError(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			srv, _ := newTestSrv(t, ctx, prov, nil, testTracer)
-			defer srv.Close()
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			req := createOpenAIResponsesReq(t, srv.URL, reqBytes)
-			client := &http.Client{}
-
-			resp, err := client.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
 
 			require.Equal(t, tc.statusCode, resp.StatusCode)
 			require.Equal(t, tc.contentType, resp.Header.Get("Content-Type"))
@@ -868,32 +825,17 @@ func TestResponsesInjectedTool(t *testing.T) {
 			// Setup mock server for multi-turn interaction.
 			// First request → tool call response, second → tool response.
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix), testutil.NewFixtureToolResponse(fix))
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix))
 
 			// Setup MCP server proxies (with mock tools).
-			mockMCP := testutil.SetupMCPForTest(t, testTracer)
+			mockMCP := setupMCPForTest(t, defaultTracer)
 			if tc.expectToolError != "" {
-				mockMCP.SetToolError(tc.mcpToolName, tc.expectToolError)
+				mockMCP.setToolError(tc.mcpToolName, tc.expectToolError)
 			}
 
-			prov := provider.NewOpenAI(openaiCfg(upstream.URL, apiKey))
-			mockRecorder := &testutil.MockRecorder{}
-			logger := slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, withMCP(mockMCP))
 
-			bridge, err := aibridge.NewRequestBridge(ctx, []aibridge.Provider{prov}, mockRecorder, mockMCP, logger, nil, testTracer)
-			require.NoError(t, err)
-
-			srv := httptest.NewUnstartedServer(bridge)
-			srv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibcontext.AsActor(ctx, userID, nil)
-			}
-			srv.Start()
-			t.Cleanup(srv.Close)
-
-			req := createOpenAIResponsesReq(t, srv.URL, fix.Request())
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			body, err := io.ReadAll(resp.Body)
@@ -905,11 +847,11 @@ func TestResponsesInjectedTool(t *testing.T) {
 			}, time.Second*10, time.Millisecond*50)
 
 			// Verify the injected tool was invoked via MCP.
-			invocations := mockMCP.GetCallsByTool(tc.mcpToolName)
+			invocations := mockMCP.getCallsByTool(tc.mcpToolName)
 			require.Len(t, invocations, 1, "expected MCP tool to be invoked once")
 
 			// Verify the injected tool usage was recorded.
-			toolUsages := mockRecorder.RecordedToolUsages()
+			toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 			require.Len(t, toolUsages, 1)
 			require.Equal(t, tc.mcpToolName, toolUsages[0].Tool)
 			require.Equal(t, tc.expectToolArgs, toolUsages[0].Args)
@@ -919,11 +861,11 @@ func TestResponsesInjectedTool(t *testing.T) {
 			}
 
 			// Verify prompt was recorded.
-			prompts := mockRecorder.RecordedPromptUsages()
+			prompts := bridgeServer.Recorder.RecordedPromptUsages()
 			require.Len(t, prompts, 1)
 			require.Equal(t, tc.expectPrompt, prompts[0].Prompt)
 
-			tokenUsages := mockRecorder.RecordedTokenUsages()
+			tokenUsages := bridgeServer.Recorder.RecordedTokenUsages()
 			require.Len(t, tokenUsages, len(tc.expectTokenUsages))
 			for i := range tokenUsages {
 				tokenUsages[i].InterceptionID = "" // ignore interception ID and time creation when comparing
@@ -939,15 +881,6 @@ func TestResponsesInjectedTool(t *testing.T) {
 			}
 		})
 	}
-}
-
-func createOpenAIResponsesReq(t *testing.T, baseURL string, input []byte) *http.Request {
-	t.Helper()
-
-	req, err := http.NewRequestWithContext(t.Context(), "POST", baseURL+"/openai/v1/responses", bytes.NewReader(input))
-	require.NoError(t, err)
-	req.Header.Set("Content-Type", "application/json")
-	return req
 }
 
 func requireResponsesError(t *testing.T, code int, message string, body []byte) {
