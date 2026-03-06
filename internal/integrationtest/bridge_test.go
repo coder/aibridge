@@ -143,7 +143,6 @@ func TestAWSBedrockIntegration(t *testing.T) {
 
 		bridgeServer := newBridgeTestServer(t, ctx, "http://unused",
 			withCustomProvider(provider.NewAnthropic(anthropicCfg("http://unused", apiKey), bedrockCfg)),
-			withLogger(newLogger(t)),
 		)
 
 		resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fixtures.Request(t, fixtures.AntSingleBuiltinTool))
@@ -179,7 +178,6 @@ func TestAWSBedrockIntegration(t *testing.T) {
 
 				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 					withCustomProvider(provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bedrockCfg)),
-					withLogger(newLogger(t)),
 				)
 
 				// Make API call to aibridge for Anthropic /v1/messages, which will be routed via AWS Bedrock.

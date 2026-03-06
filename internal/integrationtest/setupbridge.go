@@ -122,11 +122,6 @@ func withActor(id string, md recorder.Metadata) bridgeOption {
 	return func(c *bridgeConfig) { c.userID = id; c.metadata = md }
 }
 
-// withLogger overrides the default slogtest debug logger.
-func withLogger(l slog.Logger) bridgeOption {
-	return func(c *bridgeConfig) { c.logger = l; c.loggerSet = true }
-}
-
 // newBridgeTestServer creates a fully configured test server running
 // a RequestBridge with sensible defaults:
 //   - All standard providers (unless withProvider / withCustomProvider)
