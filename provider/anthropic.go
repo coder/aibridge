@@ -28,10 +28,10 @@ var anthropicForwardHeaders = []string{
 
 var _ Provider = &Anthropic{}
 
-// headerCoderProviderKey is the header used to pass a per-user provider API
+// headerCoderLLMKey is the header used to pass a per-user LLM provider API
 // key (BYOK). When present, it takes precedence over the centralized key and
 // is stripped before the request is forwarded to Anthropic.
-const headerCoderProviderKey = "X-Coder-Provider-Key"
+const headerCoderLLMKey = "X-Coder-LLM-Key"
 
 // Anthropic allows for interactions with the Anthropic API.
 type Anthropic struct {
@@ -118,8 +118,8 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		// BYOK: if the request carries a per-user provider key, use it instead
 		// of the centralized key. The header is stripped here so it is never
 		// forwarded to Anthropic.
-		if byok := r.Header.Get(headerCoderProviderKey); byok != "" {
-			r.Header.Del(headerCoderProviderKey)
+		if byok := r.Header.Get(headerCoderLLMKey); byok != "" {
+			r.Header.Del(headerCoderLLMKey)
 			cfg.Key = byok
 		}
 
@@ -152,8 +152,8 @@ func (p *Anthropic) InjectAuthHeader(headers *http.Header) {
 
 	// BYOK: prefer a per-request provider key over the centralized one.
 	// The header is stripped so it is never forwarded to Anthropic.
-	if byok := headers.Get(headerCoderProviderKey); byok != "" {
-		headers.Del(headerCoderProviderKey)
+	if byok := headers.Get(headerCoderLLMKey); byok != "" {
+		headers.Del(headerCoderLLMKey)
 		headers.Set(p.AuthHeader(), byok)
 		return
 	}

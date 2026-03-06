@@ -127,7 +127,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 
 		body := `{"model": "claude-opus-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "hello"}], "stream": false}`
 		req := httptest.NewRequest(http.MethodPost, routeMessages, bytes.NewBufferString(body))
-		req.Header.Set(headerCoderProviderKey, "byok-key")
+		req.Header.Set(headerCoderLLMKey, "byok-key")
 		w := httptest.NewRecorder()
 
 		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
@@ -135,7 +135,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		require.NotNil(t, interceptor)
 
 		// Header must be stripped from the request after CreateInterceptor.
-		assert.Empty(t, req.Header.Get(headerCoderProviderKey), "BYOK header should be stripped from request")
+		assert.Empty(t, req.Header.Get(headerCoderLLMKey), "BYOK header should be stripped from request")
 
 		interceptor.Setup(slog.Make(), &testutil.MockRecorder{}, nil)
 		processReq := httptest.NewRequest(http.MethodPost, routeMessages, nil)
@@ -256,11 +256,11 @@ func TestAnthropic_InjectAuthHeader(t *testing.T) {
 
 		p := NewAnthropic(config.Anthropic{Key: "centralized-key"}, nil)
 		headers := http.Header{}
-		headers.Set(headerCoderProviderKey, "byok-key")
+		headers.Set(headerCoderLLMKey, "byok-key")
 		p.InjectAuthHeader(&headers)
 
 		assert.Equal(t, "byok-key", headers.Get("X-Api-Key"), "BYOK key should be used as upstream auth")
-		assert.Empty(t, headers.Get(headerCoderProviderKey), "BYOK header should be stripped")
+		assert.Empty(t, headers.Get(headerCoderLLMKey), "BYOK header should be stripped")
 	})
 }
 
