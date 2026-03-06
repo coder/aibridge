@@ -18,6 +18,7 @@ import (
 	"github.com/tidwall/sjson"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 )
@@ -27,6 +28,18 @@ type expectTrace struct {
 	name   string
 	count  int
 	status codes.Code
+}
+
+func setupTracer(t *testing.T) (*tracetest.SpanRecorder, oteltrace.Tracer) {
+	t.Helper()
+
+	sr := tracetest.NewSpanRecorder()
+	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
+	t.Cleanup(func() {
+		_ = tp.Shutdown(t.Context())
+	})
+
+	return sr, tp.Tracer(t.Name())
 }
 
 func TestTraceAnthropic(t *testing.T) {
@@ -91,10 +104,7 @@ func TestTraceAnthropic(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			sr := tracetest.NewSpanRecorder()
-			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-			tracer := tp.Tracer(t.Name())
-			defer func() { _ = tp.Shutdown(t.Context()) }()
+			sr, tracer := setupTracer(t)
 
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
@@ -205,10 +215,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			sr := tracetest.NewSpanRecorder()
-			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-			tracer := tp.Tracer(t.Name())
-			defer func() { _ = tp.Shutdown(t.Context()) }()
+			sr, tracer := setupTracer(t)
 
 			fix := fixtures.Parse(t, tc.fixture)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
@@ -336,10 +343,7 @@ func TestInjectedToolsTrace(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			sr := tracetest.NewSpanRecorder()
-			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-			tracer := tp.Tracer(t.Name())
-			defer func() { _ = tp.Shutdown(t.Context()) }()
+			sr, tracer := setupTracer(t)
 
 			var validatorFn func(*http.Request, []byte)
 			if tc.expectProvider == config.ProviderAnthropic {
@@ -460,10 +464,7 @@ func TestTraceOpenAI(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			sr := tracetest.NewSpanRecorder()
-			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-			tracer := tp.Tracer(t.Name())
-			defer func() { _ = tp.Shutdown(t.Context()) }()
+			sr, tracer := setupTracer(t)
 
 			fix := fixtures.Parse(t, tc.fixture)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
@@ -618,10 +619,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
 			t.Cleanup(cancel)
 
-			sr := tracetest.NewSpanRecorder()
-			tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-			tracer := tp.Tracer(t.Name())
-			defer func() { _ = tp.Shutdown(t.Context()) }()
+			sr, tracer := setupTracer(t)
 
 			fix := fixtures.Parse(t, tc.fixture)
 
@@ -669,10 +667,7 @@ func TestTracePassthrough(t *testing.T) {
 
 	upstream := newMockUpstream(t, t.Context(), newFixtureResponse(fix))
 
-	sr := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-	tracer := tp.Tracer(t.Name())
-	defer func() { _ = tp.Shutdown(t.Context()) }()
+	sr, tracer := setupTracer(t)
 
 	bridgeServer := newBridgeTestServer(t, t.Context(), upstream.URL,
 		withTracer(tracer),
@@ -688,7 +683,7 @@ func TestTracePassthrough(t *testing.T) {
 
 	assert.Equal(t, spans[0].Name(), "Passthrough")
 	want := []attribute.KeyValue{
-		attribute.String(tracing.PassthroughMethod, http.MethodPost),
+		attribute.String(tracing.PassthroughMethod, "GET"),
 		attribute.String(tracing.PassthroughUpstreamURL, upstream.URL+"/models"),
 		attribute.String(tracing.PassthroughURL, "/models"),
 	}
@@ -697,10 +692,7 @@ func TestTracePassthrough(t *testing.T) {
 }
 
 func TestNewServerProxyManagerTraces(t *testing.T) {
-	sr := tracetest.NewSpanRecorder()
-	tp := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(sr))
-	tracer := tp.Tracer(t.Name())
-	defer func() { _ = tp.Shutdown(t.Context()) }()
+	sr, tracer := setupTracer(t)
 
 	serverName := "serverName"
 	mockMCP := setupMCPForTestWithName(t, serverName, tracer)

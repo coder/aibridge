@@ -70,25 +70,23 @@ func TestAPIDump(t *testing.T) {
 			// Create temp dir for API dumps.
 			dumpDir := t.TempDir()
 
-			ts := newBridgeTestServer(t, ctx, srv.URL,
+			bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
 				withCustomProvider(tc.newProvider(srv.URL, dumpDir)),
 			)
 
-			req := ts.newRequest(t, tc.path, fix.Request())
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			defer resp.Body.Close()
 			_, _ = io.ReadAll(resp.Body)
 
 			// Verify dump files were created.
-			interceptions := ts.Recorder.RecordedInterceptions()
+			interceptions := bridgeServer.Recorder.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
 			interceptionID := interceptions[0].ID
 
 			// Find dump files for this interception by walking the dump directory.
 			var reqDumpFile, respDumpFile string
-			err = filepath.Walk(dumpDir, func(path string, info os.FileInfo, err error) error {
+			err := filepath.Walk(dumpDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}
@@ -137,7 +135,7 @@ func TestAPIDump(t *testing.T) {
 			expectedRespBody := fix.NonStreaming()
 			require.JSONEq(t, string(expectedRespBody), string(dumpRespBody), "response body JSON should match semantically")
 
-			ts.Recorder.VerifyAllInterceptionsEnded(t)
+			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 		})
 	}
 }
@@ -194,19 +192,17 @@ func TestAPIDumpPassthrough(t *testing.T) {
 
 			dumpDir := t.TempDir()
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 				withCustomProvider(tc.newProvider(upstream.URL, dumpDir)),
 			)
 
-			req := ts.newRequest(t, tc.requestPath, nil)
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
 			defer resp.Body.Close()
 
 			// Find dump files in the passthrough directory.
 			passthroughDir := filepath.Join(dumpDir, tc.name, "passthrough")
 			var reqDumpFile, respDumpFile string
-			err = filepath.Walk(passthroughDir, func(path string, info os.FileInfo, err error) error {
+			err := filepath.Walk(passthroughDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}
@@ -237,7 +233,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 			require.NoError(t, err)
 			dumpReq, err := http.ReadRequest(bufio.NewReader(bytes.NewReader(reqDumpData)))
 			require.NoError(t, err)
-			require.Equal(t, http.MethodPost, dumpReq.Method)
+			require.Equal(t, http.MethodGet, dumpReq.Method)
 
 			// Verify response dump.
 			respDumpData, err := os.ReadFile(respDumpFile)

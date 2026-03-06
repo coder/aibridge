@@ -229,8 +229,8 @@ func TestSessionIDTracking(t *testing.T) {
 		fixture        []byte
 		expectedClient aibridge.Client
 		sessionID      string
-		configureFunc  func(*testing.T, string, aibridge.Recorder) (*aibridge.RequestBridge, error)
-		createRequest  func(t *testing.T, baseURL string, body []byte) *http.Request
+		header         http.Header
+		mutateBody     func(t *testing.T, body []byte) []byte
 	}{
 		// Session in header.
 		{
@@ -238,18 +238,9 @@ func TestSessionIDTracking(t *testing.T) {
 			fixture:        fixtures.AntSimple,
 			expectedClient: aibridge.ClientMux,
 			sessionID:      "mux-workspace-321",
-			configureFunc: func(t *testing.T, addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
-				t.Helper()
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
-			},
-			createRequest: func(t *testing.T, baseURL string, body []byte) *http.Request {
-				t.Helper()
-				req := createAnthropicMessagesReq(t, baseURL, body)
-				req.Header.Set("User-Agent", "mux/1.0.0")
-				req.Header.Set("X-Mux-Workspace-Id", "mux-workspace-321")
-				return req
+			header: http.Header{
+				"User-Agent":         []string{"mux/1.0.0"},
+				"X-Mux-Workspace-Id": []string{"mux-workspace-321"},
 			},
 		},
 		// Session in body.
@@ -258,21 +249,16 @@ func TestSessionIDTracking(t *testing.T) {
 			fixture:        fixtures.AntSimple,
 			expectedClient: aibridge.ClientClaudeCode,
 			sessionID:      "f47ac10b-58cc-4372-a567-0e02b2c3d479",
-			configureFunc: func(t *testing.T, addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
-				t.Helper()
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
+			header: http.Header{
+				"User-Agent": []string{"claude-cli/2.0.67 (external, cli)"},
 			},
-			createRequest: func(t *testing.T, baseURL string, body []byte) *http.Request {
+			mutateBody: func(t *testing.T, body []byte) []byte {
 				t.Helper()
 				// Claude Code embeds the session ID in metadata.user_id within the body.
 				body, err := sjson.SetBytes(body, "metadata.user_id",
 					"user_abc123_account_456_session_f47ac10b-58cc-4372-a567-0e02b2c3d479")
 				require.NoError(t, err)
-				req := createAnthropicMessagesReq(t, baseURL, body)
-				req.Header.Set("User-Agent", "claude-cli/2.0.67 (external, cli)")
-				return req
+				return body
 			},
 		},
 		// No session.
@@ -280,17 +266,8 @@ func TestSessionIDTracking(t *testing.T) {
 			name:           "zed",
 			fixture:        fixtures.AntSimple,
 			expectedClient: aibridge.ClientZed,
-			configureFunc: func(t *testing.T, addr string, client aibridge.Recorder) (*aibridge.RequestBridge, error) {
-				t.Helper()
-				logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
-				providers := []aibridge.Provider{provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)}
-				return aibridge.NewRequestBridge(t.Context(), providers, client, mcp.NewServerProxyManager(nil, testTracer), logger, nil, testTracer)
-			},
-			createRequest: func(t *testing.T, baseURL string, body []byte) *http.Request {
-				t.Helper()
-				req := createAnthropicMessagesReq(t, baseURL, body)
-				req.Header.Set("User-Agent", "Zed/0.219.4+stable.119.abc123 (macos; aarch64)")
-				return req
+			header: http.Header{
+				"User-Agent": []string{"Zed/0.219.4+stable.119.abc123 (macos; aarch64)"},
 			},
 		},
 	}
@@ -303,30 +280,23 @@ func TestSessionIDTracking(t *testing.T) {
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := testutil.NewMockUpstream(t, ctx, testutil.NewFixtureResponse(fix))
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, withProvider(config.ProviderAnthropic))
 
-			recorderClient := &testutil.MockRecorder{}
-
-			b, err := tc.configureFunc(t, upstream.URL, recorderClient)
-			require.NoError(t, err)
-			mockSrv := httptest.NewUnstartedServer(b)
-			t.Cleanup(mockSrv.Close)
-			mockSrv.Config.BaseContext = func(_ net.Listener) context.Context {
-				return aibcontext.AsActor(ctx, userID, nil)
+			reqBody := fix.Request()
+			if tc.mutateBody != nil {
+				reqBody = tc.mutateBody(t, reqBody)
 			}
-			mockSrv.Start()
 
-			req := tc.createRequest(t, mockSrv.URL, fix.Request())
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody, tc.header)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			defer resp.Body.Close()
 
 			// Drain the body to let the stream complete.
-			_, err = io.ReadAll(resp.Body)
+			_, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
-			interceptions := recorderClient.RecordedInterceptions()
+			interceptions := bridgeServer.Recorder.RecordedInterceptions()
 			require.Len(t, interceptions, 1, "expected exactly one interception")
 			assert.Equal(t, string(tc.expectedClient), interceptions[0].Client)
 
@@ -337,7 +307,7 @@ func TestSessionIDTracking(t *testing.T) {
 				assert.Equal(t, tc.sessionID, *interceptions[0].ClientSessionID)
 			}
 
-			recorderClient.VerifyAllInterceptionsEnded(t)
+			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 		})
 	}
 }

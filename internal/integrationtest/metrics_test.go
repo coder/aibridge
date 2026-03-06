@@ -1,6 +1,7 @@
 package integrationtest
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net/http"
@@ -120,13 +121,11 @@ func TestMetrics_Interception(t *testing.T) {
 			upstream.AllowOverflow = tc.allowOverflow
 
 			m := aibridge.NewMetrics(prometheus.NewRegistry())
-			ts := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 				withMetrics(m),
 			)
 
-			req := ts.newRequest(t, tc.path, fix.Request())
-			resp, err := http.DefaultClient.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 			defer resp.Body.Close()
 			_, _ = io.ReadAll(resp.Body)
 
@@ -156,7 +155,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	ts := newBridgeTestServer(t, ctx, srv.URL,
+	bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
 		withMetrics(m),
 	)
 
@@ -164,7 +163,8 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	doneCh := make(chan struct{})
 	go func() {
 		defer close(doneCh)
-		req := ts.newRequest(t, pathAnthropicMessages, fix.Request())
+		req, _ := http.NewRequestWithContext(ctx, http.MethodPost, bridgeServer.URL+pathAnthropicMessages, bytes.NewReader(fix.Request()))
+		req.Header.Set("Content-Type", "application/json")
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
@@ -202,18 +202,16 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	ts := newBridgeTestServer(t, t.Context(), upstream.URL,
+	bridgeServer := newBridgeTestServer(t, t.Context(), upstream.URL,
 		withMetrics(m),
 	)
 
-	req := ts.newRequest(t, "/openai/v1/models", nil)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := bridgeServer.makeRequest(t, http.MethodGet, "/openai/v1/models", nil)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	count := promtest.ToFloat64(m.PassthroughCount.WithLabelValues(
-		config.ProviderOpenAI, "/models", http.MethodPost))
+		config.ProviderOpenAI, "/models", "GET"))
 	require.Equal(t, 1.0, count)
 }
 
@@ -227,13 +225,11 @@ func TestMetrics_PromptCount(t *testing.T) {
 	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	ts := newBridgeTestServer(t, ctx, upstream.URL,
+	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 		withMetrics(m),
 	)
 
-	req := ts.newRequest(t, pathOpenAIChatCompletions, fix.Request())
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
@@ -253,13 +249,11 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	ts := newBridgeTestServer(t, ctx, upstream.URL,
+	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 		withMetrics(m),
 	)
 
-	req := ts.newRequest(t, pathOpenAIChatCompletions, fix.Request())
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
@@ -284,14 +278,12 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	// Setup mocked MCP server & tools.
 	mockMCP := setupMCPForTest(t, defaultTracer)
 
-	ts := newBridgeTestServer(t, ctx, upstream.URL,
+	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 		withMetrics(m),
 		withMCP(mockMCP),
 	)
 
-	req := ts.newRequest(t, pathAnthropicMessages, fix.Request())
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	defer resp.Body.Close()
 	_, _ = io.ReadAll(resp.Body)
@@ -301,7 +293,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 		return upstream.Calls.Load() == 2
 	}, time.Second*10, time.Millisecond*50)
 
-	recorder := ts.Recorder
+	recorder := bridgeServer.Recorder
 	require.Len(t, recorder.ToolUsages(), 1)
 	require.True(t, recorder.ToolUsages()[0].Injected)
 	require.NotNil(t, recorder.ToolUsages()[0].ServerURL)
