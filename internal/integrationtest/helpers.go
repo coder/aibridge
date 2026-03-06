@@ -9,21 +9,21 @@ import (
 )
 
 // anthropicCfg creates a minimal Anthropic config for testing.
-func anthropicCfg(url, key string) config.Anthropic {
+func anthropicCfg(url string, key string) config.Anthropic {
 	return config.Anthropic{
 		BaseURL: url,
 		Key:     key,
 	}
 }
 
-func anthropicCfgWithAPIDump(url, key, dumpDir string) config.Anthropic {
+func anthropicCfgWithAPIDump(url string, key string, dumpDir string) config.Anthropic {
 	cfg := anthropicCfg(url, key)
 	cfg.APIDumpDir = dumpDir
 	return cfg
 }
 
-// testBedrockCfg returns a test AWS Bedrock config pointing at the given URL.
-func testBedrockCfg(url string) *config.AWSBedrock {
+// bedrockCfg returns a test AWS Bedrock config pointing at the given URL.
+func bedrockCfg(url string) *config.AWSBedrock {
 	return &config.AWSBedrock{
 		Region:          "us-west-2",
 		AccessKey:       "test-access-key",
@@ -35,14 +35,14 @@ func testBedrockCfg(url string) *config.AWSBedrock {
 }
 
 // openAICfg creates a minimal OpenAI config for testing.
-func openAICfg(url, key string) config.OpenAI {
+func openAICfg(url string, key string) config.OpenAI {
 	return config.OpenAI{
 		BaseURL: url,
 		Key:     key,
 	}
 }
 
-func openaiCfgWithAPIDump(url, key, dumpDir string) config.OpenAI {
+func openaiCfgWithAPIDump(url string, key string, dumpDir string) config.OpenAI {
 	cfg := openAICfg(url, key)
 	cfg.APIDumpDir = dumpDir
 	return cfg

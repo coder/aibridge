@@ -334,7 +334,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			fix := fixtures.Parse(t, tc.fixture)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			ts := newBridgeTestServer(t, ctx, upstream.URL, withWrappedRecorder())
+			ts := newBridgeTestServer(t, ctx, upstream.URL)
 
 			req := ts.newRequest(t, pathOpenAIResponses, fix.Request())
 			req.Header.Set("User-Agent", tc.userAgent)
@@ -597,7 +597,7 @@ func TestClientAndConnectionError(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// tc.addr may be an intentionally invalid URL; use withCustomProvider.
-			ts := newBridgeTestServer(t, ctx, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))), withWrappedRecorder())
+			ts := newBridgeTestServer(t, ctx, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))))
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
 			req := ts.newRequest(t, pathOpenAIResponses, reqBytes)
