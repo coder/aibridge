@@ -104,19 +104,16 @@ func TestTraceAnthropic(t *testing.T) {
 			if tc.bedrock {
 				opts = append(opts, withProvider(providerBedrock))
 			}
-			ts := newBridgeTestServer(t, ctx, upstream.URL, opts...)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
 
 			reqBody, err := sjson.SetBytes(fixtureReqBody, "stream", tc.streaming)
 			require.NoError(t, err)
-			req := ts.newRequest(t, pathAnthropicMessages, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			defer resp.Body.Close()
-			ts.Close()
+			bridgeServer.Close()
 
-			recorder := ts.Recorder
+			recorder := bridgeServer.Recorder
 			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
 			intcID := recorder.RecordedInterceptions()[0].ID
 
@@ -222,23 +219,20 @@ func TestTraceAnthropicErr(t *testing.T) {
 			if tc.bedrock {
 				opts = append(opts, withProvider(providerBedrock))
 			}
-			ts := newBridgeTestServer(t, ctx, upstream.URL, opts...)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
-			req := ts.newRequest(t, pathAnthropicMessages, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 			if tc.streaming {
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 			} else {
 				require.Equal(t, tc.expectCode, resp.StatusCode)
 			}
 			defer resp.Body.Close()
-			ts.Close()
+			bridgeServer.Close()
 
-			recorder := ts.Recorder
+			recorder := bridgeServer.Recorder
 			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
 			intcID := recorder.RecordedInterceptions()[0].ID
 
@@ -473,21 +467,18 @@ func TestTraceOpenAI(t *testing.T) {
 
 			fix := fixtures.Parse(t, tc.fixture)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
-			ts := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
 				withTracer(tracer),
 			)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
-			req := ts.newRequest(t, tc.path, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			defer resp.Body.Close()
-			ts.Close()
+			bridgeServer.Close()
 
-			recorder := ts.Recorder
+			recorder := bridgeServer.Recorder
 			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
 			intcID := recorder.RecordedInterceptions()[0].ID
 
@@ -636,22 +627,19 @@ func TestTraceOpenAIErr(t *testing.T) {
 
 			mockAPI := newMockUpstream(t, ctx, newFixtureResponse(fix))
 			mockAPI.AllowOverflow = tc.allowOverflow
-			ts := newBridgeTestServer(t, ctx, mockAPI.URL,
+			bridgeServer := newBridgeTestServer(t, ctx, mockAPI.URL,
 				withTracer(tracer),
 			)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
-			req := ts.newRequest(t, tc.path, reqBody)
-			client := &http.Client{}
-			resp, err := client.Do(req)
-			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
 
 			require.Equal(t, tc.expectCode, resp.StatusCode)
 			defer resp.Body.Close()
-			ts.Close()
+			bridgeServer.Close()
 
-			recorder := ts.Recorder
+			recorder := bridgeServer.Recorder
 			require.Equal(t, 1, len(recorder.RecordedInterceptions()))
 			intcID := recorder.RecordedInterceptions()[0].ID
 
@@ -686,16 +674,14 @@ func TestTracePassthrough(t *testing.T) {
 	tracer := tp.Tracer(t.Name())
 	defer func() { _ = tp.Shutdown(t.Context()) }()
 
-	ts := newBridgeTestServer(t, t.Context(), upstream.URL,
+	bridgeServer := newBridgeTestServer(t, t.Context(), upstream.URL,
 		withTracer(tracer),
 	)
 
-	req := ts.newRequest(t, "/openai/v1/models", nil)
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
+	resp := bridgeServer.makeRequest(t, http.MethodGet, "/openai/v1/models", nil)
 	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	ts.Close()
+	bridgeServer.Close()
 
 	spans := sr.Ended()
 	require.Len(t, spans, 1)
