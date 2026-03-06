@@ -100,7 +100,6 @@ func TestTraceAnthropic(t *testing.T) {
 
 			opts := []bridgeOption{
 				withTracer(tracer),
-				withWrappedRecorder(),
 			}
 			if tc.bedrock {
 				opts = append(opts, withProvider(providerBedrock))
@@ -219,7 +218,6 @@ func TestTraceAnthropicErr(t *testing.T) {
 
 			opts := []bridgeOption{
 				withTracer(tracer),
-				withWrappedRecorder(),
 			}
 			if tc.bedrock {
 				opts = append(opts, withProvider(providerBedrock))
@@ -390,18 +388,18 @@ func TestInjectedToolsTrace(t *testing.T) {
 
 func TestTraceOpenAI(t *testing.T) {
 	cases := []struct {
-		name       string
-		fixture    []byte
-		streaming  bool
-		path string
-		
-		expect     []expectTrace
+		name      string
+		fixture   []byte
+		streaming bool
+		path      string
+
+		expect []expectTrace
 	}{
 		{
-			name:       "trace_openai_chat_streaming",
-			fixture:    fixtures.OaiChatSimple,
-			streaming:  true,
-			path: pathOpenAIChatCompletions,
+			name:      "trace_openai_chat_streaming",
+			fixture:   fixtures.OaiChatSimple,
+			streaming: true,
+			path:      pathOpenAIChatCompletions,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -414,10 +412,10 @@ func TestTraceOpenAI(t *testing.T) {
 			},
 		},
 		{
-			name:       "trace_openai_chat_blocking",
-			fixture:    fixtures.OaiChatSimple,
-			streaming:  false,
-			path: pathOpenAIChatCompletions,
+			name:      "trace_openai_chat_blocking",
+			fixture:   fixtures.OaiChatSimple,
+			streaming: false,
+			path:      pathOpenAIChatCompletions,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -430,10 +428,10 @@ func TestTraceOpenAI(t *testing.T) {
 			},
 		},
 		{
-			name:       "trace_openai_responses_streaming",
-			fixture:    fixtures.OaiResponsesStreamingSimple,
-			streaming:  true,
-			path: pathOpenAIResponses,
+			name:      "trace_openai_responses_streaming",
+			fixture:   fixtures.OaiResponsesStreamingSimple,
+			streaming: true,
+			path:      pathOpenAIResponses,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -446,10 +444,10 @@ func TestTraceOpenAI(t *testing.T) {
 			},
 		},
 		{
-			name:       "trace_openai_responses_blocking",
-			fixture:    fixtures.OaiResponsesBlockingSimple,
-			streaming:  false,
-			path: pathOpenAIResponses,
+			name:      "trace_openai_responses_blocking",
+			fixture:   fixtures.OaiResponsesBlockingSimple,
+			streaming: false,
+			path:      pathOpenAIResponses,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Unset},
 				{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -477,7 +475,6 @@ func TestTraceOpenAI(t *testing.T) {
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 			ts := newBridgeTestServer(t, ctx, upstream.URL,
 				withTracer(tracer),
-				withWrappedRecorder(),
 			)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
@@ -521,14 +518,14 @@ func TestTraceOpenAIErr(t *testing.T) {
 		allowOverflow bool
 		path          string
 
-		expect        []expectTrace
-		expectCode    int
+		expect     []expectTrace
+		expectCode int
 	}{
 		{
 			name:       "trace_openai_chat_streaming_error",
 			fixture:    fixtures.OaiChatMidStreamError,
 			streaming:  true,
-			path: pathOpenAIChatCompletions,
+			path:       pathOpenAIChatCompletions,
 			expectCode: http.StatusOK,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -544,7 +541,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			name:       "trace_openai_chat_blocking_error",
 			fixture:    fixtures.OaiChatNonStreamError,
 			streaming:  false,
-			path: pathOpenAIChatCompletions,
+			path:       pathOpenAIChatCompletions,
 			expectCode: http.StatusBadRequest,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -559,7 +556,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			name:       "trace_openai_responses_streaming_error",
 			streaming:  true,
 			fixture:    fixtures.OaiResponsesStreamingWrongResponseFormat,
-			path: pathOpenAIResponses,
+			path:       pathOpenAIResponses,
 			expectCode: http.StatusOK,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -572,10 +569,10 @@ func TestTraceOpenAIErr(t *testing.T) {
 			},
 		},
 		{
-			name:       "trace_openai_responses_blocking_error",
-			fixture:    fixtures.OaiResponsesBlockingWrongResponseFormat,
-			streaming:  false,
-			path: pathOpenAIResponses,
+			name:      "trace_openai_responses_blocking_error",
+			fixture:   fixtures.OaiResponsesBlockingWrongResponseFormat,
+			streaming: false,
+			path:      pathOpenAIResponses,
 			// Fixture returns http 200 response with wrong body
 			// responses forward received response as is so
 			// expected code == 200 even though ProcessRequest
@@ -596,7 +593,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			streaming:     true,
 			allowOverflow: true, // 429 error causes retries
 
-			path: pathOpenAIResponses,
+			path:       pathOpenAIResponses,
 			expectCode: http.StatusTooManyRequests,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -612,7 +609,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 			fixture:   fixtures.OaiResponsesBlockingHttpErr,
 			streaming: false,
 
-			path: pathOpenAIResponses,
+			path:       pathOpenAIResponses,
 			expectCode: http.StatusUnauthorized,
 			expect: []expectTrace{
 				{"Intercept", 1, codes.Error},
@@ -641,7 +638,6 @@ func TestTraceOpenAIErr(t *testing.T) {
 			mockAPI.AllowOverflow = tc.allowOverflow
 			ts := newBridgeTestServer(t, ctx, mockAPI.URL,
 				withTracer(tracer),
-				withWrappedRecorder(),
 			)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
@@ -692,7 +688,6 @@ func TestTracePassthrough(t *testing.T) {
 
 	ts := newBridgeTestServer(t, t.Context(), upstream.URL,
 		withTracer(tracer),
-		withWrappedRecorder(),
 	)
 
 	req, err := http.NewRequestWithContext(t.Context(), "GET", ts.URL+"/openai/v1/models", nil)

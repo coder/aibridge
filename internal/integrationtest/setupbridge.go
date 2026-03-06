@@ -26,12 +26,12 @@ import (
 )
 
 const (
-	// Well-known bridged-route paths used by integration tests.
 	pathAnthropicMessages     = "/anthropic/v1/messages"
 	pathOpenAIChatCompletions = "/openai/v1/chat/completions"
 	pathOpenAIResponses       = "/openai/v1/responses"
 
 	// providerBedrock identifies a Bedrock provider in [withProvider].
+	// other providers use config.Provider* constants.
 	providerBedrock = "bedrock"
 
 	// defaults
@@ -39,7 +39,6 @@ const (
 	defaultActorID = "ae235cc1-9f8f-417d-a636-a7b170bac62e"
 )
 
-// defaultTracer is the default OTel tracer used in integration tests.
 var defaultTracer = otel.Tracer("integrationtest")
 
 // bridgeTestServer wraps an httptest.Server running a RequestBridge.
@@ -49,7 +48,6 @@ type bridgeTestServer struct {
 	Bridge   *aibridge.RequestBridge
 }
 
-// bridgeOption configures a [bridgeTestServer].
 type bridgeOption func(*bridgeConfig)
 
 type bridgeConfig struct {
@@ -61,7 +59,6 @@ type bridgeConfig struct {
 	metadata         recorder.Metadata
 	logger           slog.Logger
 	loggerSet        bool
-	wrapRecorder     bool
 }
 
 // newRequest creates a JSON POST request targeting the given path on this server.
@@ -75,14 +72,14 @@ func (s *bridgeTestServer) newRequest(t *testing.T, path string, body []byte) *h
 }
 
 // newDefaultProvider creates a Provider with default test configuration.
-func newDefaultProvider(providerType, addr string) aibridge.Provider {
+func newDefaultProvider(providerType string, addr string) aibridge.Provider {
 	switch providerType {
 	case config.ProviderAnthropic:
 		return provider.NewAnthropic(anthropicCfg(addr, apiKey), nil)
 	case config.ProviderOpenAI:
 		return provider.NewOpenAI(openAICfg(addr, apiKey))
 	case providerBedrock:
-		return provider.NewAnthropic(anthropicCfg(addr, apiKey), testBedrockCfg(addr))
+		return provider.NewAnthropic(anthropicCfg(addr, apiKey), bedrockCfg(addr))
 	default:
 		panic("unknown provider type: " + providerType)
 	}
@@ -132,12 +129,6 @@ func withActor(id string, md recorder.Metadata) bridgeOption {
 // withLogger overrides the default slogtest debug logger.
 func withLogger(l slog.Logger) bridgeOption {
 	return func(c *bridgeConfig) { c.logger = l; c.loggerSet = true }
-}
-
-// withWrappedRecorder wraps the MockRecorder through aibridge.NewRecorder
-// (the production recorder wrapper). Use when testing the recorder pipeline.
-func withWrappedRecorder() bridgeOption {
-	return func(c *bridgeConfig) { c.wrapRecorder = true }
 }
 
 // setupInjectedToolTest abstracts common setup required for injected-tool integration tests.
@@ -201,7 +192,6 @@ func setupInjectedToolTest(
 // newBridgeTestServer creates a fully configured test server running
 // a RequestBridge with sensible defaults:
 //   - All standard providers (unless withProvider / withCustomProvider)
-//   - MockRecorder (raw, unless withWrappedRecorder)
 //   - NoopMCPManager (unless withMCP)
 //   - slogtest debug logger (unless withLogger)
 //   - defaultTracer (unless withTracer)
@@ -246,11 +236,9 @@ func newBridgeTestServer(
 
 	mockRec := &testutil.MockRecorder{}
 	var rec aibridge.Recorder = mockRec
-	if cfg.wrapRecorder {
-		rec = aibridge.NewRecorder(cfg.logger, cfg.tracer, func() (aibridge.Recorder, error) {
-			return mockRec, nil
-		})
-	}
+	rec = aibridge.NewRecorder(cfg.logger, cfg.tracer, func() (aibridge.Recorder, error) {
+		return mockRec, nil
+	})
 
 	bridge, err := aibridge.NewRequestBridge(
 		ctx, providers, rec, cfg.mcpProxy,
