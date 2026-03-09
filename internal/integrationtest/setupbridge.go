@@ -69,7 +69,7 @@ func (s *bridgeTestServer) makeRequest(t *testing.T, method string, path string,
 	for _, h := range header {
 		for k, vals := range h {
 			for _, v := range vals {
-				req.Header.Set(k, v)
+				req.Header.Add(k, v)
 			}
 		}
 	}

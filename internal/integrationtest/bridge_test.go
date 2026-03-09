@@ -653,48 +653,43 @@ func TestFallthrough(t *testing.T) {
 
 	testCases := []struct {
 		name                 string
-		providerName         string
 		fixture              []byte
 		basePath             string
 		requestPath          string
 		expectedUpstreamPath string
-		authHeader           string
+		expectAuthHeader     string
 	}{
 		{
 			name:                 "ant_empty_base_url_path",
-			providerName:         config.ProviderAnthropic,
 			fixture:              fixtures.AntFallthrough,
 			basePath:             "",
 			requestPath:          "/anthropic/v1/models",
 			expectedUpstreamPath: "/v1/models",
-			authHeader:           "X-Api-Key",
+			expectAuthHeader:     "X-Api-Key",
 		},
 		{
 			name:                 "oai_empty_base_url_path",
-			providerName:         config.ProviderOpenAI,
 			fixture:              fixtures.OaiChatFallthrough,
 			basePath:             "",
 			requestPath:          "/openai/v1/models",
 			expectedUpstreamPath: "/models",
-			authHeader:           "Authorization",
+			expectAuthHeader:     "Authorization",
 		},
 		{
 			name:                 "ant_some_base_url_path",
-			providerName:         config.ProviderAnthropic,
 			fixture:              fixtures.AntFallthrough,
 			basePath:             "/api",
 			requestPath:          "/anthropic/v1/models",
 			expectedUpstreamPath: "/api/v1/models",
-			authHeader:           "X-Api-Key",
+			expectAuthHeader:     "X-Api-Key",
 		},
 		{
 			name:                 "oai_some_base_url_path",
-			providerName:         config.ProviderOpenAI,
 			fixture:              fixtures.OaiChatFallthrough,
 			basePath:             "/api",
 			requestPath:          "/openai/v1/models",
 			expectedUpstreamPath: "/api/models",
-			authHeader:           "Authorization",
+			expectAuthHeader:     "Authorization",
 		},
 	}
 
@@ -715,7 +710,7 @@ func TestFallthrough(t *testing.T) {
 			received := upstream.receivedRequests()
 			require.Len(t, received, 1)
 			require.Equal(t, tc.expectedUpstreamPath, received[0].Path)
-			require.Contains(t, received[0].Header.Get(tc.authHeader), apiKey)
+			require.Contains(t, received[0].Header.Get(tc.expectAuthHeader), apiKey)
 
 			gotBytes, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
