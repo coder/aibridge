@@ -2,6 +2,8 @@ module github.com/coder/aibridge
 
 go 1.25.6
 
+retract v1.0.8 // contains unresolved conflict marker from cherry-pick
+
 // Misc libs.
 require (
 	cdr.dev/slog/v3 v3.0.0
