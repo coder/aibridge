@@ -48,7 +48,7 @@ type bridgeConfig struct {
 	mcpProxy         mcp.ServerProxier
 	userID           string
 	metadata         recorder.Metadata
-	logger slog.Logger
+	logger           slog.Logger
 }
 
 // bridgeTestServer wraps an httptest.Server running a RequestBridge.
