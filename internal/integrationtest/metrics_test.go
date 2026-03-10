@@ -25,10 +25,12 @@ func TestMetrics_Interception(t *testing.T) {
 		name           string
 		fixture        []byte
 		path           string
+		headers        http.Header
 		expectStatus   string
 		expectModel    string
 		expectRoute    string
 		expectProvider string
+		expectClient   aibridge.Client
 		allowOverflow  bool // error fixtures may cause retries
 	}{
 		{
@@ -39,72 +41,98 @@ func TestMetrics_Interception(t *testing.T) {
 			expectModel:    "claude-sonnet-4-0",
 			expectRoute:    "/v1/messages",
 			expectProvider: config.ProviderAnthropic,
+			expectClient:   aibridge.ClientUnknown,
 		},
 		{
 			name:           "ant_error",
 			fixture:        fixtures.AntNonStreamError,
 			path:           pathAnthropicMessages,
+			headers:        http.Header{"User-Agent": []string{"kilo-code/1.2.3"}},
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "claude-sonnet-4-0",
 			expectRoute:    "/v1/messages",
 			expectProvider: config.ProviderAnthropic,
+			expectClient:   aibridge.ClientKilo,
 			allowOverflow:  true,
+		},
+		{
+			name:           "ant_simple_claude_code",
+			fixture:        fixtures.AntSimple,
+			path:           pathAnthropicMessages,
+			headers:        http.Header{"User-Agent": []string{"claude-code/1.0.0"}},
+			expectStatus:   metrics.InterceptionCountStatusCompleted,
+			expectModel:    "claude-sonnet-4-0",
+			expectRoute:    "/v1/messages",
+			expectProvider: config.ProviderAnthropic,
+			expectClient:   aibridge.ClientClaudeCode,
 		},
 		{
 			name:           "oai_chat_simple",
 			fixture:        fixtures.OaiChatSimple,
 			path:           pathOpenAIChatCompletions,
+			headers:        http.Header{"User-Agent": []string{"copilot/1.0.0"}},
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4.1",
 			expectRoute:    "/v1/chat/completions",
 			expectProvider: config.ProviderOpenAI,
+			expectClient:   aibridge.ClientCopilotCLI,
 		},
 		{
 			name:           "oai_chat_error",
 			fixture:        fixtures.OaiChatNonStreamError,
 			path:           pathOpenAIChatCompletions,
+			headers:        http.Header{"User-Agent": []string{"githubcopilotchat/0.30.0"}},
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4.1",
 			expectRoute:    "/v1/chat/completions",
 			expectProvider: config.ProviderOpenAI,
+			expectClient:   aibridge.ClientCopilotVSC,
 			allowOverflow:  true,
 		},
 		{
 			name:           "oai_responses_blocking_simple",
 			fixture:        fixtures.OaiResponsesBlockingSimple,
 			path:           pathOpenAIResponses,
+			headers:        http.Header{"X-Cursor-Client-Version": []string{"0.50.0"}},
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
+			expectClient:   aibridge.ClientCursor,
 		},
 		{
 			name:           "oai_responses_blocking_error",
 			fixture:        fixtures.OaiResponsesBlockingHttpErr,
 			path:           pathOpenAIResponses,
+			headers:        http.Header{"User-Agent": []string{"codex/1.0.0"}},
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
+			expectClient:   aibridge.ClientCodex,
 			allowOverflow:  true,
 		},
 		{
 			name:           "oai_responses_streaming_simple",
 			fixture:        fixtures.OaiResponsesStreamingSimple,
 			path:           pathOpenAIResponses,
+			headers:        http.Header{"User-Agent": []string{"zed/0.200.0"}},
 			expectStatus:   metrics.InterceptionCountStatusCompleted,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
+			expectClient:   aibridge.ClientZed,
 		},
 		{
 			name:           "oai_responses_streaming_error",
 			fixture:        fixtures.OaiResponsesStreamingHttpErr,
 			path:           pathOpenAIResponses,
+			headers:        http.Header{"Originator": []string{"roo-code"}},
 			expectStatus:   metrics.InterceptionCountStatusFailed,
 			expectModel:    "gpt-4o-mini",
 			expectRoute:    "/v1/responses",
 			expectProvider: config.ProviderOpenAI,
+			expectClient:   aibridge.ClientRoo,
 			allowOverflow:  true,
 		},
 	}
@@ -125,12 +153,12 @@ func TestMetrics_Interception(t *testing.T) {
 				withMetrics(m),
 			)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
 			_, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
 			count := promtest.ToFloat64(m.InterceptionCount.WithLabelValues(
-				tc.expectProvider, tc.expectModel, tc.expectStatus, tc.expectRoute, "POST", defaultActorID))
+				tc.expectProvider, tc.expectModel, tc.expectStatus, tc.expectRoute, "POST", defaultActorID, string(tc.expectClient)))
 			require.Equal(t, 1.0, count)
 			require.Equal(t, 1, promtest.CollectAndCount(m.InterceptionDuration))
 			require.Equal(t, 1, promtest.CollectAndCount(m.InterceptionCount))
@@ -229,14 +257,49 @@ func TestMetrics_PromptCount(t *testing.T) {
 		withMetrics(m),
 	)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
+	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request(), http.Header{"User-Agent": []string{"claude-code/1.0.0"}})
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 	_, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
 	prompts := promtest.ToFloat64(m.PromptCount.WithLabelValues(
-		config.ProviderOpenAI, "gpt-4.1", defaultActorID))
+		config.ProviderOpenAI, "gpt-4.1", defaultActorID, string(aibridge.ClientClaudeCode)))
 	require.Equal(t, 1.0, prompts)
+}
+
+func TestMetrics_TokenUseCount(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	t.Cleanup(cancel)
+
+	fix := fixtures.Parse(t, fixtures.OaiResponsesBlockingCachedInputTokens)
+	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+
+	m := aibridge.NewMetrics(prometheus.NewRegistry())
+	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+		withMetrics(m),
+	)
+
+	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request(),
+		http.Header{"User-Agent": []string{"claude-code/1.0.0"}})
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+	_, _ = io.ReadAll(resp.Body)
+
+	clientLabel := string(aibridge.ClientClaudeCode)
+	// Token metrics are recorded asynchronously; wait for them to appear.
+	require.Eventually(t, func() bool {
+		return promtest.ToFloat64(m.TokenUseCount.WithLabelValues(
+			config.ProviderOpenAI, "gpt-4.1", "input", defaultActorID, clientLabel)) > 0
+	}, time.Second*10, time.Millisecond*50)
+
+	require.Equal(t, 129.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "input", defaultActorID, clientLabel))) // 12033 - 11904 (cached)
+	require.Equal(t, 44.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "output", defaultActorID, clientLabel)))
+
+	// ExtraTokenTypes
+	require.Equal(t, 11904.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "input_cached", defaultActorID, clientLabel)))
+	require.Equal(t, 0.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "output_reasoning", defaultActorID, clientLabel)))
+	require.Equal(t, 12077.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "total_tokens", defaultActorID, clientLabel)))
 }
 
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {

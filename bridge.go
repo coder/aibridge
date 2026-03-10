@@ -190,6 +190,7 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		asyncRecorder.WithProvider(p.Name())
 		asyncRecorder.WithModel(interceptor.Model())
 		asyncRecorder.WithInitiatorID(actor.ID)
+		asyncRecorder.WithClient(string(client))
 		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
 		if err := rec.RecordInterception(ctx, &recorder.InterceptionRecord{
@@ -231,13 +232,13 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			return interceptor.ProcessRequest(rw, r)
 		}); err != nil {
 			if m != nil {
-				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID).Add(1)
+				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID, string(client)).Add(1)
 			}
 			span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
 			log.Warn(ctx, "interception failed", slog.Error(err))
 		} else {
 			if m != nil {
-				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID).Add(1)
+				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID, string(client)).Add(1)
 			}
 			log.Debug(ctx, "interception ended")
 		}
