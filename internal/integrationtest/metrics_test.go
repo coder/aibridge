@@ -126,7 +126,8 @@ func TestMetrics_Interception(t *testing.T) {
 			)
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
-			_, _ = io.ReadAll(resp.Body)
+			_, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
 
 			count := promtest.ToFloat64(m.InterceptionCount.WithLabelValues(
 				tc.expectProvider, tc.expectModel, tc.expectStatus, tc.expectRoute, "POST", defaultActorID))
@@ -167,7 +168,8 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 		resp, err := http.DefaultClient.Do(req)
 		if err == nil {
 			defer resp.Body.Close()
-			_, _ = io.ReadAll(resp.Body)
+			_, err = io.ReadAll(resp.Body)
+			require.NoError(t, err)
 		}
 	}()
 
@@ -229,7 +231,8 @@ func TestMetrics_PromptCount(t *testing.T) {
 
 	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, _ = io.ReadAll(resp.Body)
+	_, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
 	prompts := promtest.ToFloat64(m.PromptCount.WithLabelValues(
 		config.ProviderOpenAI, "gpt-4.1", defaultActorID))
@@ -252,7 +255,8 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 
 	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, _ = io.ReadAll(resp.Body)
+	_, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
 	count := promtest.ToFloat64(m.NonInjectedToolUseCount.WithLabelValues(
 		config.ProviderOpenAI, "gpt-4.1", "read_file"))
@@ -281,7 +285,8 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 
 	resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fix.Request())
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, _ = io.ReadAll(resp.Body)
+	_, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
 
 	// Wait until full roundtrip has completed.
 	require.Eventually(t, func() bool {

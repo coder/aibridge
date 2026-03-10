@@ -514,7 +514,8 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, []byte(tc.request))
-			_, _ = io.ReadAll(resp.Body)
+			_, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
 
 			received := upstream.receivedRequests()
 			require.Len(t, received, 1)
@@ -932,6 +933,10 @@ func startRejectingListener(t *testing.T) (addr string) {
 				return
 			}
 
+			// Read at least 1 byte so the client has started writing
+			// before we RST, ensuring a consistent "connection reset by peer".
+			buf := make([]byte, 1)
+			_, _ = c.Read(buf)
 			if tc, ok := c.(*net.TCPConn); ok {
 				_ = tc.SetLinger(0)
 			}

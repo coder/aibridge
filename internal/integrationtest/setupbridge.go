@@ -203,7 +203,7 @@ func setupInjectedToolTest(
 	path string,
 	toolRequestValidatorFn func(*http.Request, []byte),
 	opts ...bridgeOption,
-) (*testutil.MockRecorder, *mockMCP, *http.Response) {
+) (*bridgeTestServer, *mockMCP, *http.Response) {
 	t.Helper()
 
 	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
@@ -212,7 +212,8 @@ func setupInjectedToolTest(
 	fix := fixtures.Parse(t, fixture)
 
 	// Setup mock server for multi-turn interaction.
-	// First request → tool call response, second → tool response.
+	// First request → tool call response
+	// Second request → final response.
 	firstResp := newFixtureResponse(fix)
 	toolResp := newFixtureToolResponse(fix)
 	toolResp.OnRequest = toolRequestValidatorFn
@@ -235,12 +236,12 @@ func setupInjectedToolTest(
 	resp := bridgeServer.makeRequest(t, http.MethodPost, path, reqBody)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
-	// We must ALWAYS have 2 calls to the bridge for injected tool tests.
+	// Wait both requests (initial + tool call result)
 	require.Eventually(t, func() bool {
 		return upstream.Calls.Load() == 2
 	}, time.Second*10, time.Millisecond*50)
 
-	return bridgeServer.Recorder, mockMCP, resp
+	return bridgeServer, mockMCP, resp
 }
 
 // newDefaultProvider creates a Provider with default test configuration.

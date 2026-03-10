@@ -347,13 +347,13 @@ func TestInjectedToolsTrace(t *testing.T) {
 				validatorFn = openaiChatToolResultValidator(t)
 			}
 
-			recorderClient, mockMCP, _ := setupInjectedToolTest(
+			bridgeServer, mockMCP, _ := setupInjectedToolTest(
 				t, tc.fixture, tc.streaming, tracer,
 				tc.path, validatorFn, tc.opts...,
 			)
 
-			require.Len(t, recorderClient.RecordedInterceptions(), 1)
-			intcID := recorderClient.RecordedInterceptions()[0].ID
+			require.Len(t, bridgeServer.Recorder.RecordedInterceptions(), 1)
+			intcID := bridgeServer.Recorder.RecordedInterceptions()[0].ID
 
 			tool := mockMCP.ListTools()[0]
 

@@ -76,7 +76,8 @@ func TestAPIDump(t *testing.T) {
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			_, _ = io.ReadAll(resp.Body)
+			_, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
 
 			// Verify dump files were created.
 			interceptions := bridgeServer.Recorder.RecordedInterceptions()
@@ -85,7 +86,7 @@ func TestAPIDump(t *testing.T) {
 
 			// Find dump files for this interception by walking the dump directory.
 			var reqDumpFile, respDumpFile string
-			err := filepath.Walk(dumpDir, func(path string, info os.FileInfo, err error) error {
+			err = filepath.Walk(dumpDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}

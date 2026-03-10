@@ -562,19 +562,19 @@ func TestSessionIDTracking(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name           string
-		fixture        []byte
-		expectedClient aibridge.Client
-		sessionID      string
-		header         http.Header
-		mutateBody     func(t *testing.T, body []byte) []byte
+		name              string
+		fixture           []byte
+		header            http.Header
+		metadataSessionID string
+		expectedClient    aibridge.Client
+		expectSessionID   string
 	}{
 		// Session in header.
 		{
-			name:           "mux",
-			fixture:        fixtures.AntSimple,
-			expectedClient: aibridge.ClientMux,
-			sessionID:      "mux-workspace-321",
+			name:            "mux",
+			fixture:         fixtures.AntSimple,
+			expectedClient:  aibridge.ClientMux,
+			expectSessionID: "mux-workspace-321",
 			header: http.Header{
 				"User-Agent":         []string{"mux/1.0.0"},
 				"X-Mux-Workspace-Id": []string{"mux-workspace-321"},
@@ -582,21 +582,14 @@ func TestSessionIDTracking(t *testing.T) {
 		},
 		// Session in body.
 		{
-			name:           "claude_code",
-			fixture:        fixtures.AntSimple,
-			expectedClient: aibridge.ClientClaudeCode,
-			sessionID:      "f47ac10b-58cc-4372-a567-0e02b2c3d479",
+			name:            "claude_code",
+			fixture:         fixtures.AntSimple,
+			expectedClient:  aibridge.ClientClaudeCode,
+			expectSessionID: "f47ac10b-58cc-4372-a567-0e02b2c3d479",
 			header: http.Header{
 				"User-Agent": []string{"claude-cli/2.0.67 (external, cli)"},
 			},
-			mutateBody: func(t *testing.T, body []byte) []byte {
-				t.Helper()
-				// Claude Code embeds the session ID in metadata.user_id within the body.
-				body, err := sjson.SetBytes(body, "metadata.user_id",
-					"user_abc123_account_456_session_f47ac10b-58cc-4372-a567-0e02b2c3d479")
-				require.NoError(t, err)
-				return body
-			},
+			metadataSessionID: "user_abc123_account_456_session_f47ac10b-58cc-4372-a567-0e02b2c3d479",
 		},
 		// No session.
 		{
@@ -621,8 +614,10 @@ func TestSessionIDTracking(t *testing.T) {
 			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, withProvider(config.ProviderAnthropic))
 
 			reqBody := fix.Request()
-			if tc.mutateBody != nil {
-				reqBody = tc.mutateBody(t, reqBody)
+			if tc.metadataSessionID != "" {
+				var err error
+				reqBody, err = sjson.SetBytes(reqBody, "metadata.user_id", tc.metadataSessionID)
+				require.NoError(t, err)
 			}
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody, tc.header)
@@ -636,11 +631,11 @@ func TestSessionIDTracking(t *testing.T) {
 			require.Len(t, interceptions, 1, "expected exactly one interception")
 			assert.Equal(t, string(tc.expectedClient), interceptions[0].Client)
 
-			if tc.sessionID == "" {
+			if tc.expectSessionID == "" {
 				assert.Nil(t, interceptions[0].ClientSessionID, "expected nil session ID for %s", tc.name)
 			} else {
 				require.NotNil(t, interceptions[0].ClientSessionID, "expected non-nil session ID for %s", tc.name)
-				assert.Equal(t, tc.sessionID, *interceptions[0].ClientSessionID)
+				assert.Equal(t, tc.expectSessionID, *interceptions[0].ClientSessionID)
 			}
 
 			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
@@ -733,10 +728,10 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			t.Parallel()
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, defaultTracer, pathAnthropicMessages, anthropicToolResultValidator(t))
+			bridgeServer, mockMCP, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, defaultTracer, pathAnthropicMessages, anthropicToolResultValidator(t))
 
 			// Ensure expected tool was invoked with expected input.
-			toolUsages := recorderClient.RecordedToolUsages()
+			toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 			require.Len(t, toolUsages, 1)
 			require.Equal(t, mockToolName, toolUsages[0].Tool)
 			expected, err := json.Marshal(map[string]any{"owner": "admin"})
@@ -798,11 +793,11 @@ func TestAnthropicInjectedTools(t *testing.T) {
 			assert.EqualValues(t, 204, message.Usage.OutputTokens)
 
 			// Ensure tokens used during injected tool invocation are accounted for.
-			assert.EqualValues(t, 15308, recorderClient.TotalInputTokens())
-			assert.EqualValues(t, 204, recorderClient.TotalOutputTokens())
+			assert.EqualValues(t, 15308, bridgeServer.Recorder.TotalInputTokens())
+			assert.EqualValues(t, 204, bridgeServer.Recorder.TotalOutputTokens())
 
 			// Ensure we received exactly one prompt.
-			promptUsages := recorderClient.RecordedPromptUsages()
+			promptUsages := bridgeServer.Recorder.RecordedPromptUsages()
 			require.Len(t, promptUsages, 1)
 		})
 	}
@@ -816,10 +811,10 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			t.Parallel()
 
 			// Build the requirements & make the assertions which are common to all providers.
-			recorderClient, mockMCP, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, defaultTracer, pathOpenAIChatCompletions, openaiChatToolResultValidator(t))
+			bridgeServer, mockMCP, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, defaultTracer, pathOpenAIChatCompletions, openaiChatToolResultValidator(t))
 
 			// Ensure expected tool was invoked with expected input.
-			toolUsages := recorderClient.RecordedToolUsages()
+			toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 			require.Len(t, toolUsages, 1)
 			require.Equal(t, mockToolName, toolUsages[0].Tool)
 			expected, err := json.Marshal(map[string]any{"owner": "admin"})
@@ -896,11 +891,11 @@ func TestOpenAIInjectedTools(t *testing.T) {
 			assert.EqualValues(t, 105, message.Usage.CompletionTokens)
 
 			// Ensure tokens used during injected tool invocation are accounted for.
-			require.EqualValues(t, 5047, recorderClient.TotalInputTokens())
-			require.EqualValues(t, 105, recorderClient.TotalOutputTokens())
+			require.EqualValues(t, 5047, bridgeServer.Recorder.TotalInputTokens())
+			require.EqualValues(t, 105, bridgeServer.Recorder.TotalOutputTokens())
 
 			// Ensure we received exactly one prompt.
-			promptUsages := recorderClient.RecordedPromptUsages()
+			promptUsages := bridgeServer.Recorder.RecordedPromptUsages()
 			require.Len(t, promptUsages, 1)
 		})
 	}
@@ -1338,7 +1333,8 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			_, _ = io.ReadAll(resp.Body)
+			_, err = io.ReadAll(resp.Body)
+			require.NoError(t, err)
 
 			// Verify the thinking field was preserved in the upstream request.
 			received := upstream.receivedRequests()
@@ -1515,7 +1511,8 @@ func TestActorHeaders(t *testing.T) {
 				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
 				// Drain the body so streaming responses complete without
 				// a "connection reset" error in the mock upstream.
-				_, _ = io.ReadAll(resp.Body)
+				_, err = io.ReadAll(resp.Body)
+				require.NoError(t, err)
 
 				received := upstream.receivedRequests()
 				require.NotEmpty(t, received)
