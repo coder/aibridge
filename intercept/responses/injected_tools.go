@@ -25,6 +25,9 @@ func (i *responsesInterceptionBase) injectTools() {
 		return
 	}
 
+	// If there are injectable tools, disable parallel tool calls.
+	i.disableParallelToolCalls()
+
 	// Inject tools.
 	for _, tool := range tools {
 		var params map[string]any

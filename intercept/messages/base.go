@@ -315,6 +315,10 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *Err
 	}
 }
 
+func (i *interceptionBase) HasInjectableTools() bool {
+	return i.mcpProxy != nil && len(i.mcpProxy.ListTools()) > 0
+}
+
 // accumulateUsage accumulates usage statistics from source into dest.
 // It handles both [anthropic.Usage] and [anthropic.MessageDeltaUsage] types through [any].
 // The function uses reflection to handle the differences between the types:

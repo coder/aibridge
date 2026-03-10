@@ -326,6 +326,10 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 	}
 }
 
+func (i *responsesInterceptionBase) HasInjectableTools() bool {
+	return i.mcpProxy != nil && len(i.mcpProxy.ListTools()) > 0
+}
+
 // responseCopier helper struct to send original response to the client
 type responseCopier struct {
 	buff            deltaBuffer

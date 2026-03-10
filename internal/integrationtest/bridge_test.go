@@ -1308,6 +1308,83 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 	}
 }
 
+// TestChatCompletionsParallelToolCallsDisabled verifies that parallel_tool_calls
+// is set to false only when injectable MCP tools are present and the request
+// includes tools.
+func TestChatCompletionsParallelToolCallsDisabled(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name                    string
+		streaming               bool
+		withInjectedTools       bool
+		expectParallelToolCalls bool
+	}{
+		// Streaming with injected tools: parallel_tool_calls should be forced false.
+		{
+			name:                    "streaming/with_injected_tools",
+			streaming:               true,
+			withInjectedTools:       true,
+			expectParallelToolCalls: false,
+		},
+		// Streaming without injected tools: parallel_tool_calls preserved.
+		{
+			name:                    "streaming/no_injected_tools",
+			streaming:               true,
+			withInjectedTools:       false,
+			expectParallelToolCalls: true,
+		},
+		// Blocking with injected tools: parallel_tool_calls should be forced false.
+		{
+			name:                    "blocking/with_injected_tools",
+			streaming:               false,
+			withInjectedTools:       true,
+			expectParallelToolCalls: false,
+		},
+		{
+			name:                    "blocking/no_injected_tools",
+			streaming:               false,
+			withInjectedTools:       false,
+			expectParallelToolCalls: true,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+
+			var opts []bridgeOption
+			if tc.withInjectedTools {
+				opts = append(opts, withMCP(setupMCPForTest(t, defaultTracer)))
+			}
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
+
+			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
+			require.NoError(t, err)
+
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
+			_, err = io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			received := upstream.receivedRequests()
+			require.Len(t, received, 1)
+
+			var upstreamReq map[string]any
+			require.NoError(t, json.Unmarshal(received[0].Body, &upstreamReq))
+
+			ptc, ok := upstreamReq["parallel_tool_calls"].(bool)
+			require.True(t, ok, "parallel_tool_calls should be present in upstream request")
+			assert.Equal(t, tc.expectParallelToolCalls, ptc)
+		})
+	}
+}
+
 func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 	t.Parallel()
 

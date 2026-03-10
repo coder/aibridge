@@ -442,6 +442,7 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 		name                         string
 		request                      string
 		streaming                    bool
+		injectMCP                    bool
 		expectParallelToolCalls      bool
 		expectParallelToolCallsValue bool
 	}{
@@ -449,6 +450,7 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			name:                         "blocking_with_tools",
 			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": false, "parallel_tool_calls": true, "tools": [{"type": "function", "name": "test", "parameters": {}}]}`,
 			streaming:                    false,
+			injectMCP:                    true,
 			expectParallelToolCalls:      true,
 			expectParallelToolCallsValue: false,
 		},
@@ -456,6 +458,7 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			name:                         "streaming_with_tools",
 			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": true, "parallel_tool_calls": true, "tools": [{"type": "function", "name": "test", "parameters": {}}]}`,
 			streaming:                    true,
+			injectMCP:                    true,
 			expectParallelToolCalls:      true,
 			expectParallelToolCallsValue: false,
 		},
@@ -463,6 +466,7 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			name:                         "blocking_with_tools_no_parallel_param",
 			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": false, "tools": [{"type": "function", "name": "test", "parameters": {}}]}`,
 			streaming:                    false,
+			injectMCP:                    true,
 			expectParallelToolCalls:      true,
 			expectParallelToolCallsValue: false,
 		},
@@ -470,6 +474,7 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			name:                         "streaming_with_tools_no_parallel_param",
 			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": true, "tools": [{"type": "function", "name": "test", "parameters": {}}]}`,
 			streaming:                    true,
+			injectMCP:                    true,
 			expectParallelToolCalls:      true,
 			expectParallelToolCallsValue: false,
 		},
@@ -477,16 +482,19 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			name:      "blocking_without_tools",
 			request:   `{"input": "hello", "model": "gpt-4o-mini", "stream": false}`,
 			streaming: false,
+			injectMCP: true,
 		},
 		{
 			name:      "streaming_without_tools",
 			request:   `{"input": "hello", "model": "gpt-4o-mini", "stream": true}`,
 			streaming: true,
+			injectMCP: true,
 		},
 		{
 			name:                         "blocking_without_tools_parallel_true",
 			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": false, "parallel_tool_calls": true}`,
 			streaming:                    false,
+			injectMCP:                    true,
 			expectParallelToolCalls:      true,
 			expectParallelToolCallsValue: true,
 		},
@@ -494,6 +502,23 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			name:                         "streaming_without_tools_parallel_true",
 			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": true, "parallel_tool_calls": true}`,
 			streaming:                    true,
+			injectMCP:                    true,
+			expectParallelToolCalls:      true,
+			expectParallelToolCallsValue: true,
+		},
+		{
+			name:                         "blocking_without_injectable_tools_true",
+			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": false, "parallel_tool_calls": true}`,
+			streaming:                    false,
+			injectMCP:                    false,
+			expectParallelToolCalls:      true,
+			expectParallelToolCallsValue: true,
+		},
+		{
+			name:                         "streaming_without_injectable_tools_true",
+			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": true, "parallel_tool_calls": true}`,
+			streaming:                    true,
+			injectMCP:                    false,
 			expectParallelToolCalls:      true,
 			expectParallelToolCallsValue: true,
 		},
@@ -511,7 +536,13 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 				fix = fixtures.OaiResponsesStreamingSimple
 			}
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fixtures.Parse(t, fix)))
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+
+			var opts []bridgeOption
+			if tc.injectMCP {
+				mockMCP := setupMCPForTest(t, defaultTracer)
+				opts = append(opts, withMCP(mockMCP))
+			}
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
 
 			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, []byte(tc.request))
 			_, err := io.ReadAll(resp.Body)

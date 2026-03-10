@@ -107,6 +107,12 @@ func (i *interceptionBase) injectTools() {
 		return
 	}
 
+	// Disable parallel tool calls when injectable tools are present to simplify the inner agentic loop.
+	// Only set when there are tools in the request, otherwise it causes a 400 Bad Request.
+	if i.HasInjectableTools() && len(i.req.Tools) > 0 {
+		i.req.ParallelToolCalls = openai.Bool(false)
+	}
+
 	// Inject tools.
 	for _, tool := range i.mcpProxy.ListTools() {
 		fn := openai.ChatCompletionToolUnionParam{
@@ -169,6 +175,10 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *err
 	} else {
 		_, _ = w.Write(out)
 	}
+}
+
+func (i *interceptionBase) HasInjectableTools() bool {
+	return i.mcpProxy != nil && len(i.mcpProxy.ListTools()) > 0
 }
 
 func sumUsage(ref, in openai.CompletionUsage) openai.CompletionUsage {
