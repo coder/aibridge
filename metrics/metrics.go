@@ -42,13 +42,13 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 	return &Metrics{
 		// Interception-related metrics.
 
-		// Pessimistic cardinality: 3 providers, 5 models, 2 statuses, 2 routes, 3 methods, 10 clients = up to 1800 PER INITIATOR.
+		// Pessimistic cardinality: 3 providers, 5 models, 2 statuses, 3 routes, 3 methods, 10 clients = up to 2700 PER INITIATOR.
 		InterceptionCount: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "interceptions",
 			Name:      "total",
 			Help:      "The count of intercepted requests.",
 		}, append(baseLabels, "status", "route", "method", "initiator_id", "client")),
-		// Pessimistic cardinality: 3 providers, 5 models, 2 routes = up to 30.
+		// Pessimistic cardinality: 3 providers, 5 models, 3 routes = up to 45.
 		// NOTE: route is not unbounded because this is only for intercepted routes.
 		InterceptionsInflight: promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 			Subsystem: "interceptions",
