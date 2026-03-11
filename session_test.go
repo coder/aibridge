@@ -125,6 +125,11 @@ func TestGuessSessionID(t *testing.T) {
 			name:   "kilo_without_task_id",
 			client: ClientKilo,
 		},
+		// Coder Agents.
+		{
+			name:   "coder_agents_returns_empty",
+			client: ClientCoderAgents,
+		},
 		// Roo.
 		{
 			name:   "roo_returns_empty",

@@ -10,16 +10,17 @@ type Client string
 const (
 	// Possible values for the "client" field in interception records.
 	// Must be kept in sync with documentation: https://github.com/coder/coder/blob/90c11f3386578da053ec5cd9f1475835b980e7c7/docs/ai-coder/ai-bridge/monitoring.md?plain=1#L36-L44
-	ClientClaudeCode Client = "Claude Code"
-	ClientCodex      Client = "Codex"
-	ClientZed        Client = "Zed"
-	ClientCopilotVSC Client = "GitHub Copilot (VS Code)"
-	ClientCopilotCLI Client = "GitHub Copilot (CLI)"
-	ClientKilo       Client = "Kilo Code"
-	ClientMux        Client = "Mux"
-	ClientRoo        Client = "Roo Code"
-	ClientCursor     Client = "Cursor"
-	ClientUnknown    Client = "Unknown"
+	ClientClaudeCode  Client = "Claude Code"
+	ClientCodex       Client = "Codex"
+	ClientZed         Client = "Zed"
+	ClientCopilotVSC  Client = "GitHub Copilot (VS Code)"
+	ClientCopilotCLI  Client = "GitHub Copilot (CLI)"
+	ClientKilo        Client = "Kilo Code"
+	ClientCoderAgents Client = "Coder Agents"
+	ClientMux         Client = "Mux"
+	ClientRoo         Client = "Roo Code"
+	ClientCursor      Client = "Cursor"
+	ClientUnknown     Client = "Unknown"
 )
 
 // guessClient attempts to guess the client application from the request headers.
@@ -47,6 +48,8 @@ func guessClient(r *http.Request) Client {
 		return ClientKilo
 	case strings.HasPrefix(userAgent, "roo-code/") || originator == "roo-code":
 		return ClientRoo
+	case strings.HasPrefix(userAgent, "coder-agents/"):
+		return ClientCoderAgents
 	case r.Header.Get("x-cursor-client-version") != "":
 		return ClientCursor
 	}
