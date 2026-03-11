@@ -1192,61 +1192,161 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 
 	cases := []struct {
 		name                          string
+		fixture                       []byte
 		toolChoice                    any // nil, or map with "type" key.
 		withInjectedTools             bool
-		expectDisableParallel         bool
+		expectDisableParallel         *bool // nil = field should not be present, non-nil = expected value.
 		expectToolChoiceTypeInRequest string
 	}{
-		// With injected tools - disable_parallel_tool_use should be set.
+		// With injected tools - disable_parallel_tool_use should be set to true.
 		{
 			name:                          "with injected tools: no tool_choice defined defaults to auto",
+			fixture:                       fixtures.AntSimple,
 			toolChoice:                    nil,
 			withInjectedTools:             true,
-			expectDisableParallel:         true,
+			expectDisableParallel:         utils.PtrTo(true),
 			expectToolChoiceTypeInRequest: toolChoiceAuto,
 		},
 		{
 			name:                          "with injected tools: tool_choice auto",
+			fixture:                       fixtures.AntSimple,
 			toolChoice:                    map[string]any{"type": toolChoiceAuto},
 			withInjectedTools:             true,
-			expectDisableParallel:         true,
+			expectDisableParallel:         utils.PtrTo(true),
 			expectToolChoiceTypeInRequest: toolChoiceAuto,
 		},
 		{
 			name:                          "with injected tools: tool_choice any",
+			fixture:                       fixtures.AntSimple,
 			toolChoice:                    map[string]any{"type": toolChoiceAny},
 			withInjectedTools:             true,
-			expectDisableParallel:         true,
+			expectDisableParallel:         utils.PtrTo(true),
 			expectToolChoiceTypeInRequest: toolChoiceAny,
 		},
 		{
 			name:                          "with injected tools: tool_choice tool",
+			fixture:                       fixtures.AntSimple,
 			toolChoice:                    map[string]any{"type": toolChoiceTool, "name": "some_tool"},
 			withInjectedTools:             true,
-			expectDisableParallel:         true,
+			expectDisableParallel:         utils.PtrTo(true),
 			expectToolChoiceTypeInRequest: toolChoiceTool,
 		},
 		{
 			name:                          "with injected tools: tool_choice none",
+			fixture:                       fixtures.AntSimple,
 			toolChoice:                    map[string]any{"type": toolChoiceNone},
 			withInjectedTools:             true,
-			expectDisableParallel:         false,
+			expectDisableParallel:         nil,
 			expectToolChoiceTypeInRequest: toolChoiceNone,
 		},
-		// Without injected tools - disable_parallel_tool_use should NOT be set.
+		// With injected tools and builtin tools - disable_parallel_tool_use should be set to true.
 		{
-			name:                          "without injected tools: tool_choice auto",
-			toolChoice:                    map[string]any{"type": toolChoiceAuto},
-			withInjectedTools:             false,
-			expectDisableParallel:         false,
+			name:                          "with injected and builtin tools: no tool_choice defined defaults to auto",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    nil,
+			withInjectedTools:             true,
+			expectDisableParallel:         utils.PtrTo(true),
 			expectToolChoiceTypeInRequest: toolChoiceAuto,
 		},
 		{
-			name:                          "without injected tools: tool_choice any",
+			name:                          "with injected and builtin tools: tool_choice auto",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto},
+			withInjectedTools:             true,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		{
+			name:                          "with injected and builtin tools: tool_choice any",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceAny},
+			withInjectedTools:             true,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceAny,
+		},
+		{
+			name:                          "with injected and builtin tools: tool_choice tool",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceTool, "name": "some_tool"},
+			withInjectedTools:             true,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceTool,
+		},
+		{
+			name:                          "with injected and builtin tools: tool_choice none",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceNone},
+			withInjectedTools:             true,
+			expectDisableParallel:         nil,
+			expectToolChoiceTypeInRequest: toolChoiceNone,
+		},
+		// Without injected or builtin tools - disable_parallel_tool_use should NOT be set.
+		{
+			name:                          "without injected tools or builtin tools: tool_choice auto",
+			fixture:                       fixtures.AntSimple,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto},
+			withInjectedTools:             false,
+			expectDisableParallel:         nil,
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		{
+			name:                          "without injected tools or builtin tools: tool_choice any",
+			fixture:                       fixtures.AntSimple,
 			toolChoice:                    map[string]any{"type": toolChoiceAny},
 			withInjectedTools:             false,
-			expectDisableParallel:         false,
+			expectDisableParallel:         nil,
 			expectToolChoiceTypeInRequest: toolChoiceAny,
+		},
+		// With builtin tools but without injected tools - disable_parallel_tool_use should NOT be set.
+		{
+			name:                          "with builtin tools only: tool_choice auto",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto},
+			withInjectedTools:             false,
+			expectDisableParallel:         nil,
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		{
+			name:                          "with builtin tools only: tool_choice any",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceAny},
+			withInjectedTools:             false,
+			expectDisableParallel:         nil,
+			expectToolChoiceTypeInRequest: toolChoiceAny,
+		},
+		// Request already has disable_parallel_tool_use set - with injected tools it should be set to true.
+		{
+			name:                          "with injected tools: request already disables parallel",
+			fixture:                       fixtures.AntSimple,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": true},
+			withInjectedTools:             true,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		{
+			name:                          "with injected tools: request explicitly enables parallel",
+			fixture:                       fixtures.AntSimple,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": false},
+			withInjectedTools:             true,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		// Request already has disable_parallel_tool_use set - without injected tools it should be preserved.
+		{
+			name:                          "without injected tools: request already disables parallel",
+			fixture:                       fixtures.AntSimple,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": true},
+			withInjectedTools:             false,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		{
+			name:                          "without injected tools: request explicitly enables parallel",
+			fixture:                       fixtures.AntSimple,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": false},
+			withInjectedTools:             false,
+			expectDisableParallel:         utils.PtrTo(false),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
 		},
 	}
 
@@ -1265,7 +1365,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 				mockMCP = newNoopMCPManager()
 			}
 
-			fix := fixtures.Parse(t, fixtures.AntSimple)
+			fix := fixtures.Parse(t, tc.fixture)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
@@ -1299,11 +1399,10 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			// See https://platform.claude.com/docs/en/agents-and-tools/tool-use/implement-tool-use#parallel-tool-use
 			disableParallel, hasDisableParallel := toolChoice["disable_parallel_tool_use"].(bool)
 
-			if tc.expectDisableParallel {
-				require.True(t, hasDisableParallel, "expected disable_parallel_tool_use in tool_choice")
-				assert.True(t, disableParallel, "expected disable_parallel_tool_use to be true")
-			} else {
-				assert.False(t, hasDisableParallel, "expected disable_parallel_tool_use to not be set")
+			require.Equal(t, tc.expectDisableParallel != nil, hasDisableParallel,
+				"disable_parallel_tool_use presence mismatch")
+			if tc.expectDisableParallel != nil {
+				assert.Equal(t, *tc.expectDisableParallel, disableParallel)
 			}
 		})
 	}

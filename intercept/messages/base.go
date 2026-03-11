@@ -101,19 +101,15 @@ func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) 
 }
 
 func (i *interceptionBase) injectTools() {
-	if i.req == nil || i.mcpProxy == nil {
+	if i.req == nil || i.mcpProxy == nil || !i.HasInjectableTools() {
 		return
 	}
 
-	tools := i.mcpProxy.ListTools()
-	if len(tools) == 0 {
-		// No injected tools: no need to influence parallel tool calling.
-		return
-	}
+	i.disableParallelToolCalls()
 
 	// Inject tools.
 	var injectedTools []anthropic.ToolUnionParam
-	for _, tool := range tools {
+	for _, tool := range i.mcpProxy.ListTools() {
 		injectedTools = append(injectedTools, anthropic.ToolUnionParam{
 			OfTool: &anthropic.ToolParam{
 				InputSchema: anthropic.ToolInputSchemaParam{
@@ -137,7 +133,9 @@ func (i *interceptionBase) injectTools() {
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to set inject tools in request payload", slog.Error(err))
 	}
+}
 
+func (i *interceptionBase) disableParallelToolCalls() {
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
 	// https://github.com/coder/aibridge/issues/2
 	toolChoiceType := i.req.ToolChoice.GetType()
@@ -163,6 +161,7 @@ func (i *interceptionBase) injectTools() {
 	case string(constant.ValueOf[constant.None]()):
 		// No-op; if tool_choice=none then tools are not used at all.
 	}
+	var err error
 	i.payload, err = sjson.SetBytes(i.payload, "tool_choice", i.req.ToolChoice)
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to set tool_choice in request payload", slog.Error(err))
