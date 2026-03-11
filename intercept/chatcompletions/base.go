@@ -17,6 +17,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/shared"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
@@ -108,8 +109,9 @@ func (i *interceptionBase) injectTools() {
 	}
 
 	// Disable parallel tool calls when injectable tools are present to simplify the inner agentic loop.
-	// Only set when there are tools in the request, otherwise it causes a 400 Bad Request.
-	if i.HasInjectableTools() && len(i.req.Tools) > 0 {
+	// Only set when tools are defined in the request, otherwise it causes a 400 Bad Request.
+	// The value is only changed if it is present.
+	if i.HasInjectableTools() && !param.IsOmitted(i.req.ParallelToolCalls) {
 		i.req.ParallelToolCalls = openai.Bool(false)
 	}
 

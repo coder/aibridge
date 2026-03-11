@@ -9,7 +9,6 @@ LLM (https://llm.datasette.io/) configured with a simple "read_file" tool.
     }
   ],
   "model": "gpt-4.1",
-  "parallel_tool_calls": true,
   "tools": [
     {
       "type": "function",

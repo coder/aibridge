@@ -21,6 +21,7 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/utils"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
 	oaissestream "github.com/openai/openai-go/v3/packages/ssestream"
@@ -1315,73 +1316,112 @@ func TestChatCompletionsParallelToolCallsDisabled(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name                    string
-		streaming               bool
-		withInjectedTools       bool
-		expectParallelToolCalls bool
+		name              string
+		fixture           []byte
+		withInjectedTools bool
+		initialSetting    *bool
+		expectedSetting   *bool
 	}{
-		// Streaming with injected tools: parallel_tool_calls should be forced false.
+		// With injected tools and builtin tools: parallel_tool_calls should be forced false.
 		{
-			name:                    "streaming/with_injected_tools",
-			streaming:               true,
-			withInjectedTools:       true,
-			expectParallelToolCalls: false,
+			name:              "with_injected_tools",
+			fixture:           fixtures.OaiChatSingleBuiltinTool,
+			withInjectedTools: true,
+			initialSetting:    utils.PtrTo(true),
+			expectedSetting:   utils.PtrTo(false),
 		},
-		// Streaming without injected tools: parallel_tool_calls preserved.
+		// With builtin tools and without injected tools: parallel_tool_calls should be preserved.
 		{
-			name:                    "streaming/no_injected_tools",
-			streaming:               true,
-			withInjectedTools:       false,
-			expectParallelToolCalls: true,
+			name:              "no_injected_tools",
+			fixture:           fixtures.OaiChatSingleBuiltinTool,
+			withInjectedTools: false,
+			initialSetting:    utils.PtrTo(true),
+			expectedSetting:   utils.PtrTo(true),
 		},
-		// Blocking with injected tools: parallel_tool_calls should be forced false.
+		// With injected tools and without builtin tools: parallel_tool_calls should be forced false.
 		{
-			name:                    "blocking/with_injected_tools",
-			streaming:               false,
-			withInjectedTools:       true,
-			expectParallelToolCalls: false,
+			name:              "injected_tools_and_no_builtin_tools",
+			fixture:           fixtures.OaiChatSimple,
+			withInjectedTools: true,
+			initialSetting:    utils.PtrTo(true),
+			expectedSetting:   utils.PtrTo(false),
+		},
+		// Request without parallel_tool_calls set should not have it modified, regardless of injected/builtin tools.
+		{
+			name:              "parallel_tool_calls_unset_with_no_tools",
+			fixture:           fixtures.OaiChatSimple,
+			withInjectedTools: false,
+			initialSetting:    nil,
+			expectedSetting:   nil,
 		},
 		{
-			name:                    "blocking/no_injected_tools",
-			streaming:               false,
-			withInjectedTools:       false,
-			expectParallelToolCalls: true,
+			name:              "parallel_tool_calls_unset_with_injected_tools",
+			fixture:           fixtures.OaiChatSimple,
+			withInjectedTools: true,
+			initialSetting:    nil,
+			expectedSetting:   nil,
+		},
+		{
+			name:              "parallel_tool_calls_unset_with_builtin_tools",
+			fixture:           fixtures.OaiChatSingleBuiltinTool,
+			withInjectedTools: false,
+			initialSetting:    nil,
+			expectedSetting:   nil,
+		},
+		{
+			name:              "parallel_tool_calls_unset_with_builtin_and_injected_tools",
+			fixture:           fixtures.OaiChatSingleBuiltinTool,
+			withInjectedTools: true,
+			initialSetting:    nil,
+			expectedSetting:   nil,
 		},
 	}
 
 	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+		for _, streaming := range []bool{true, false} {
+			t.Run(fmt.Sprintf("%s/streaming=%v", tc.name, streaming), func(t *testing.T) {
+				t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-			t.Cleanup(cancel)
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				t.Cleanup(cancel)
 
-			fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+				fix := fixtures.Parse(t, tc.fixture)
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			var opts []bridgeOption
-			if tc.withInjectedTools {
-				opts = append(opts, withMCP(setupMCPForTest(t, defaultTracer)))
-			}
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
+				var opts []bridgeOption
+				if tc.withInjectedTools {
+					opts = append(opts, withMCP(setupMCPForTest(t, defaultTracer)))
+				}
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
 
-			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
-			require.NoError(t, err)
+				var (
+					reqBody = fix.Request()
+					err     error
+				)
+				if tc.initialSetting != nil {
+					reqBody, err = sjson.SetBytes(reqBody, "parallel_tool_calls", *tc.initialSetting)
+					require.NoError(t, err)
+				}
+				reqBody, err = sjson.SetBytes(reqBody, "stream", streaming)
+				require.NoError(t, err)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
-			_, err = io.ReadAll(resp.Body)
-			require.NoError(t, err)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
+				_, err = io.ReadAll(resp.Body)
+				require.NoError(t, err)
 
-			received := upstream.receivedRequests()
-			require.Len(t, received, 1)
+				received := upstream.receivedRequests()
+				require.Len(t, received, 1)
 
-			var upstreamReq map[string]any
-			require.NoError(t, json.Unmarshal(received[0].Body, &upstreamReq))
+				var upstreamReq map[string]any
+				require.NoError(t, json.Unmarshal(received[0].Body, &upstreamReq))
 
-			ptc, ok := upstreamReq["parallel_tool_calls"].(bool)
-			require.True(t, ok, "parallel_tool_calls should be present in upstream request")
-			assert.Equal(t, tc.expectParallelToolCalls, ptc)
-		})
+				ptc, ok := upstreamReq["parallel_tool_calls"].(bool)
+				require.Equal(t, tc.initialSetting != nil, ok)
+				if tc.expectedSetting != nil {
+					assert.Equal(t, *tc.expectedSetting, ptc)
+				}
+			})
+		}
 	}
 }
 
