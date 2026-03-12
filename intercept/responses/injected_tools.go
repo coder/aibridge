@@ -16,20 +16,14 @@ import (
 )
 
 func (i *responsesInterceptionBase) injectTools() {
-	if i.req == nil || i.mcpProxy == nil {
+	if i.req == nil || i.mcpProxy == nil || !i.HasInjectableTools() {
 		return
 	}
 
-	tools := i.mcpProxy.ListTools()
-	if len(tools) == 0 {
-		return
-	}
-
-	// If there are injectable tools, disable parallel tool calls.
 	i.disableParallelToolCalls()
 
 	// Inject tools.
-	for _, tool := range tools {
+	for _, tool := range i.mcpProxy.ListTools() {
 		var params map[string]any
 
 		if tool.Params != nil {
@@ -70,12 +64,10 @@ func (i *responsesInterceptionBase) injectTools() {
 // TODO: implement parallel tool calls.
 func (i *responsesInterceptionBase) disableParallelToolCalls() {
 	// Disable parallel tool calls to simplify inner agentic loop; best-effort.
-	if len(i.req.Tools) > 0 {
-		var err error
-		i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)
-		if err != nil {
-			i.logger.Warn(context.Background(), "failed to disable parallel_tool_calls", slog.Error(err))
-		}
+	var err error
+	i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to disable parallel_tool_calls", slog.Error(err))
 	}
 }
 

@@ -1314,6 +1314,39 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			expectDisableParallel:         nil,
 			expectToolChoiceTypeInRequest: toolChoiceAny,
 		},
+		{
+			name:                          "with builtin tools only: request explicitly disables parallel",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": true},
+			withInjectedTools:             false,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		{
+			name:                          "with builtin tools only: request explicitly enables parallel",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": false},
+			withInjectedTools:             false,
+			expectDisableParallel:         utils.PtrTo(false),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		// Without injected or builtin tools - disable_parallel_tool_use should be preserved if set.
+		{
+			name:                          "no tools: request explicitly disables parallel",
+			fixture:                       fixtures.AntSimple,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": true},
+			withInjectedTools:             false,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		{
+			name:                          "no tools: request explicitly enables parallel",
+			fixture:                       fixtures.AntSimple,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": false},
+			withInjectedTools:             false,
+			expectDisableParallel:         utils.PtrTo(false),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
 		// Request already has disable_parallel_tool_use set - with injected tools it should be set to true.
 		{
 			name:                          "with injected tools: request already disables parallel",
@@ -1423,54 +1456,89 @@ func TestChatCompletionsParallelToolCallsDisabled(t *testing.T) {
 	}{
 		// With injected tools and builtin tools: parallel_tool_calls should be forced false.
 		{
-			name:              "with_injected_tools",
+			name:              "with injected and builtin tools: parallel_tool_calls true",
 			fixture:           fixtures.OaiChatSingleBuiltinTool,
 			withInjectedTools: true,
 			initialSetting:    utils.PtrTo(true),
 			expectedSetting:   utils.PtrTo(false),
 		},
-		// With builtin tools and without injected tools: parallel_tool_calls should be preserved.
 		{
-			name:              "no_injected_tools",
+			name:              "with injected and builtin tools: parallel_tool_calls false",
+			fixture:           fixtures.OaiChatSingleBuiltinTool,
+			withInjectedTools: true,
+			initialSetting:    utils.PtrTo(false),
+			expectedSetting:   utils.PtrTo(false),
+		},
+		{
+			name:              "with injected and builtin tools: parallel_tool_calls unset",
+			fixture:           fixtures.OaiChatSingleBuiltinTool,
+			withInjectedTools: true,
+			initialSetting:    nil,
+			expectedSetting:   utils.PtrTo(false),
+		},
+		// With injected tools but without builtin tools: parallel_tool_calls should be forced false.
+		{
+			name:              "with injected tools only: parallel_tool_calls true",
+			fixture:           fixtures.OaiChatSimple,
+			withInjectedTools: true,
+			initialSetting:    utils.PtrTo(true),
+			expectedSetting:   utils.PtrTo(false),
+		},
+		{
+			name:              "with injected tools only: parallel_tool_calls false",
+			fixture:           fixtures.OaiChatSimple,
+			withInjectedTools: true,
+			initialSetting:    utils.PtrTo(false),
+			expectedSetting:   utils.PtrTo(false),
+		},
+		{
+			name:              "with injected tools only: parallel_tool_calls unset",
+			fixture:           fixtures.OaiChatSimple,
+			withInjectedTools: true,
+			initialSetting:    nil,
+			expectedSetting:   utils.PtrTo(false),
+		},
+		// With builtin tools but without injected tools: parallel_tool_calls should be preserved.
+		{
+			name:              "with builtin tools only: parallel_tool_calls true",
 			fixture:           fixtures.OaiChatSingleBuiltinTool,
 			withInjectedTools: false,
 			initialSetting:    utils.PtrTo(true),
 			expectedSetting:   utils.PtrTo(true),
 		},
-		// With injected tools and without builtin tools: parallel_tool_calls should be forced false.
 		{
-			name:              "injected_tools_and_no_builtin_tools",
-			fixture:           fixtures.OaiChatSimple,
-			withInjectedTools: true,
-			initialSetting:    utils.PtrTo(true),
+			name:              "with builtin tools only: parallel_tool_calls false",
+			fixture:           fixtures.OaiChatSingleBuiltinTool,
+			withInjectedTools: false,
+			initialSetting:    utils.PtrTo(false),
 			expectedSetting:   utils.PtrTo(false),
 		},
-		// Request without parallel_tool_calls set should not have it modified, regardless of injected/builtin tools.
 		{
-			name:              "parallel_tool_calls_unset_with_no_tools",
-			fixture:           fixtures.OaiChatSimple,
-			withInjectedTools: false,
-			initialSetting:    nil,
-			expectedSetting:   nil,
-		},
-		{
-			name:              "parallel_tool_calls_unset_with_injected_tools",
-			fixture:           fixtures.OaiChatSimple,
-			withInjectedTools: true,
-			initialSetting:    nil,
-			expectedSetting:   nil,
-		},
-		{
-			name:              "parallel_tool_calls_unset_with_builtin_tools",
+			name:              "with builtin tools only: parallel_tool_calls unset",
 			fixture:           fixtures.OaiChatSingleBuiltinTool,
 			withInjectedTools: false,
 			initialSetting:    nil,
 			expectedSetting:   nil,
 		},
+		// Without any tools: nothing is modified.
 		{
-			name:              "parallel_tool_calls_unset_with_builtin_and_injected_tools",
-			fixture:           fixtures.OaiChatSingleBuiltinTool,
-			withInjectedTools: true,
+			name:              "no tools: parallel_tool_calls true",
+			fixture:           fixtures.OaiChatSimple,
+			withInjectedTools: false,
+			initialSetting:    utils.PtrTo(true),
+			expectedSetting:   utils.PtrTo(true),
+		},
+		{
+			name:              "no tools: parallel_tool_calls false",
+			fixture:           fixtures.OaiChatSimple,
+			withInjectedTools: false,
+			initialSetting:    utils.PtrTo(false),
+			expectedSetting:   utils.PtrTo(false),
+		},
+		{
+			name:              "no tools: parallel_tool_calls unset",
+			fixture:           fixtures.OaiChatSimple,
+			withInjectedTools: false,
 			initialSetting:    nil,
 			expectedSetting:   nil,
 		},
@@ -1515,7 +1583,8 @@ func TestChatCompletionsParallelToolCallsDisabled(t *testing.T) {
 				require.NoError(t, json.Unmarshal(received[0].Body, &upstreamReq))
 
 				ptc, ok := upstreamReq["parallel_tool_calls"].(bool)
-				require.Equal(t, tc.initialSetting != nil, ok)
+				require.Equal(t, tc.expectedSetting != nil, ok,
+					"parallel_tool_calls presence mismatch")
 				if tc.expectedSetting != nil {
 					assert.Equal(t, *tc.expectedSetting, ptc)
 				}

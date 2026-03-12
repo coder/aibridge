@@ -3,6 +3,7 @@ package integrationtest
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -18,8 +19,11 @@ import (
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v3/responses"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
 )
 
 type keyVal struct {
@@ -438,130 +442,147 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 func TestResponsesParallelToolsOverwritten(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name                         string
-		request                      string
-		streaming                    bool
-		injectMCP                    bool
-		expectParallelToolCalls      bool
-		expectParallelToolCallsValue bool
+	cases := []struct {
+		name              string
+		fixture           [2][]byte // [blocking, streaming] fixture pair.
+		withInjectedTools bool
+		initialSetting    *bool
+		expectedSetting   *bool // nil = field should not be present, non-nil = expected value.
 	}{
+		// With injected tools and builtin tools: parallel_tool_calls should be forced false.
 		{
-			name:                         "blocking_with_tools",
-			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": false, "parallel_tool_calls": true, "tools": [{"type": "function", "name": "test", "parameters": {}}]}`,
-			streaming:                    false,
-			injectMCP:                    true,
-			expectParallelToolCalls:      true,
-			expectParallelToolCallsValue: false,
+			name:              "with injected and builtin tools: parallel_tool_calls true",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSingleBuiltinTool, fixtures.OaiResponsesStreamingBuiltinTool},
+			withInjectedTools: true,
+			initialSetting:    utils.PtrTo(true),
+			expectedSetting:   utils.PtrTo(false),
 		},
 		{
-			name:                         "streaming_with_tools",
-			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": true, "parallel_tool_calls": true, "tools": [{"type": "function", "name": "test", "parameters": {}}]}`,
-			streaming:                    true,
-			injectMCP:                    true,
-			expectParallelToolCalls:      true,
-			expectParallelToolCallsValue: false,
+			name:              "with injected and builtin tools: parallel_tool_calls false",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSingleBuiltinTool, fixtures.OaiResponsesStreamingBuiltinTool},
+			withInjectedTools: true,
+			initialSetting:    utils.PtrTo(false),
+			expectedSetting:   utils.PtrTo(false),
 		},
 		{
-			name:                         "blocking_with_tools_no_parallel_param",
-			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": false, "tools": [{"type": "function", "name": "test", "parameters": {}}]}`,
-			streaming:                    false,
-			injectMCP:                    true,
-			expectParallelToolCalls:      true,
-			expectParallelToolCallsValue: false,
+			name:              "with injected and builtin tools: parallel_tool_calls unset",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSingleBuiltinTool, fixtures.OaiResponsesStreamingBuiltinTool},
+			withInjectedTools: true,
+			initialSetting:    nil,
+			expectedSetting:   utils.PtrTo(false),
+		},
+		// With injected tools but without builtin tools: parallel_tool_calls should be forced false.
+		{
+			name:              "with injected tools only: parallel_tool_calls true",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSimple, fixtures.OaiResponsesStreamingSimple},
+			withInjectedTools: true,
+			initialSetting:    utils.PtrTo(true),
+			expectedSetting:   utils.PtrTo(false),
 		},
 		{
-			name:                         "streaming_with_tools_no_parallel_param",
-			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": true, "tools": [{"type": "function", "name": "test", "parameters": {}}]}`,
-			streaming:                    true,
-			injectMCP:                    true,
-			expectParallelToolCalls:      true,
-			expectParallelToolCallsValue: false,
+			name:              "with injected tools only: parallel_tool_calls false",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSimple, fixtures.OaiResponsesStreamingSimple},
+			withInjectedTools: true,
+			initialSetting:    utils.PtrTo(false),
+			expectedSetting:   utils.PtrTo(false),
 		},
 		{
-			name:      "blocking_without_tools",
-			request:   `{"input": "hello", "model": "gpt-4o-mini", "stream": false}`,
-			streaming: false,
-			injectMCP: true,
+			name:              "with injected tools only: parallel_tool_calls unset",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSimple, fixtures.OaiResponsesStreamingSimple},
+			withInjectedTools: true,
+			initialSetting:    nil,
+			expectedSetting:   utils.PtrTo(false),
+		},
+		// With builtin tools but without injected tools: parallel_tool_calls should be preserved.
+		{
+			name:              "with builtin tools only: parallel_tool_calls true",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSingleBuiltinTool, fixtures.OaiResponsesStreamingBuiltinTool},
+			withInjectedTools: false,
+			initialSetting:    utils.PtrTo(true),
+			expectedSetting:   utils.PtrTo(true),
 		},
 		{
-			name:      "streaming_without_tools",
-			request:   `{"input": "hello", "model": "gpt-4o-mini", "stream": true}`,
-			streaming: true,
-			injectMCP: true,
+			name:              "with builtin tools only: parallel_tool_calls false",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSingleBuiltinTool, fixtures.OaiResponsesStreamingBuiltinTool},
+			withInjectedTools: false,
+			initialSetting:    utils.PtrTo(false),
+			expectedSetting:   utils.PtrTo(false),
 		},
 		{
-			name:                         "blocking_without_tools_parallel_true",
-			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": false, "parallel_tool_calls": true}`,
-			streaming:                    false,
-			injectMCP:                    true,
-			expectParallelToolCalls:      true,
-			expectParallelToolCallsValue: true,
+			name:              "with builtin tools only: parallel_tool_calls unset",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSingleBuiltinTool, fixtures.OaiResponsesStreamingBuiltinTool},
+			withInjectedTools: false,
+			initialSetting:    nil,
+			expectedSetting:   nil,
+		},
+		// Without any tools: nothing is modified.
+		{
+			name:              "no tools: parallel_tool_calls true",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSimple, fixtures.OaiResponsesStreamingSimple},
+			withInjectedTools: false,
+			initialSetting:    utils.PtrTo(true),
+			expectedSetting:   utils.PtrTo(true),
 		},
 		{
-			name:                         "streaming_without_tools_parallel_true",
-			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": true, "parallel_tool_calls": true}`,
-			streaming:                    true,
-			injectMCP:                    true,
-			expectParallelToolCalls:      true,
-			expectParallelToolCallsValue: true,
+			name:              "no tools: parallel_tool_calls false",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSimple, fixtures.OaiResponsesStreamingSimple},
+			withInjectedTools: false,
+			initialSetting:    utils.PtrTo(false),
+			expectedSetting:   utils.PtrTo(false),
 		},
 		{
-			name:                         "blocking_without_injectable_tools_true",
-			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": false, "parallel_tool_calls": true}`,
-			streaming:                    false,
-			injectMCP:                    false,
-			expectParallelToolCalls:      true,
-			expectParallelToolCallsValue: true,
-		},
-		{
-			name:                         "streaming_without_injectable_tools_true",
-			request:                      `{"input": "hello", "model": "gpt-4o-mini", "stream": true, "parallel_tool_calls": true}`,
-			streaming:                    true,
-			injectMCP:                    false,
-			expectParallelToolCalls:      true,
-			expectParallelToolCallsValue: true,
+			name:              "no tools: parallel_tool_calls unset",
+			fixture:           [2][]byte{fixtures.OaiResponsesBlockingSimple, fixtures.OaiResponsesStreamingSimple},
+			withInjectedTools: false,
+			initialSetting:    nil,
+			expectedSetting:   nil,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
+	for _, tc := range cases {
+		for i, streaming := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/streaming=%v", tc.name, streaming), func(t *testing.T) {
+				t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-			t.Cleanup(cancel)
+				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				t.Cleanup(cancel)
 
-			fix := fixtures.OaiResponsesBlockingSimple
-			if tc.streaming {
-				fix = fixtures.OaiResponsesStreamingSimple
-			}
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fixtures.Parse(t, fix)))
+				fix := fixtures.Parse(t, tc.fixture[i])
+				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			var opts []bridgeOption
-			if tc.injectMCP {
-				mockMCP := setupMCPForTest(t, defaultTracer)
-				opts = append(opts, withMCP(mockMCP))
-			}
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
+				var opts []bridgeOption
+				if tc.withInjectedTools {
+					opts = append(opts, withMCP(setupMCPForTest(t, defaultTracer)))
+				}
+				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, []byte(tc.request))
-			_, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
+				var (
+					reqBody = fix.Request()
+					err     error
+				)
+				if tc.initialSetting != nil {
+					reqBody, err = sjson.SetBytes(reqBody, "parallel_tool_calls", *tc.initialSetting)
+					require.NoError(t, err)
+				}
 
-			received := upstream.receivedRequests()
-			require.Len(t, received, 1)
+				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBody)
+				_, err = io.ReadAll(resp.Body)
+				require.NoError(t, err)
 
-			var receivedRequest map[string]any
-			require.NoError(t, json.Unmarshal(received[0].Body, &receivedRequest))
-			if tc.expectParallelToolCalls {
-				parallelToolCalls, ok := receivedRequest["parallel_tool_calls"].(bool)
-				require.True(t, ok, "parallel_tool_calls should be present in upstream request")
-				require.Equal(t, tc.expectParallelToolCallsValue, parallelToolCalls)
-			} else {
-				_, ok := receivedRequest["parallel_tool_calls"]
-				require.False(t, ok, "parallel_tool_calls should not be present when not set")
-			}
-		})
+				received := upstream.receivedRequests()
+				require.Len(t, received, 1)
+
+				var upstreamReq map[string]any
+				require.NoError(t, json.Unmarshal(received[0].Body, &upstreamReq))
+
+				ptc, ok := upstreamReq["parallel_tool_calls"].(bool)
+				require.Equal(t, tc.expectedSetting != nil, ok,
+					"parallel_tool_calls presence mismatch")
+				if tc.expectedSetting != nil {
+					assert.Equal(t, *tc.expectedSetting, ptc)
+				}
+			})
+		}
 	}
 }
 
