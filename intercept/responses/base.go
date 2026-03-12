@@ -356,6 +356,7 @@ func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Res
 				}
 				thoughts = append(thoughts, &recorder.ModelThoughtRecord{
 					Content:   summary.Text,
+					Metadata:  recorder.Metadata{"source": "reasoning_summary"},
 					CreatedAt: time.Now(),
 				})
 			}
@@ -379,6 +380,7 @@ func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Res
 				}
 				thoughts = append(thoughts, &recorder.ModelThoughtRecord{
 					Content:   part.Text,
+					Metadata:  recorder.Metadata{"source": "commentary"},
 					CreatedAt: time.Now(),
 				})
 			}

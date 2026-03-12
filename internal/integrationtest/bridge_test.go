@@ -216,6 +216,8 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 						require.Len(t, tu.ModelThoughts, len(tc.expectedThoughts))
 						for i, expected := range tc.expectedThoughts {
 							assert.Contains(t, tu.ModelThoughts[i].Content, expected)
+							assert.Equal(t, "thinking", tu.ModelThoughts[i].Metadata["source"],
+								"thought %d should have source \"thinking\"", i)
 						}
 					}
 				}

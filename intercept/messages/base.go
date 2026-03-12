@@ -180,6 +180,7 @@ func (i *interceptionBase) extractModelThoughts(msg *anthropic.Message) []*recor
 		case anthropic.ThinkingBlock:
 			thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
 				Content:   variant.Thinking,
+				Metadata:  recorder.Metadata{"source": "thinking"},
 				CreatedAt: time.Now(),
 			})
 		}
