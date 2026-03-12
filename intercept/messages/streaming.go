@@ -256,7 +256,7 @@ newStream:
 				// Capture any thinking blocks that were returned.
 				thoughtRecords := i.extractModelThoughts(&message)
 
-				// Process injected tool
+				// Process injected tools.
 				if len(pendingToolCalls) > 0 {
 					// Append the whole message from this stream as context since we'll be sending a new request with the tool results.
 					messages.Messages = append(messages.Messages, message.ToParam())
@@ -315,8 +315,9 @@ newStream:
 						// Clear after first use to avoid duplicating across
 						// multiple tool calls in the same message.
 						//
-						// This is not strictly need for injected tools since we disable parallel tool calls,
-						// but just adding this here for defensiveness.
+						// This is not strictly needed for injected tools since we
+						// disable parallel tool calls, but just adding this here
+						// for defensiveness.
 						thoughtRecords = nil
 
 						if err != nil {

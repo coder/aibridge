@@ -208,8 +208,13 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				InvocationError: err,
 				ModelThoughts:   thoughtRecords,
 			})
+
 			// Clear after first use to avoid duplicating across
 			// multiple tool calls in the same message.
+			//
+			// This is not strictly needed for injected tools since we
+			// disable parallel tool calls, but just adding this here
+			// for defensiveness.
 			thoughtRecords = nil
 
 			if err != nil {

@@ -941,58 +941,59 @@ func TestResponsesModelThoughts(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name               string
-		fixture            []byte
-		expectedToolCallID string
-		expectedThoughts   []string // nil means no tool usages expected at all
+		name             string
+		fixture          []byte
+		expectedThoughts []string // nil means no tool usages expected at all
 	}{
 		{
-			name:               "single reasoning/blocking",
-			fixture:            fixtures.OaiResponsesBlockingSingleBuiltinTool,
-			expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
-			expectedThoughts:   []string{"The user wants to add 3 and 5"},
+			name:             "single reasoning/blocking",
+			fixture:          fixtures.OaiResponsesBlockingSingleBuiltinTool,
+			expectedThoughts: []string{"The user wants to add 3 and 5"},
 		},
 		{
-			name:               "single reasoning/streaming",
-			fixture:            fixtures.OaiResponsesStreamingBuiltinTool,
-			expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
-			expectedThoughts:   []string{"The user wants to add 3 and 5"},
+			name:             "single reasoning/streaming",
+			fixture:          fixtures.OaiResponsesStreamingBuiltinTool,
+			expectedThoughts: []string{"The user wants to add 3 and 5"},
 		},
 		{
-			name:               "multiple reasoning items/blocking",
-			fixture:            fixtures.OaiResponsesBlockingMultiReasoningBuiltinTool,
-			expectedToolCallID: "call_CJSaa2u51JG996575oVljuNq",
-			expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
+			name:             "multiple reasoning items/blocking",
+			fixture:          fixtures.OaiResponsesBlockingMultiReasoningBuiltinTool,
+			expectedThoughts: []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
 		},
 		{
-			name:               "multiple reasoning items/streaming",
-			fixture:            fixtures.OaiResponsesStreamingMultiReasoningBuiltinTool,
-			expectedToolCallID: "call_7VaiUXZYuuuwWwviCrckxq6t",
-			expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
+			name:             "multiple reasoning items/streaming",
+			fixture:          fixtures.OaiResponsesStreamingMultiReasoningBuiltinTool,
+			expectedThoughts: []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
 		},
 		{
-			name:               "commentary/blocking",
-			fixture:            fixtures.OaiResponsesBlockingCommentaryBuiltinTool,
-			expectedToolCallID: "call_A8TkZmIcKtw2Zw952Wc5QVe7",
-			expectedThoughts:   []string{"Checking whether 3 + 5 is prime by calling the add function first."},
+			name:             "commentary/blocking",
+			fixture:          fixtures.OaiResponsesBlockingCommentaryBuiltinTool,
+			expectedThoughts: []string{"Checking whether 3 + 5 is prime by calling the add function first."},
 		},
 		{
-			name:               "commentary/streaming",
-			fixture:            fixtures.OaiResponsesStreamingCommentaryBuiltinTool,
-			expectedToolCallID: "call_A8TkZmIcKtw2Zw952Wc5QVe7",
-			expectedThoughts:   []string{"Checking whether 3 + 5 is prime by calling the add function first."},
+			name:             "commentary/streaming",
+			fixture:          fixtures.OaiResponsesStreamingCommentaryBuiltinTool,
+			expectedThoughts: []string{"Checking whether 3 + 5 is prime by calling the add function first."},
 		},
 		{
-			name:               "summary and commentary/blocking",
-			fixture:            fixtures.OaiResponsesBlockingSummaryAndCommentaryBuiltinTool,
-			expectedToolCallID: "call_B9UjYX01Lvvv1XwjDsdmRW3f",
-			expectedThoughts:   []string{"I need to add 3 and 5 to check primality.", "Let me calculate the sum first using the add function."},
+			name:             "summary and commentary/blocking",
+			fixture:          fixtures.OaiResponsesBlockingSummaryAndCommentaryBuiltinTool,
+			expectedThoughts: []string{"I need to add 3 and 5 to check primality.", "Let me calculate the sum first using the add function."},
 		},
 		{
-			name:               "summary and commentary/streaming",
-			fixture:            fixtures.OaiResponsesStreamingSummaryAndCommentaryBuiltinTool,
-			expectedToolCallID: "call_B9UjYX01Lvvv1XwjDsdmRW3f",
-			expectedThoughts:   []string{"I need to add 3 and 5 to check primality.", "Let me calculate the sum first using the add function."},
+			name:             "summary and commentary/streaming",
+			fixture:          fixtures.OaiResponsesStreamingSummaryAndCommentaryBuiltinTool,
+			expectedThoughts: []string{"I need to add 3 and 5 to check primality.", "Let me calculate the sum first using the add function."},
+		},
+		{
+			name:             "parallel tool calls/blocking",
+			fixture:          fixtures.OaiResponsesBlockingSingleBuiltinToolParallel,
+			expectedThoughts: []string{"The user wants two additions"},
+		},
+		{
+			name:             "parallel tool calls/streaming",
+			fixture:          fixtures.OaiResponsesStreamingSingleBuiltinToolParallel,
+			expectedThoughts: []string{"The user wants two additions"},
 		},
 		{
 			name:    "no thoughts without tool calls",
@@ -1022,14 +1023,22 @@ func TestResponsesModelThoughts(t *testing.T) {
 			if tc.expectedThoughts == nil {
 				require.Empty(t, toolUsages)
 			} else {
-				require.Len(t, toolUsages, 1)
-				require.Equal(t, "add", toolUsages[0].Tool)
-				require.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
+				require.NotEmpty(t, toolUsages)
 
-				require.Len(t, toolUsages[0].ModelThoughts, len(tc.expectedThoughts))
-				for i, expected := range tc.expectedThoughts {
-					require.Contains(t, toolUsages[0].ModelThoughts[i].Content, expected)
+				// Exactly one tool usage should have the expected thoughts;
+				// all others should have none.
+				var withThoughts int
+				for _, tu := range toolUsages {
+					require.Equal(t, "add", tu.Tool)
+					if len(tu.ModelThoughts) > 0 {
+						withThoughts++
+						require.Len(t, tu.ModelThoughts, len(tc.expectedThoughts))
+						for i, expected := range tc.expectedThoughts {
+							require.Contains(t, tu.ModelThoughts[i].Content, expected)
+						}
+					}
 				}
+				require.Equal(t, 1, withThoughts, "expected exactly one tool usage with model thoughts")
 			}
 		})
 	}

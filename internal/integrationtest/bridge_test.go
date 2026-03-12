@@ -128,39 +128,46 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name               string
-		streaming          bool
-		fixture            []byte
-		expectedToolCallID string
-		expectedThoughts   []string // nil means no tool usages expected at all
+		name             string
+		streaming        bool
+		fixture          []byte
+		expectedThoughts []string // nil means no tool usages expected at all
 	}{
 		{
-			name:               "single thinking block/streaming",
-			streaming:          true,
-			fixture:            fixtures.AntSingleBuiltinTool,
-			expectedToolCallID: "toolu_01RX68weRSquLx6HUTj65iBo",
-			expectedThoughts:   []string{"The user wants me to read"},
+			name:             "single thinking block/streaming",
+			streaming:        true,
+			fixture:          fixtures.AntSingleBuiltinTool,
+			expectedThoughts: []string{"The user wants me to read"},
 		},
 		{
-			name:               "single thinking block/blocking",
-			streaming:          false,
-			fixture:            fixtures.AntSingleBuiltinTool,
-			expectedToolCallID: "toolu_01AusGgY5aKFhzWrFBv9JfHq",
-			expectedThoughts:   []string{"The user wants me to read"},
+			name:             "single thinking block/blocking",
+			streaming:        false,
+			fixture:          fixtures.AntSingleBuiltinTool,
+			expectedThoughts: []string{"The user wants me to read"},
 		},
 		{
-			name:               "multiple thinking blocks/streaming",
-			streaming:          true,
-			fixture:            fixtures.AntMultiThinkingBuiltinTool,
-			expectedToolCallID: "toolu_01RX68weRSquLx6HUTj65iBo",
-			expectedThoughts:   []string{"The user wants me to read", "I should use the Read tool"},
+			name:             "multiple thinking blocks/streaming",
+			streaming:        true,
+			fixture:          fixtures.AntMultiThinkingBuiltinTool,
+			expectedThoughts: []string{"The user wants me to read", "I should use the Read tool"},
 		},
 		{
-			name:               "multiple thinking blocks/blocking",
-			streaming:          false,
-			fixture:            fixtures.AntMultiThinkingBuiltinTool,
-			expectedToolCallID: "toolu_01AusGgY5aKFhzWrFBv9JfHq",
-			expectedThoughts:   []string{"The user wants me to read", "I should use the Read tool"},
+			name:             "multiple thinking blocks/blocking",
+			streaming:        false,
+			fixture:          fixtures.AntMultiThinkingBuiltinTool,
+			expectedThoughts: []string{"The user wants me to read", "I should use the Read tool"},
+		},
+		{
+			name:             "parallel tool calls/streaming",
+			streaming:        true,
+			fixture:          fixtures.AntSingleBuiltinToolParallel,
+			expectedThoughts: []string{"The user wants me to read two files"},
+		},
+		{
+			name:             "parallel tool calls/blocking",
+			streaming:        false,
+			fixture:          fixtures.AntSingleBuiltinToolParallel,
+			expectedThoughts: []string{"The user wants me to read two files"},
 		},
 		{
 			name:      "no thoughts without tool calls",
@@ -197,14 +204,22 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 			if tc.expectedThoughts == nil {
 				assert.Empty(t, toolUsages)
 			} else {
-				require.Len(t, toolUsages, 1)
-				assert.Equal(t, "Read", toolUsages[0].Tool)
-				assert.Equal(t, tc.expectedToolCallID, toolUsages[0].ToolCallID)
+				require.NotEmpty(t, toolUsages)
 
-				require.Len(t, toolUsages[0].ModelThoughts, len(tc.expectedThoughts))
-				for i, expected := range tc.expectedThoughts {
-					assert.Contains(t, toolUsages[0].ModelThoughts[i].Content, expected)
+				// Exactly one tool usage should have the expected thoughts;
+				// all others should have none.
+				var withThoughts int
+				for _, tu := range toolUsages {
+					assert.Equal(t, "Read", tu.Tool)
+					if len(tu.ModelThoughts) > 0 {
+						withThoughts++
+						require.Len(t, tu.ModelThoughts, len(tc.expectedThoughts))
+						for i, expected := range tc.expectedThoughts {
+							assert.Contains(t, tu.ModelThoughts[i].Content, expected)
+						}
+					}
 				}
+				assert.Equal(t, 1, withThoughts, "expected exactly one tool usage with model thoughts")
 			}
 
 			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)

@@ -119,8 +119,9 @@ func (i *responsesInterceptionBase) handleInjectedToolCalls(ctx context.Context,
 		// Clear after first use to avoid duplicating across
 		// multiple tool calls in the same message.
 		//
-		// This is not strictly need for injected tools since we disable parallel tool calls,
-		// but just adding this here for defensiveness.
+		// This is not strictly needed for injected tools since we
+		// disable parallel tool calls, but just adding this here
+		// for defensiveness.
 		thoughtRecords = nil
 	}
 
