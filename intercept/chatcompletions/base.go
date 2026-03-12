@@ -103,9 +103,12 @@ func (i *interceptionBase) newErrorResponse(err error) map[string]any {
 }
 
 func (i *interceptionBase) injectTools() {
-	if i.req == nil || i.mcpProxy == nil {
+	if i.req == nil || i.mcpProxy == nil || !i.hasInjectableTools() {
 		return
 	}
+
+	// Disable parallel tool calls when injectable tools are present to simplify the inner agentic loop.
+	i.req.ParallelToolCalls = openai.Bool(false)
 
 	// Inject tools.
 	for _, tool := range i.mcpProxy.ListTools() {
@@ -169,6 +172,10 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *err
 	} else {
 		_, _ = w.Write(out)
 	}
+}
+
+func (i *interceptionBase) hasInjectableTools() bool {
+	return i.mcpProxy != nil && len(i.mcpProxy.ListTools()) > 0
 }
 
 func sumUsage(ref, in openai.CompletionUsage) openai.CompletionUsage {

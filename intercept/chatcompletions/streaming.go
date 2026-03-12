@@ -97,12 +97,6 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
 
-	// TODO: implement parallel tool calls.
-	// TODO: don't send if not supported by model (i.e. o4-mini).
-	if len(i.req.Tools) > 0 { // If no tools are specified but this setting is set, it'll cause a 400 Bad Request.
-		i.req.ParallelToolCalls = openai.Bool(false)
-	}
-
 	// Force responses to only have one choice.
 	// It's unnecessary to generate multiple responses, and would complicate our stream processing logic if
 	// multiple choices were returned.
