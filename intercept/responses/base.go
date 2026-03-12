@@ -287,8 +287,12 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 		}); err != nil {
 			i.logger.Warn(ctx, "failed to record tool usage", slog.Error(err), slog.F("tool", item.Name))
 		}
+
 		// Clear after first use to avoid duplicating across
 		// multiple tool calls in the same message.
+		//
+		// This effectively means that in the case of parallel tool calls
+		// the thoughts will only be associated to the first tool use which is fine.
 		thoughtRecords = nil
 	}
 }

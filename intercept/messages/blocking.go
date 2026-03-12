@@ -161,8 +161,12 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Injected:       false,
 				ModelThoughts:  thoughtRecords,
 			})
+
 			// Clear after first use to avoid duplicating across
 			// multiple tool calls in the same message.
+			//
+			// This effectively means that in the case of parallel tool calls
+			// the thoughts will only be associated to the first tool use which is fine.
 			thoughtRecords = nil
 		}
 
