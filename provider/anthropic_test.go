@@ -61,7 +61,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		assert.Contains(t, err.Error(), "unmarshal request body")
 	})
 
-	t.Run("Messages_ForwardsAnthropicBetaHeaderToUpstream", func(t *testing.T) {
+	t.Run("Messages_ClientHeaders", func(t *testing.T) {
 		t.Parallel()
 
 		var receivedHeaders http.Header
@@ -86,7 +86,9 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		body := `{"model": "claude-opus-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "hello"}], "stream": false}`
 		req := httptest.NewRequest(http.MethodPost, routeMessages, bytes.NewBufferString(body))
 		req.Header.Set("Anthropic-Beta", betaHeader)
-		req.Header.Set("X-Custom-Header", "should-not-forward")
+		// Simulate a client sending its own auth credential, which must be replaced
+		// by aibridge with the configured provider key.
+		req.Header.Set("Authorization", "Bearer fake-client-bearer")
 		w := httptest.NewRecorder()
 
 		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
@@ -101,10 +103,11 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify the full Anthropic-Beta header (all betas) was forwarded unchanged.
-		assert.Equal(t, betaHeader, receivedHeaders.Get("Anthropic-Beta"))
+		assert.Equal(t, betaHeader, receivedHeaders.Get("Anthropic-Beta"), "Anthropic-Beta header must be forwarded unchanged to upstream")
 
-		// Verify non-Anthropic headers are not forwarded.
-		assert.Empty(t, receivedHeaders.Get("X-Custom-Header"), "non-Anthropic headers should not be forwarded")
+		// Verify aibridge's configured key was used and the client's auth credential was not forwarded.
+		assert.Equal(t, "test-key", receivedHeaders.Get("X-Api-Key"), "upstream must receive configured provider key")
+		assert.Empty(t, receivedHeaders.Get("Authorization"), "client Authorization header must not reach upstream")
 	})
 
 	t.Run("UnknownRoute", func(t *testing.T) {

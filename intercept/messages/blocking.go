@@ -28,14 +28,25 @@ type BlockingInterception struct {
 	interceptionBase
 }
 
-func NewBlockingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, payload []byte, cfg config.Anthropic, bedrockCfg *config.AWSBedrock, tracer trace.Tracer) *BlockingInterception {
+func NewBlockingInterceptor(
+	id uuid.UUID,
+	req *MessageNewParamsWrapper,
+	payload []byte,
+	cfg config.Anthropic,
+	bedrockCfg *config.AWSBedrock,
+	clientHeaders http.Header,
+	authHeaderName string,
+	tracer trace.Tracer,
+) *BlockingInterception {
 	return &BlockingInterception{interceptionBase: interceptionBase{
-		id:         id,
-		req:        req,
-		payload:    payload,
-		cfg:        cfg,
-		bedrockCfg: bedrockCfg,
-		tracer:     tracer,
+		id:             id,
+		req:            req,
+		payload:        payload,
+		cfg:            cfg,
+		bedrockCfg:     bedrockCfg,
+		clientHeaders:  clientHeaders,
+		authHeaderName: authHeaderName,
+		tracer:         tracer,
 	}}
 }
 
@@ -74,6 +85,9 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	}
 
 	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 600)}
+
+	// TODO(ssncferreira): inject actor headers directly in the client-header
+	//   middleware instead of using SDK options.
 	if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
 		opts = append(opts, intercept.ActorHeadersAsAnthropicOpts(actor)...)
 	}

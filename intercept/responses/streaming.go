@@ -32,15 +32,26 @@ type StreamingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string, tracer trace.Tracer) *StreamingResponsesInterceptor {
+func NewStreamingInterceptor(
+	id uuid.UUID,
+	req *ResponsesNewParamsWrapper,
+	reqPayload []byte,
+	cfg config.OpenAI,
+	model string,
+	clientHeaders http.Header,
+	authHeaderName string,
+	tracer trace.Tracer,
+) *StreamingResponsesInterceptor {
 	return &StreamingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
-			id:         id,
-			req:        req,
-			reqPayload: reqPayload,
-			cfg:        cfg,
-			model:      model,
-			tracer:     tracer,
+			id:             id,
+			req:            req,
+			reqPayload:     reqPayload,
+			cfg:            cfg,
+			model:          model,
+			clientHeaders:  clientHeaders,
+			authHeaderName: authHeaderName,
+			tracer:         tracer,
 		},
 	}
 }
@@ -98,6 +109,9 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 		respCopy = responseCopier{}
 		opts := i.requestOptions(&respCopy)
+
+		// TODO(ssncferreira): inject actor headers directly in the client-header
+		//   middleware instead of using SDK options.
 		if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
 			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
 		}

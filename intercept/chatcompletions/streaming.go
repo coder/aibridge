@@ -33,12 +33,21 @@ type StreamingInterception struct {
 	interceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, cfg config.OpenAI, tracer trace.Tracer) *StreamingInterception {
+func NewStreamingInterceptor(
+	id uuid.UUID,
+	req *ChatCompletionNewParamsWrapper,
+	cfg config.OpenAI,
+	clientHeaders http.Header,
+	authHeaderName string,
+	tracer trace.Tracer,
+) *StreamingInterception {
 	return &StreamingInterception{interceptionBase: interceptionBase{
-		id:     id,
-		req:    req,
-		cfg:    cfg,
-		tracer: tracer,
+		id:             id,
+		req:            req,
+		cfg:            cfg,
+		clientHeaders:  clientHeaders,
+		authHeaderName: authHeaderName,
+		tracer:         tracer,
 	}}
 }
 
@@ -121,6 +130,9 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	for {
 		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
 		var opts []option.RequestOption
+
+		// TODO(ssncferreira): inject actor headers directly in the client-header
+		//   middleware instead of using SDK options.
 		if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
 			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
 		}

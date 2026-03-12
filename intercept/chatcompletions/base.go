@@ -9,6 +9,7 @@ import (
 
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -29,6 +30,10 @@ type interceptionBase struct {
 	req *ChatCompletionNewParamsWrapper
 	cfg config.OpenAI
 
+	// clientHeaders are the original HTTP headers from the client request.
+	clientHeaders  http.Header
+	authHeaderName string
+
 	logger slog.Logger
 	tracer trace.Tracer
 
@@ -41,8 +46,19 @@ func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService 
 
 	// Add extra headers if configured.
 	// Some providers require additional headers that are not added by the SDK.
+	// TODO(ssncferreira): remove as part of https://github.com/coder/aibridge/issues/192
 	for key, value := range i.cfg.ExtraHeaders {
 		opts = append(opts, option.WithHeader(key, value))
+	}
+
+	// Forward client headers to upstream. This middleware runs after the SDK
+	// has built the request, and replaces the outgoing headers with the sanitized
+	// client headers plus provider auth.
+	if i.clientHeaders != nil {
+		opts = append(opts, option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+			req.Header = intercept.BuildUpstreamHeaders(req.Header, i.clientHeaders, i.authHeaderName)
+			return next(req)
+		}))
 	}
 
 	// Add API dump middleware if configured

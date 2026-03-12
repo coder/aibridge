@@ -129,7 +129,7 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		assert.Contains(t, err.Error(), "unmarshal chat completions request body")
 	})
 
-	t.Run("ChatCompletions_ForwardsHeadersToUpstream", func(t *testing.T) {
+	t.Run("ChatCompletions_ClientHeaders", func(t *testing.T) {
 		t.Parallel()
 
 		var receivedHeaders http.Header
@@ -153,7 +153,6 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer test-token")
 		req.Header.Set("Editor-Version", "vscode/1.85.0")
 		req.Header.Set("Copilot-Integration-Id", "test-integration")
-		req.Header.Set("X-Custom-Header", "should-not-forward")
 		w := httptest.NewRecorder()
 
 		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
@@ -168,12 +167,12 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		err = interceptor.ProcessRequest(w, processReq)
 		require.NoError(t, err)
 
-		// Verify headers were forwarded
+		// Verify Copilot-specific headers were forwarded.
 		assert.Equal(t, "vscode/1.85.0", receivedHeaders.Get("Editor-Version"))
 		assert.Equal(t, "test-integration", receivedHeaders.Get("Copilot-Integration-Id"))
-
-		// Verify non-Copilot headers are not forwarded
-		assert.Empty(t, receivedHeaders.Get("X-Custom-Header"), "non-Copilot headers should not be forwarded")
+		// Copilot uses per-user tokens: the client's Authorization must reach upstream as-is.
+		assert.Equal(t, "Bearer test-token", receivedHeaders.Get("Authorization"), "client Authorization must be used as provider key")
+		assert.Empty(t, receivedHeaders.Get("X-Api-Key"), "X-Api-Key must not be set upstream")
 	})
 
 	t.Run("Responses_NonStreamingRequest_BlockingInterceptor", func(t *testing.T) {
@@ -221,7 +220,7 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		assert.Contains(t, err.Error(), "unmarshal responses request body")
 	})
 
-	t.Run("Responses_ForwardsHeadersToUpstream", func(t *testing.T) {
+	t.Run("Responses_ClientHeaders", func(t *testing.T) {
 		t.Parallel()
 
 		var receivedHeaders http.Header
@@ -245,7 +244,6 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		req.Header.Set("Authorization", "Bearer test-token")
 		req.Header.Set("Editor-Version", "vscode/1.85.0")
 		req.Header.Set("Copilot-Integration-Id", "test-integration")
-		req.Header.Set("X-Custom-Header", "should-not-forward")
 		w := httptest.NewRecorder()
 
 		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
@@ -260,12 +258,12 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		err = interceptor.ProcessRequest(w, processReq)
 		require.NoError(t, err)
 
-		// Verify headers were forwarded
+		// Verify Copilot-specific headers were forwarded.
 		assert.Equal(t, "vscode/1.85.0", receivedHeaders.Get("Editor-Version"))
 		assert.Equal(t, "test-integration", receivedHeaders.Get("Copilot-Integration-Id"))
-
-		// Verify non-Copilot headers are not forwarded
-		assert.Empty(t, receivedHeaders.Get("X-Custom-Header"), "non-Copilot headers should not be forwarded")
+		// Copilot uses per-user tokens: the client's Authorization must reach upstream as-is.
+		assert.Equal(t, "Bearer test-token", receivedHeaders.Get("Authorization"), "client Authorization must be used as provider key")
+		assert.Empty(t, receivedHeaders.Get("X-Api-Key"), "X-Api-Key must not be set upstream")
 	})
 
 	t.Run("UnknownRoute", func(t *testing.T) {
