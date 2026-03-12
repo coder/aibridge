@@ -27,10 +27,8 @@ type BlockingResponsesInterceptor struct {
 
 func NewBlockingInterceptor(
 	id uuid.UUID,
-	req *ResponsesNewParamsWrapper,
 	reqPayload []byte,
 	cfg config.OpenAI,
-	model string,
 	clientHeaders http.Header,
 	authHeaderName string,
 	tracer trace.Tracer,
@@ -38,10 +36,8 @@ func NewBlockingInterceptor(
 	return &BlockingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
 			id:             id,
-			req:            req,
 			reqPayload:     reqPayload,
 			cfg:            cfg,
-			model:          model,
 			clientHeaders:  clientHeaders,
 			authHeaderName: authHeaderName,
 			tracer:         tracer,
@@ -78,7 +74,7 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 		firstResponseID string
 	)
 
-	prompt, promptFound, err := i.lastUserPrompt(ctx)
+	prompt, promptFound, err := i.lastUserPrompt()
 	if err != nil {
 		i.logger.Warn(ctx, "failed to get user prompt", slog.Error(err))
 	}
@@ -138,5 +134,6 @@ func (i *BlockingResponsesInterceptor) newResponse(ctx context.Context, srv resp
 	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer tracing.EndSpanErr(span, &outErr)
 
-	return srv.New(ctx, i.req.ResponseNewParams, opts...)
+	// The body is overridden by option.WithRequestBody(reqPayload) in requestOptions
+	return srv.New(ctx, responses.ResponseNewParams{}, opts...)
 }

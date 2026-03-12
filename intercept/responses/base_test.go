@@ -12,6 +12,7 @@ import (
 	"github.com/coder/aibridge/utils"
 	"github.com/google/uuid"
 	oairesponses "github.com/openai/openai-go/v3/responses"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -20,77 +21,38 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		input    []oairesponses.ResponseInputItemUnionParam
-		expected *string
+		payload  []byte
+		wantCall *string
 	}{
 		{
-			name:     "no input items",
-			input:    nil,
-			expected: nil,
+			name:    "no input",
+			payload: []byte(`{"model":"gpt-4o"}`),
 		},
 		{
-			name: "no function_call_output items",
-			input: []oairesponses.ResponseInputItemUnionParam{
-				{
-					OfMessage: &oairesponses.EasyInputMessageParam{
-						Role: "user",
-					},
-				},
-			},
-			expected: nil,
+			name:    "empty input array",
+			payload: []byte(`{"model":"gpt-4o","input":[]}`),
 		},
 		{
-			name: "single function_call_output",
-			input: []oairesponses.ResponseInputItemUnionParam{
-				{
-					OfMessage: &oairesponses.EasyInputMessageParam{
-						Role: "user",
-					},
-				},
-				{
-					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
-						CallID: "call_abc",
-					},
-				},
-			},
-			expected: utils.PtrTo("call_abc"),
+			name:    "no function_call_output items",
+			payload: []byte(`{"model":"gpt-4o","input":[{"role":"user","content":"hi"}]}`),
 		},
 		{
-			name: "multiple function_call_outputs returns last",
-			input: []oairesponses.ResponseInputItemUnionParam{
-				{
-					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
-						CallID: "call_first",
-					},
-				},
-				{
-					OfMessage: &oairesponses.EasyInputMessageParam{
-						Role: "user",
-					},
-				},
-				{
-					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
-						CallID: "call_second",
-					},
-				},
-			},
-			expected: utils.PtrTo("call_second"),
+			name:     "single function_call_output",
+			payload:  []byte(`{"model":"gpt-4o","input":[{"role":"user","content":"hi"},{"type":"function_call_output","call_id":"call_abc","output":"result"}]}`),
+			wantCall: utils.PtrTo("call_abc"),
 		},
 		{
-			name: "last input is not a tool result",
-			input: []oairesponses.ResponseInputItemUnionParam{
-				{
-					OfFunctionCallOutput: &oairesponses.ResponseInputItemFunctionCallOutputParam{
-						CallID: "call_first",
-					},
-				},
-				{
-					OfMessage: &oairesponses.EasyInputMessageParam{
-						Role: "user",
-					},
-				},
-			},
-			expected: nil,
+			name:     "multiple function_call_outputs returns last",
+			payload:  []byte(`{"model":"gpt-4o","input":[{"type":"function_call_output","call_id":"call_first","output":"r1"},{"role":"user","content":"hi"},{"type":"function_call_output","call_id":"call_second","output":"r2"}]}`),
+			wantCall: utils.PtrTo("call_second"),
+		},
+		{
+			name:    "last input is not a tool result",
+			payload: []byte(`{"model":"gpt-4o","input":[{"type":"function_call_output","call_id":"call_first","output":"r1"},{"role":"user","content":"hi"}]}`),
+		},
+		{
+			name:    "missing call id",
+			payload: []byte(`{"input":[{"type":"function_call_output","output":"ok"}]}`),
 		},
 	}
 
@@ -98,17 +60,14 @@ func TestScanForCorrelatingToolCallID(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			rp, err := NewResponsesRequestPayload(tc.payload)
+			require.NoError(t, err)
 			base := &responsesInterceptionBase{
-				req: &ResponsesNewParamsWrapper{
-					ResponseNewParams: oairesponses.ResponseNewParams{
-						Input: oairesponses.ResponseNewParamsInputUnion{
-							OfInputItemList: tc.input,
-						},
-					},
-				},
+				reqPayload: rp,
 			}
 
-			require.Equal(t, tc.expected, base.CorrelatingToolCallID())
+			callID := base.CorrelatingToolCallID()
+			assert.Equal(t, tc.wantCall, callID)
 		})
 	}
 }
@@ -161,16 +120,13 @@ func TestLastUserPrompt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := &ResponsesNewParamsWrapper{}
-			err := req.UnmarshalJSON(tc.reqPayload)
+			rp, err := NewResponsesRequestPayload(tc.reqPayload)
 			require.NoError(t, err)
-
 			base := &responsesInterceptionBase{
-				req:        req,
-				reqPayload: tc.reqPayload,
+				reqPayload: rp,
 			}
 
-			prompt, promptFound, err := base.lastUserPrompt(t.Context())
+			prompt, promptFound, err := base.lastUserPrompt()
 			require.NoError(t, err)
 			require.Equal(t, tc.expect, prompt)
 			require.True(t, promptFound)
@@ -185,7 +141,7 @@ func TestLastUserPromptNotFound(t *testing.T) {
 		t.Parallel()
 
 		var base *responsesInterceptionBase
-		prompt, promptFound, err := base.lastUserPrompt(t.Context())
+		prompt, promptFound, err := base.lastUserPrompt()
 		require.Error(t, err)
 		require.Empty(t, prompt)
 		require.False(t, promptFound)
@@ -196,7 +152,7 @@ func TestLastUserPromptNotFound(t *testing.T) {
 		t.Parallel()
 
 		base := responsesInterceptionBase{}
-		prompt, promptFound, err := base.lastUserPrompt(t.Context())
+		prompt, promptFound, err := base.lastUserPrompt()
 		require.Error(t, err)
 		require.Empty(t, prompt)
 		require.False(t, promptFound)
@@ -253,16 +209,14 @@ func TestLastUserPromptNotFound(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			req := &ResponsesNewParamsWrapper{}
-			err := req.UnmarshalJSON(tc.reqPayload)
+			rp, err := NewResponsesRequestPayload(tc.reqPayload)
 			require.NoError(t, err)
 
 			base := &responsesInterceptionBase{
-				req:        req,
-				reqPayload: tc.reqPayload,
+				reqPayload: rp,
 			}
 
-			prompt, promptFound, err := base.lastUserPrompt(t.Context())
+			prompt, promptFound, err := base.lastUserPrompt()
 			if tc.expectErr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.expectErr)

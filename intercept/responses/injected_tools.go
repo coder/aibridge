@@ -9,20 +9,19 @@ import (
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/recorder"
 	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared/constant"
-	"github.com/tidwall/sjson"
 )
 
 func (i *responsesInterceptionBase) injectTools() {
-	if i.req == nil || i.mcpProxy == nil || !i.hasInjectableTools() {
+	if i.mcpProxy == nil || !i.hasInjectableTools() {
 		return
 	}
 
 	i.disableParallelToolCalls()
 
 	// Inject tools.
+	var injected []responses.ToolUnionParam
 	for _, tool := range i.mcpProxy.ListTools() {
 		var params map[string]any
 
@@ -40,35 +39,38 @@ func (i *responsesInterceptionBase) injectTools() {
 			params["required"] = tool.Required
 		}
 
-		fn := responses.ToolUnionParam{
+		injected = append(injected, responses.ToolUnionParam{
 			OfFunction: &responses.FunctionToolParam{
 				Name:        tool.ID,
 				Strict:      openai.Bool(false), // TODO: configurable.
 				Description: openai.String(tool.Description),
 				Parameters:  params,
 			},
-		}
-
-		i.req.Tools = append(i.req.Tools, fn)
+		})
 	}
 
-	var err error
-	i.reqPayload, err = sjson.SetBytes(i.reqPayload, "tools", i.req.Tools)
+	updated, err := i.reqPayload.withInjectedTools(injected)
 	if err != nil {
-		i.logger.Warn(context.Background(), "failed to set tools", slog.Error(err))
+		i.logger.Warn(context.Background(), "failed to inject tools", slog.Error(err))
+		return
 	}
+	i.reqPayload = updated
+
+	// Disable parallel tool calls after injecting tools, so the check for
+	// existing tools in the payload sees the newly injected ones.
+	i.disableParallelToolCalls()
 }
 
 // disableParallelToolCalls disables parallel tool calls, to simplify the inner agentic loop.
 // This is best-effort, and failing to set this flag does not fail the request.
 // TODO: implement parallel tool calls.
 func (i *responsesInterceptionBase) disableParallelToolCalls() {
-	// Disable parallel tool calls to simplify inner agentic loop; best-effort.
-	var err error
-	i.reqPayload, err = sjson.SetBytes(i.reqPayload, "parallel_tool_calls", false)
+	updated, err := i.reqPayload.withParallelToolCallsDisabled()
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to disable parallel_tool_calls", slog.Error(err))
+		return
 	}
+	i.reqPayload = updated
 }
 
 // handleInnerAgenticLoop orchestrates the inner agentic loop whereby injected tools
@@ -120,53 +122,24 @@ func (i *responsesInterceptionBase) handleInjectedToolCalls(ctx context.Context,
 // prepareRequestForAgenticLoop prepares the request by setting the output of the given
 // response as input to the next request, in order for the tool call result(s) to make function correctly.
 func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(ctx context.Context, response *responses.Response, toolResults []responses.ResponseInputItemUnionParam) error {
-	var err error
-	originalInputSize := len(i.req.Input.OfInputItemList)
-
-	// Unset the string input; we need a list now.
-	if i.req.Input.OfString.Valid() {
-		// convert old string value to list item
-		i.req.Input.OfInputItemList = responses.ResponseInputParam{
-			responses.ResponseInputItemParamOfMessage(
-				i.req.Input.OfString.Value,
-				responses.EasyInputMessageRoleUser,
-			),
-		}
-
-		// clear old value
-		i.req.Input.OfString = param.Opt[string]{}
-	}
+	// Collect new items to add: response outputs converted to input format + tool results.
+	var newItems []responses.ResponseInputItemUnionParam
 
 	// OutputText is also available, but by definition the trigger for a function call is not a simple
 	// text response from the model.
 	for _, output := range response.Output {
 		if inputItem := i.convertOutputToInput(output); inputItem != nil {
-			i.req.Input.OfInputItemList = append(i.req.Input.OfInputItemList, *inputItem)
+			newItems = append(newItems, *inputItem)
 		}
 	}
+	newItems = append(newItems, toolResults...)
 
-	for _, result := range toolResults {
-		i.req.Input.OfInputItemList = append(i.req.Input.OfInputItemList, result)
+	updated, err := i.reqPayload.withAppendedInputItems(newItems)
+	if err != nil {
+		i.logger.Error(ctx, "failed to rewrite input in inner agentic loop", slog.Error(err))
+		return fmt.Errorf("failed to rewrite input: %w", err)
 	}
-
-	// If original payload was in string format or was an empty list re-marshal whole input
-	if originalInputSize == 0 {
-		if i.reqPayload, err = sjson.SetBytes(i.reqPayload, "input", i.req.Input.OfInputItemList); err != nil {
-			i.logger.Error(ctx, "failure to marshal new input in inner agentic loop", slog.Error(err))
-			return fmt.Errorf("failed to marshal input: %v", err)
-		}
-		return nil
-	}
-
-	// Append newly added items to reqPayload field
-	// New items are appended to limit Input re-marshaling.
-	// See responsesInterceptionBase.requestOptions for more details about marshaling issues.
-	for j := originalInputSize; j < len(i.req.Input.OfInputItemList); j++ {
-		if i.reqPayload, err = sjson.SetBytes(i.reqPayload, "input.-1", i.req.Input.OfInputItemList[j]); err != nil {
-			i.logger.Error(ctx, "failure to marshal output item to new input in inner agentic loop", slog.Error(err))
-			return fmt.Errorf("failed to marshal input: %v", err)
-		}
-	}
+	i.reqPayload = updated
 
 	return nil
 }

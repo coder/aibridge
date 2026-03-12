@@ -115,14 +115,14 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		if err != nil {
 			return nil, fmt.Errorf("read body: %w", err)
 		}
-		var req responses.ResponsesNewParamsWrapper
-		if err := json.Unmarshal(payload, &req); err != nil { // TODO: should probably change to json.NewDecoder.
+		reqPayload, err := responses.NewResponsesRequestPayload(payload)
+		if err != nil {
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
-		if req.Stream {
-			interceptor = responses.NewStreamingInterceptor(id, &req, payload, p.cfg, string(req.Model), r.Header, p.AuthHeader(), tracer)
+		if reqPayload.Stream() {
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.cfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, &req, payload, p.cfg, string(req.Model), r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.cfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	default:
