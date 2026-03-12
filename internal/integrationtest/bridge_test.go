@@ -1280,6 +1280,22 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			expectDisableParallel:         nil,
 			expectToolChoiceTypeInRequest: toolChoiceNone,
 		},
+		{
+			name:                          "with injected and builtin tools: request already disables parallel",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": true},
+			withInjectedTools:             true,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
+		{
+			name:                          "with injected and builtin tools: request explicitly enables parallel",
+			fixture:                       fixtures.AntSingleBuiltinTool,
+			toolChoice:                    map[string]any{"type": toolChoiceAuto, "disable_parallel_tool_use": false},
+			withInjectedTools:             true,
+			expectDisableParallel:         utils.PtrTo(true),
+			expectToolChoiceTypeInRequest: toolChoiceAuto,
+		},
 		// Without injected or builtin tools - disable_parallel_tool_use should NOT be set.
 		{
 			name:                          "without injected tools or builtin tools: tool_choice auto",
