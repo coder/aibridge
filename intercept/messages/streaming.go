@@ -254,20 +254,9 @@ newStream:
 			case string(constant.ValueOf[constant.MessageStop]()):
 
 				// Capture any thinking blocks that were returned.
-				var thoughtRecords []*recorder.ModelThoughtRecord
-				for _, block := range message.Content {
-					switch variant := block.AsAny().(type) {
-					case anthropic.ThinkingBlock:
-						thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
-							Content:   variant.Thinking,
-							CreatedAt: time.Now(),
-						})
-					case anthropic.RedactedThinkingBlock:
-						// For redacted thinking, there's nothing useful we can capture.
-						continue
-					}
-				}
+				thoughtRecords := i.extractModelThoughts(&message)
 
+				// Process injected tool
 				if len(pendingToolCalls) > 0 {
 					// Append the whole message from this stream as context since we'll be sending a new request with the tool results.
 					messages.Messages = append(messages.Messages, message.ToParam())
@@ -322,8 +311,12 @@ newStream:
 							InvocationError: err,
 							ModelThoughts:   thoughtRecords,
 						})
+
 						// Clear after first use to avoid duplicating across
 						// multiple tool calls in the same message.
+						//
+						// This is not strictly need for injected tools since we disable parallel tool calls,
+						// but just adding this here for defensiveness.
 						thoughtRecords = nil
 
 						if err != nil {
@@ -438,8 +431,12 @@ newStream:
 								Injected:       false,
 								ModelThoughts:  thoughtRecords,
 							})
+
 							// Clear after first use to avoid duplicating across
 							// multiple tool calls in the same message.
+							//
+							// This effectively means that in the case of parallel tool calls
+							// the thoughts will only be associated to the first tool use which is fine.
 							thoughtRecords = nil
 						}
 					}

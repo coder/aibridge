@@ -136,19 +136,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		accumulateUsage(&cumulativeUsage, resp.Usage)
 
 		// Capture any thinking blocks that were returned.
-		var thoughtRecords []*recorder.ModelThoughtRecord
-		for _, block := range resp.Content {
-			switch variant := block.AsAny().(type) {
-			case anthropic.ThinkingBlock:
-				thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
-					Content:   variant.Thinking,
-					CreatedAt: time.Now(),
-				})
-			case anthropic.RedactedThinkingBlock:
-				// For redacted thinking, there's nothing useful we can capture.
-				continue
-			}
-		}
+		thoughtRecords := i.extractModelThoughts(resp)
 
 		// Handle tool calls for non-streaming.
 		var pendingToolCalls []anthropic.ToolUseBlock
