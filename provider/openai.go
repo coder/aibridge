@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 
+	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/chatcompletions"
@@ -115,7 +116,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		if err != nil {
 			return nil, fmt.Errorf("read body: %w", err)
 		}
-		reqPayload, err := responses.NewResponsesRequestPayload(payload)
+		reqPayload, err := responses.NewResponsesRequestPayload(payload, slog.Make())
 		if err != nil {
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}

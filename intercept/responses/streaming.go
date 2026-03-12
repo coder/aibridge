@@ -34,7 +34,7 @@ type StreamingResponsesInterceptor struct {
 
 func NewStreamingInterceptor(
 	id uuid.UUID,
-	reqPayload []byte,
+	reqPayload *ResponsesRequestPayload,
 	cfg config.OpenAI,
 	clientHeaders http.Header,
 	authHeaderName string,
@@ -92,7 +92,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	var innerLoopErr error
 	var streamErr error
 
-	prompt, promptFound, err := i.lastUserPrompt(ctx)
+	prompt, promptFound, err := i.reqPayload.lastUserPrompt(ctx)
 	if err != nil {
 		i.logger.Warn(ctx, "failed to get user prompt", slog.Error(err))
 	}
