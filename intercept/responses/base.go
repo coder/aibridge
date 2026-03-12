@@ -333,8 +333,9 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 	}
 }
 
-// extractModelThoughts extracts reasoning summary items from response output
-// and converts them to ModelThoughtRecords for association with tool usage.
+// extractModelThoughts extracts model thoughts from response output items.
+// It captures both reasoning summary items and commentary messages (message
+// output items with "phase": "commentary") as model thoughts.
 func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Response) []*recorder.ModelThoughtRecord {
 	if response == nil {
 		return nil
@@ -342,19 +343,41 @@ func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Res
 
 	var thoughts []*recorder.ModelThoughtRecord
 	for _, item := range response.Output {
-		if item.Type != string(constant.ValueOf[constant.Reasoning]()) {
-			continue
-		}
+		switch item.Type {
+		case string(constant.ValueOf[constant.Reasoning]()):
+			reasoning := item.AsReasoning()
+			for _, summary := range reasoning.Summary {
+				if summary.Text == "" {
+					continue
+				}
+				thoughts = append(thoughts, &recorder.ModelThoughtRecord{
+					Content:   summary.Text,
+					CreatedAt: time.Now(),
+				})
+			}
 
-		reasoning := item.AsReasoning()
-		for _, summary := range reasoning.Summary {
-			if summary.Text == "" {
+		case string(constant.ValueOf[constant.Message]()):
+			// The API sometimes returns commentary messages instead of reasoning
+			// summaries. These are assistant message output items with "phase": "commentary".
+			// The SDK doesn't expose a Phase field, so we extract it from raw JSON.
+			raw := item.RawJSON()
+			if gjson.Get(raw, "role").String() != string(constant.ValueOf[constant.Assistant]()) ||
+				gjson.Get(raw, "phase").String() != "commentary" {
 				continue
 			}
-			thoughts = append(thoughts, &recorder.ModelThoughtRecord{
-				Content:   summary.Text,
-				CreatedAt: time.Now(),
-			})
+			msg := item.AsMessage()
+			for _, part := range msg.Content {
+				if part.Type != string(constant.ValueOf[constant.OutputText]()) {
+					continue
+				}
+				if part.Text == "" {
+					continue
+				}
+				thoughts = append(thoughts, &recorder.ModelThoughtRecord{
+					Content:   part.Text,
+					CreatedAt: time.Now(),
+				})
+			}
 		}
 	}
 

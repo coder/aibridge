@@ -67,6 +67,12 @@ var (
 	//go:embed openai/responses/blocking/multi_reasoning_builtin_tool.txtar
 	OaiResponsesBlockingMultiReasoningBuiltinTool []byte
 
+	//go:embed openai/responses/blocking/commentary_builtin_tool.txtar
+	OaiResponsesBlockingCommentaryBuiltinTool []byte
+
+	//go:embed openai/responses/blocking/summary_and_commentary_builtin_tool.txtar
+	OaiResponsesBlockingSummaryAndCommentaryBuiltinTool []byte
+
 	//go:embed openai/responses/blocking/cached_input_tokens.txtar
 	OaiResponsesBlockingCachedInputTokens []byte
 
@@ -104,6 +110,12 @@ var (
 
 	//go:embed openai/responses/streaming/multi_reasoning_builtin_tool.txtar
 	OaiResponsesStreamingMultiReasoningBuiltinTool []byte
+
+	//go:embed openai/responses/streaming/commentary_builtin_tool.txtar
+	OaiResponsesStreamingCommentaryBuiltinTool []byte
+
+	//go:embed openai/responses/streaming/summary_and_commentary_builtin_tool.txtar
+	OaiResponsesStreamingSummaryAndCommentaryBuiltinTool []byte
 
 	//go:embed openai/responses/streaming/cached_input_tokens.txtar
 	OaiResponsesStreamingCachedInputTokens []byte

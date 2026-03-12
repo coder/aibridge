@@ -971,6 +971,30 @@ func TestResponsesModelThoughts(t *testing.T) {
 			expectedThoughts:   []string{"The user wants to add 3 and 5", "After adding, I will check if the result is prime"},
 		},
 		{
+			name:               "commentary/blocking",
+			fixture:            fixtures.OaiResponsesBlockingCommentaryBuiltinTool,
+			expectedToolCallID: "call_A8TkZmIcKtw2Zw952Wc5QVe7",
+			expectedThoughts:   []string{"Checking whether 3 + 5 is prime by calling the add function first."},
+		},
+		{
+			name:               "commentary/streaming",
+			fixture:            fixtures.OaiResponsesStreamingCommentaryBuiltinTool,
+			expectedToolCallID: "call_A8TkZmIcKtw2Zw952Wc5QVe7",
+			expectedThoughts:   []string{"Checking whether 3 + 5 is prime by calling the add function first."},
+		},
+		{
+			name:               "summary and commentary/blocking",
+			fixture:            fixtures.OaiResponsesBlockingSummaryAndCommentaryBuiltinTool,
+			expectedToolCallID: "call_B9UjYX01Lvvv1XwjDsdmRW3f",
+			expectedThoughts:   []string{"I need to add 3 and 5 to check primality.", "Let me calculate the sum first using the add function."},
+		},
+		{
+			name:               "summary and commentary/streaming",
+			fixture:            fixtures.OaiResponsesStreamingSummaryAndCommentaryBuiltinTool,
+			expectedToolCallID: "call_B9UjYX01Lvvv1XwjDsdmRW3f",
+			expectedThoughts:   []string{"I need to add 3 and 5 to check primality.", "Let me calculate the sum first using the add function."},
+		},
+		{
 			name:    "no thoughts without tool calls",
 			fixture: fixtures.OaiResponsesStreamingCodex, // This fixture contains reasoning, but it's not associated with tool calls.
 		},
