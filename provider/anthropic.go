@@ -110,6 +110,24 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		cfg := p.cfg
 		cfg.ExtraHeaders = extractAnthropicHeaders(r)
 
+		// In centralized mode, http.go strips Authorization and X-Api-Key
+		// (they carried the Coder token), so neither header is present
+		// here and cfg keeps the centralized key.
+		//
+		// In BYOK mode, http.go only strips the BYOK header and leaves
+		// the user's LLM credentials intact:
+		//   - Authorization: Bearer <oauth-token> → subscription (Claude
+		//     Max/Pro). Set BYOKBearerToken so the SDK uses
+		//     WithAuthToken(), and clear the centralized key.
+		//   - X-Api-Key: <api-key> → personal API key. Overwrite the
+		//     centralized key with the user's key.
+		if bearer := r.Header.Get("Authorization"); bearer != "" {
+			cfg.BYOKBearerToken = strings.TrimPrefix(bearer, "Bearer ")
+			cfg.Key = ""
+		} else if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
+			cfg.Key = apiKey
+		}
+
 		var interceptor intercept.Interceptor
 		if req.Stream {
 			interceptor = messages.NewStreamingInterceptor(id, &req, payload, cfg, p.bedrockCfg, r.Header, p.AuthHeader(), tracer)
@@ -135,6 +153,12 @@ func (p *Anthropic) AuthHeader() string {
 func (p *Anthropic) InjectAuthHeader(headers *http.Header) {
 	if headers == nil {
 		headers = &http.Header{}
+	}
+
+	// BYOK: if the request already carries user-supplied credentials,
+	// do not overwrite them with the centralized key.
+	if headers.Get("X-Api-Key") != "" || headers.Get("Authorization") != "" {
+		return
 	}
 
 	headers.Set(p.AuthHeader(), p.cfg.Key)

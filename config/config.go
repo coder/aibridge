@@ -15,6 +15,10 @@ type Anthropic struct {
 	CircuitBreaker   *CircuitBreaker
 	SendActorHeaders bool
 	ExtraHeaders     map[string]string
+	// BYOKBearerToken is set in BYOK mode when the user authenticates
+	// with an OAuth token (e.g. Claude Max/Pro subscription). When set,
+	// the SDK uses Authorization: Bearer instead of X-Api-Key.
+	BYOKBearerToken string
 }
 
 type AWSBedrock struct {

@@ -110,6 +110,71 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		assert.Empty(t, receivedHeaders.Get("Authorization"), "client Authorization header must not reach upstream")
 	})
 
+	byokTests := []struct {
+		name              string
+		setHeaders        map[string]string
+		wantXApiKey       string
+		wantAuthorization string
+	}{
+		{
+			name:              "Messages_BYOK_BearerToken",
+			setHeaders:        map[string]string{"Authorization": "Bearer user-oauth-token"},
+			wantAuthorization: "Bearer user-oauth-token",
+		},
+		{
+			name:        "Messages_BYOK_APIKey",
+			setHeaders:  map[string]string{"X-Api-Key": "user-api-key"},
+			wantXApiKey: "user-api-key",
+		},
+		{
+			name:        "Messages_Centralized_UsesCentralizedKey",
+			setHeaders:  map[string]string{},
+			wantXApiKey: "test-key",
+		},
+	}
+
+	for _, tc := range byokTests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var receivedHeaders http.Header
+
+			mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedHeaders = r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, _ = w.Write([]byte(`{"id":"msg-123","type":"message","role":"assistant","content":[{"type":"text","text":"Hello!"}],"model":"claude-opus-4-5","stop_reason":"end_turn","usage":{"input_tokens":10,"output_tokens":5}}`))
+			}))
+			t.Cleanup(mockUpstream.Close)
+
+			provider := NewAnthropic(config.Anthropic{
+				BaseURL: mockUpstream.URL,
+				Key:     "test-key",
+			}, nil)
+
+			body := `{"model": "claude-opus-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "hello"}], "stream": false}`
+			req := httptest.NewRequest(http.MethodPost, routeMessages, bytes.NewBufferString(body))
+			for k, v := range tc.setHeaders {
+				req.Header.Set(k, v)
+			}
+			w := httptest.NewRecorder()
+
+			interceptor, err := provider.CreateInterceptor(w, req, testTracer)
+			require.NoError(t, err)
+			require.NotNil(t, interceptor)
+
+			logger := slog.Make()
+			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
+
+			processReq := httptest.NewRequest(http.MethodPost, routeMessages, nil)
+			err = interceptor.ProcessRequest(w, processReq)
+			require.NoError(t, err)
+
+			assert.Equal(t, tc.wantXApiKey, receivedHeaders.Get("X-Api-Key"))
+			assert.Equal(t, tc.wantAuthorization, receivedHeaders.Get("Authorization"))
+		})
+	}
+
 	t.Run("UnknownRoute", func(t *testing.T) {
 		t.Parallel()
 
@@ -122,6 +187,52 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		require.ErrorIs(t, err, UnknownRoute)
 		require.Nil(t, interceptor)
 	})
+}
+
+func TestAnthropic_InjectAuthHeader_BYOK(t *testing.T) {
+	t.Parallel()
+
+	provider := NewAnthropic(config.Anthropic{Key: "centralized-key"}, nil)
+
+	tests := []struct {
+		name              string
+		presetHeaders     map[string]string
+		wantXApiKey       string
+		wantAuthorization string
+	}{
+		{
+			name:          "no pre-existing auth headers injects centralized key",
+			presetHeaders: map[string]string{},
+			wantXApiKey:   "centralized-key",
+		},
+		{
+			name:          "pre-existing X-Api-Key is not overwritten",
+			presetHeaders: map[string]string{"X-Api-Key": "user-api-key"},
+			wantXApiKey:   "user-api-key",
+		},
+		{
+			name:              "pre-existing Authorization prevents centralized key injection",
+			presetHeaders:     map[string]string{"Authorization": "Bearer user-oauth-token"},
+			wantXApiKey:       "",
+			wantAuthorization: "Bearer user-oauth-token",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			headers := http.Header{}
+			for k, v := range tc.presetHeaders {
+				headers.Set(k, v)
+			}
+
+			provider.InjectAuthHeader(&headers)
+
+			assert.Equal(t, tc.wantXApiKey, headers.Get("X-Api-Key"))
+			assert.Equal(t, tc.wantAuthorization, headers.Get("Authorization"))
+		})
+	}
 }
 
 func TestExtractAnthropicHeaders(t *testing.T) {
