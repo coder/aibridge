@@ -34,7 +34,4 @@ type Interceptor interface {
 	// by the model, so any single tool call ID is sufficient to identify the
 	// parent interception.
 	CorrelatingToolCallID() *string
-	// HasInjectableTools returns true if an [mcp.ServerProxier] has been provided
-	// and contains tools which must be injected into requests.
-	HasInjectableTools() bool
 }

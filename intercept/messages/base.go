@@ -101,7 +101,7 @@ func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) 
 }
 
 func (i *interceptionBase) injectTools() {
-	if i.req == nil || i.mcpProxy == nil || !i.HasInjectableTools() {
+	if i.req == nil || i.mcpProxy == nil || !i.hasInjectableTools() {
 		return
 	}
 
@@ -314,7 +314,7 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *Err
 	}
 }
 
-func (i *interceptionBase) HasInjectableTools() bool {
+func (i *interceptionBase) hasInjectableTools() bool {
 	return i.mcpProxy != nil && len(i.mcpProxy.ListTools()) > 0
 }
 

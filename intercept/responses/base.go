@@ -326,7 +326,7 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 	}
 }
 
-func (i *responsesInterceptionBase) HasInjectableTools() bool {
+func (i *responsesInterceptionBase) hasInjectableTools() bool {
 	return i.mcpProxy != nil && len(i.mcpProxy.ListTools()) > 0
 }
 

@@ -16,7 +16,7 @@ import (
 )
 
 func (i *responsesInterceptionBase) injectTools() {
-	if i.req == nil || i.mcpProxy == nil || !i.HasInjectableTools() {
+	if i.req == nil || i.mcpProxy == nil || !i.hasInjectableTools() {
 		return
 	}
 
