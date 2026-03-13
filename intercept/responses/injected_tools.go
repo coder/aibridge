@@ -109,20 +109,9 @@ func (i *responsesInterceptionBase) handleInjectedToolCalls(ctx context.Context,
 		return nil, nil
 	}
 
-	// Capture any reasoning items from the response output as model thoughts.
-	thoughtRecords := i.extractModelThoughts(response)
-
 	var results []responses.ResponseInputItemUnionParam
 	for _, fc := range pending {
-		results = append(results, i.invokeInjectedTool(ctx, response.ID, fc, thoughtRecords))
-
-		// Clear after first use to avoid duplicating across
-		// multiple tool calls in the same message.
-		//
-		// This is not strictly needed for injected tools since we
-		// disable parallel tool calls, but just adding this here
-		// for defensiveness.
-		thoughtRecords = nil
+		results = append(results, i.invokeInjectedTool(ctx, response.ID, fc))
 	}
 
 	return results, nil
@@ -182,7 +171,7 @@ func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(ctx context.Con
 	return nil
 }
 
-// getPendingInjectedToolCalls extracts function calls from the response that are managed by MCP proxy
+// getPendingInjectedToolCalls extracts function calls from the response that are managed by MCP proxy.
 func (i *responsesInterceptionBase) getPendingInjectedToolCalls(response *responses.Response) []responses.ResponseFunctionToolCall {
 	var calls []responses.ResponseFunctionToolCall
 
@@ -207,7 +196,7 @@ func (i *responsesInterceptionBase) getPendingInjectedToolCalls(response *respon
 	return calls
 }
 
-func (i *responsesInterceptionBase) invokeInjectedTool(ctx context.Context, responseID string, fc responses.ResponseFunctionToolCall, thoughtRecords []*recorder.ModelThoughtRecord) responses.ResponseInputItemUnionParam {
+func (i *responsesInterceptionBase) invokeInjectedTool(ctx context.Context, responseID string, fc responses.ResponseFunctionToolCall) responses.ResponseInputItemUnionParam {
 	tool := i.mcpProxy.GetTool(fc.Name)
 	if tool == nil {
 		return responses.ResponseInputItemParamOfFunctionCallOutput(fc.CallID, fmt.Sprintf("error: unknown injected function %q", fc.ID))
@@ -224,7 +213,6 @@ func (i *responsesInterceptionBase) invokeInjectedTool(ctx context.Context, resp
 		Args:            args,
 		Injected:        true,
 		InvocationError: err,
-		ModelThoughts:   thoughtRecords,
 	})
 
 	var output string

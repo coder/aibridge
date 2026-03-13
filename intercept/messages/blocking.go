@@ -136,9 +136,15 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		accumulateUsage(&cumulativeUsage, resp.Usage)
 
 		// Capture any thinking blocks that were returned.
-		thoughtRecords := i.extractModelThoughts(resp)
+		for _, t := range i.extractModelThoughts(resp) {
+			_ = i.recorder.RecordModelThought(ctx, &recorder.ModelThoughtRecord{
+				InterceptionID: i.ID().String(),
+				Content:        t.Content,
+				Metadata:       t.Metadata,
+			})
+		}
 
-		// Handle tool calls for non-streaming.
+		// Handle tool calls.
 		var pendingToolCalls []anthropic.ToolUseBlock
 		for _, c := range resp.Content {
 			toolUse := c.AsToolUse()
@@ -159,15 +165,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Tool:           toolUse.Name,
 				Args:           toolUse.Input,
 				Injected:       false,
-				ModelThoughts:  thoughtRecords,
 			})
-
-			// Clear after first use to avoid duplicating across
-			// multiple tool calls in the same message.
-			//
-			// This effectively means that in the case of parallel tool calls
-			// the thoughts will only be associated to the first tool use which is fine.
-			thoughtRecords = nil
 		}
 
 		// If no injected tool calls, we're done.
@@ -206,16 +204,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Args:            tc.Input,
 				Injected:        true,
 				InvocationError: err,
-				ModelThoughts:   thoughtRecords,
 			})
-
-			// Clear after first use to avoid duplicating across
-			// multiple tool calls in the same message.
-			//
-			// This is not strictly needed for injected tools since we
-			// disable parallel tool calls, but just adding this here
-			// for defensiveness.
-			thoughtRecords = nil
 
 			if err != nil {
 				// Always provide a tool_result even if the tool call failed

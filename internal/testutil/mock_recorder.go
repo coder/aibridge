@@ -20,6 +20,7 @@ type MockRecorder struct {
 	tokenUsages      []*recorder.TokenUsageRecord
 	userPrompts      []*recorder.PromptUsageRecord
 	toolUsages       []*recorder.ToolUsageRecord
+	modelThoughts    []*recorder.ModelThoughtRecord
 	interceptionsEnd map[string]*recorder.InterceptionRecordEnded
 }
 
@@ -61,6 +62,13 @@ func (m *MockRecorder) RecordToolUsage(ctx context.Context, req *recorder.ToolUs
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.toolUsages = append(m.toolUsages, req)
+	return nil
+}
+
+func (m *MockRecorder) RecordModelThought(ctx context.Context, req *recorder.ModelThoughtRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.modelThoughts = append(m.modelThoughts, req)
 	return nil
 }
 
@@ -110,6 +118,14 @@ func (m *MockRecorder) RecordedToolUsages() []*recorder.ToolUsageRecord {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return slices.Clone(m.toolUsages)
+}
+
+// RecordedModelThoughts returns a copy of recorded model thoughts in a thread-safe manner.
+// Note: This is a shallow clone (see RecordedTokenUsages for details).
+func (m *MockRecorder) RecordedModelThoughts() []*recorder.ModelThoughtRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.modelThoughts)
 }
 
 // RecordedInterceptions returns a copy of recorded interceptions in a thread-safe manner.

@@ -172,6 +172,8 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 			// Record token usage for each inner loop iteration
 			i.recordTokenUsage(ctx, completedResponse)
 		}
+
+		i.recordModelThoughts(ctx, completedResponse)
 	}
 
 	if promptFound {

@@ -30,6 +30,7 @@ type (
 	TokenUsageRecord        = recorder.TokenUsageRecord
 	PromptUsageRecord       = recorder.PromptUsageRecord
 	ToolUsageRecord         = recorder.ToolUsageRecord
+	ModelThoughtRecord      = recorder.ModelThoughtRecord
 	Recorder                = recorder.Recorder
 	Metadata                = recorder.Metadata
 

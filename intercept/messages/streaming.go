@@ -254,7 +254,13 @@ newStream:
 			case string(constant.ValueOf[constant.MessageStop]()):
 
 				// Capture any thinking blocks that were returned.
-				thoughtRecords := i.extractModelThoughts(&message)
+				for _, t := range i.extractModelThoughts(&message) {
+					_ = i.recorder.RecordModelThought(ctx, &recorder.ModelThoughtRecord{
+						InterceptionID: i.ID().String(),
+						Content:        t.Content,
+						Metadata:       t.Metadata,
+					})
+				}
 
 				// Process injected tools.
 				if len(pendingToolCalls) > 0 {
@@ -309,16 +315,7 @@ newStream:
 							Args:            input,
 							Injected:        true,
 							InvocationError: err,
-							ModelThoughts:   thoughtRecords,
 						})
-
-						// Clear after first use to avoid duplicating across
-						// multiple tool calls in the same message.
-						//
-						// This is not strictly needed for injected tools since we
-						// disable parallel tool calls, but just adding this here
-						// for defensiveness.
-						thoughtRecords = nil
 
 						if err != nil {
 							// Always provide a tool_result even if the tool call failed
@@ -430,15 +427,7 @@ newStream:
 								Tool:           variant.Name,
 								Args:           variant.Input,
 								Injected:       false,
-								ModelThoughts:  thoughtRecords,
 							})
-
-							// Clear after first use to avoid duplicating across
-							// multiple tool calls in the same message.
-							//
-							// This effectively means that in the case of parallel tool calls
-							// the thoughts will only be associated to the first tool use which is fine.
-							thoughtRecords = nil
 						}
 					}
 				}

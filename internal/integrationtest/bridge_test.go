@@ -131,7 +131,7 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 		name             string
 		streaming        bool
 		fixture          []byte
-		expectedThoughts []string // nil means no tool usages expected at all
+		expectedThoughts []string // nil means no model thoughts expected
 	}{
 		{
 			name:             "single thinking block/streaming",
@@ -170,9 +170,16 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 			expectedThoughts: []string{"The user wants me to read two files"},
 		},
 		{
-			name:      "no thoughts without tool calls",
-			streaming: true,
-			fixture:   fixtures.AntSimple, // This fixture contains thoughts, but they're not associated with tool calls.
+			name:             "thoughts without tool calls/streaming",
+			streaming:        true,
+			fixture:          fixtures.AntSimple,
+			expectedThoughts: []string{"This is a classic philosophical question about medieval scholasticism"},
+		},
+		{
+			name:             "thoughts without tool calls/blocking",
+			streaming:        false,
+			fixture:          fixtures.AntSimple,
+			expectedThoughts: []string{"This is a classic philosophical question about medieval scholasticism"},
 		},
 	}
 
@@ -200,28 +207,30 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 				assert.Contains(t, sp.AllEvents(), "message_stop")
 			}
 
-			toolUsages := bridgeServer.Recorder.RecordedToolUsages()
-			if tc.expectedThoughts == nil {
-				assert.Empty(t, toolUsages)
-			} else {
-				require.NotEmpty(t, toolUsages)
+			interceptions := bridgeServer.Recorder.RecordedInterceptions()
+			require.GreaterOrEqual(t, len(interceptions), 1)
 
-				// Exactly one tool usage should have the expected thoughts;
-				// all others should have none.
-				var withThoughts int
-				for _, tu := range toolUsages {
-					assert.Equal(t, "Read", tu.Tool)
-					if len(tu.ModelThoughts) > 0 {
-						withThoughts++
-						require.Len(t, tu.ModelThoughts, len(tc.expectedThoughts))
-						for i, expected := range tc.expectedThoughts {
-							assert.Contains(t, tu.ModelThoughts[i].Content, expected)
-							assert.Equal(t, "thinking", tu.ModelThoughts[i].Metadata["source"],
-								"thought %d should have source \"thinking\"", i)
+			thoughts := bridgeServer.Recorder.RecordedModelThoughts()
+			if tc.expectedThoughts == nil {
+				assert.Empty(t, thoughts)
+			} else {
+				require.Len(t, thoughts, len(tc.expectedThoughts), "unexpected number of model thoughts")
+
+				// We can't guarantee the order of model thoughts since they're recorded separately, so
+				// we have to scan all thoughts for a match.
+
+				for _, expected := range tc.expectedThoughts {
+					var matched *aibridge.ModelThoughtRecord
+					for _, thought := range thoughts {
+						if strings.Contains(thought.Content, expected) {
+							matched = thought
 						}
 					}
+
+					require.NotNil(t, matched, "could not find thought matching %q", expected)
+					require.Equal(t, interceptions[0].ID, matched.InterceptionID)
+					require.Equal(t, "thinking", matched.Metadata["source"])
 				}
-				assert.Equal(t, 1, withThoughts, "expected exactly one tool usage with model thoughts")
 			}
 
 			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)

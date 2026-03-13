@@ -94,6 +94,7 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 		}
 
 		i.recordTokenUsage(ctx, response)
+		i.recordModelThoughts(ctx, response)
 
 		// Check if there any injected tools to invoke.
 		pending := i.getPendingInjectedToolCalls(response)

@@ -254,14 +254,21 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 	}
 }
 
+func (i *responsesInterceptionBase) recordModelThoughts(ctx context.Context, response *responses.Response) {
+	for _, t := range i.extractModelThoughts(response) {
+		_ = i.recorder.RecordModelThought(ctx, &recorder.ModelThoughtRecord{
+			InterceptionID: i.ID().String(),
+			Content:        t.Content,
+			Metadata:       t.Metadata,
+		})
+	}
+}
+
 func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Context, response *responses.Response) {
 	if response == nil {
 		i.logger.Warn(ctx, "got empty response, skipping tool usage recording")
 		return
 	}
-
-	// Capture any reasoning items from the response output as model thoughts.
-	thoughtRecords := i.extractModelThoughts(response)
 
 	for _, item := range response.Output {
 		var args recorder.ToolArgs
@@ -283,17 +290,9 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 			Tool:           item.Name,
 			Args:           args,
 			Injected:       false,
-			ModelThoughts:  thoughtRecords,
 		}); err != nil {
 			i.logger.Warn(ctx, "failed to record tool usage", slog.Error(err), slog.F("tool", item.Name))
 		}
-
-		// Clear after first use to avoid duplicating across
-		// multiple tool calls in the same message.
-		//
-		// This effectively means that in the case of parallel tool calls
-		// the thoughts will only be associated to the first tool use which is fine.
-		thoughtRecords = nil
 	}
 }
 
@@ -355,9 +354,8 @@ func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Res
 					continue
 				}
 				thoughts = append(thoughts, &recorder.ModelThoughtRecord{
-					Content:   summary.Text,
-					Metadata:  recorder.Metadata{"source": "reasoning_summary"},
-					CreatedAt: time.Now(),
+					Content:  summary.Text,
+					Metadata: recorder.Metadata{"source": recorder.ThoughtSourceReasoningSummary},
 				})
 			}
 
@@ -365,6 +363,7 @@ func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Res
 			// The API sometimes returns commentary messages instead of reasoning
 			// summaries. These are assistant message output items with "phase": "commentary".
 			// The SDK doesn't expose a Phase field, so we extract it from raw JSON.
+			// TODO: revisit when the OpenAI SDK adds a proper Phase field.
 			raw := item.RawJSON()
 			if gjson.Get(raw, "role").String() != string(constant.ValueOf[constant.Assistant]()) ||
 				gjson.Get(raw, "phase").String() != "commentary" {
@@ -379,9 +378,8 @@ func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Res
 					continue
 				}
 				thoughts = append(thoughts, &recorder.ModelThoughtRecord{
-					Content:   part.Text,
-					Metadata:  recorder.Metadata{"source": "commentary"},
-					CreatedAt: time.Now(),
+					Content:  part.Text,
+					Metadata: recorder.Metadata{"source": recorder.ThoughtSourceCommentary},
 				})
 			}
 		}

@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -374,7 +375,6 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				require.Len(t, recordedTools, 1)
 				recordedTools[0].InterceptionID = tc.expectToolRecorded.InterceptionID // ignore interception id (interception id is not constant and response doesn't contain it)
 				recordedTools[0].CreatedAt = tc.expectToolRecorded.CreatedAt           // ignore time
-				recordedTools[0].ModelThoughts = tc.expectToolRecorded.ModelThoughts   // ignore model thoughts (tested separately)
 				require.Equal(t, tc.expectToolRecorded, recordedTools[0])
 			} else {
 				require.Empty(t, recordedTools)
@@ -1013,8 +1013,9 @@ func TestResponsesModelThoughts(t *testing.T) {
 			expectedThoughts: []expectedThought{{content: "The user wants two additions", source: "reasoning_summary"}},
 		},
 		{
-			name:    "no thoughts without tool calls",
-			fixture: fixtures.OaiResponsesStreamingCodex, // This fixture contains reasoning, but it's not associated with tool calls.
+			name:             "thoughts without tool calls",
+			fixture:          fixtures.OaiResponsesStreamingCodex, // This fixture contains reasoning, but it's not associated with tool calls.
+			expectedThoughts: []expectedThought{{content: "Preparing simple response", source: "reasoning_summary"}},
 		},
 	}
 
@@ -1036,28 +1037,30 @@ func TestResponsesModelThoughts(t *testing.T) {
 			_, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
-			toolUsages := bridgeServer.Recorder.RecordedToolUsages()
-			if tc.expectedThoughts == nil {
-				require.Empty(t, toolUsages)
-			} else {
-				require.NotEmpty(t, toolUsages)
+			interceptions := bridgeServer.Recorder.RecordedInterceptions()
+			require.GreaterOrEqual(t, len(interceptions), 1)
 
-				// Exactly one tool usage should have the expected thoughts;
-				// all others should have none.
-				var withThoughts int
-				for _, tu := range toolUsages {
-					require.Equal(t, "add", tu.Tool)
-					if len(tu.ModelThoughts) > 0 {
-						withThoughts++
-						require.Len(t, tu.ModelThoughts, len(tc.expectedThoughts))
-						for i, expected := range tc.expectedThoughts {
-							require.Contains(t, tu.ModelThoughts[i].Content, expected.content)
-							require.Equal(t, expected.source, tu.ModelThoughts[i].Metadata["source"],
-								"thought %d should have source %q", i, expected.source)
+			thoughts := bridgeServer.Recorder.RecordedModelThoughts()
+			if tc.expectedThoughts == nil {
+				assert.Empty(t, thoughts)
+			} else {
+				require.Len(t, thoughts, len(tc.expectedThoughts), "unexpected number of model thoughts")
+
+				// We can't guarantee the order of model thoughts since they're recorded separately, so
+				// we have to scan all thoughts for a match.
+
+				for _, expected := range tc.expectedThoughts {
+					var matched *aibridge.ModelThoughtRecord
+					for _, thought := range thoughts {
+						if strings.Contains(thought.Content, expected.content) {
+							matched = thought
 						}
 					}
+
+					require.NotNil(t, matched, "could not find thought matching %q", expected)
+					require.Equal(t, interceptions[0].ID, matched.InterceptionID)
+					require.Equal(t, expected.source, matched.Metadata["source"])
 				}
-				require.Equal(t, 1, withThoughts, "expected exactly one tool usage with model thoughts")
 			}
 		})
 	}
