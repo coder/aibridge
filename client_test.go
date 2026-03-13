@@ -67,6 +67,16 @@ func TestGuessClient(t *testing.T) {
 			wantClient: ClientRoo,
 		},
 		{
+			name:       "coder_agents",
+			userAgent:  "coder-agents/v2.24.0 (linux/amd64)",
+			wantClient: ClientCoderAgents,
+		},
+		{
+			name:       "coder_agents_dev",
+			userAgent:  "coder-agents/v0.0.0-devel (darwin/arm64)",
+			wantClient: ClientCoderAgents,
+		},
+		{
 			name:       "cursor_x_cursor_client_version",
 			userAgent:  "connect-es/1.6.1",
 			headers:    map[string]string{"X-Cursor-client-version": "0.50.0"},
