@@ -77,6 +77,11 @@ func TestGuessClient(t *testing.T) {
 			wantClient: ClientCoderAgents,
 		},
 		{
+			name:       "charm_crush",
+			userAgent:  "Charm Crush/0.1.11",
+			wantClient: ClientCrush,
+		},
+		{
 			name:       "cursor_x_cursor_client_version",
 			userAgent:  "connect-es/1.6.1",
 			headers:    map[string]string{"X-Cursor-client-version": "0.50.0"},
