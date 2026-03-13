@@ -17,6 +17,7 @@ const (
 	ClientCopilotCLI  Client = "GitHub Copilot (CLI)"
 	ClientKilo        Client = "Kilo Code"
 	ClientCoderAgents Client = "Coder Agents"
+	ClientCrush       Client = "Charm Crush"
 	ClientMux         Client = "Mux"
 	ClientRoo         Client = "Roo Code"
 	ClientCursor      Client = "Cursor"
@@ -50,6 +51,8 @@ func guessClient(r *http.Request) Client {
 		return ClientRoo
 	case strings.HasPrefix(userAgent, "coder-agents/"):
 		return ClientCoderAgents
+	case strings.HasPrefix(userAgent, "charm crush/"):
+		return ClientCrush
 	case r.Header.Get("x-cursor-client-version") != "":
 		return ClientCursor
 	}
