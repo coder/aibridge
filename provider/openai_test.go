@@ -162,89 +162,68 @@ func generateResponsesPayload(payloadSize int, inputCount int, stream bool) []by
 func TestOpenAI_CreateInterceptor(t *testing.T) {
 	t.Parallel()
 
-	t.Run("ChatCompletions_ClientHeaders", func(t *testing.T) {
-		t.Parallel()
+	tests := []struct {
+		name         string
+		route        string
+		requestBody  string
+		responseBody string
+	}{
+		{
+			name:         "ChatCompletions_ClientHeaders",
+			route:        routeChatCompletions,
+			requestBody:  `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
+			responseBody: chatCompletionResponse,
+		},
+		{
+			name:         "Responses_ClientHeaders",
+			route:        routeResponses,
+			requestBody:  `{"model": "gpt-5", "input": "hello", "stream": false}`,
+			responseBody: responsesAPIResponse,
+		},
+	}
 
-		var receivedHeaders http.Header
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-		mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			receivedHeaders = r.Header.Clone()
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, err := w.Write([]byte(chatCompletionResponse))
+			var receivedHeaders http.Header
+
+			mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedHeaders = r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, err := w.Write([]byte(tc.responseBody))
+				require.NoError(t, err)
+			}))
+			t.Cleanup(mockUpstream.Close)
+
+			provider := NewOpenAI(config.OpenAI{
+				BaseURL: mockUpstream.URL,
+				Key:     "test-key",
+			})
+
+			req := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+tc.route, bytes.NewBufferString(tc.requestBody))
+			// Simulate a client sending its own auth credential, which must be replaced
+			// by aibridge with the configured provider key.
+			req.Header.Set("Authorization", "Bearer fake-client-bearer")
+			w := httptest.NewRecorder()
+
+			interceptor, err := provider.CreateInterceptor(w, req, testTracer)
 			require.NoError(t, err)
-		}))
-		t.Cleanup(mockUpstream.Close)
+			require.NotNil(t, interceptor)
 
-		provider := NewOpenAI(config.OpenAI{
-			BaseURL: mockUpstream.URL,
-			Key:     "test-key",
-		})
+			logger := slog.Make()
+			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
 
-		body := `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`
-		req := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+routeChatCompletions, bytes.NewBufferString(body))
-		// Simulate a client sending its own auth credential, which must be replaced
-		// by aibridge with the configured provider key.
-		req.Header.Set("Authorization", "Bearer fake-client-bearer")
-		w := httptest.NewRecorder()
-
-		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
-		require.NoError(t, err)
-		require.NotNil(t, interceptor)
-
-		logger := slog.Make()
-		interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
-
-		processReq := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+routeChatCompletions, nil)
-		err = interceptor.ProcessRequest(w, processReq)
-		require.NoError(t, err)
-
-		// Verify aibridge's configured key was used and the client's auth credential was not forwarded.
-		assert.Equal(t, "Bearer test-key", receivedHeaders.Get("Authorization"), "upstream must receive configured provider key")
-		assert.Empty(t, receivedHeaders.Get("X-Api-Key"), "X-Api-Key must not be set upstream")
-	})
-
-	t.Run("Responses_ClientHeaders", func(t *testing.T) {
-		t.Parallel()
-
-		var receivedHeaders http.Header
-
-		mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			receivedHeaders = r.Header.Clone()
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			_, err := w.Write([]byte(responsesAPIResponse))
+			processReq := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+tc.route, nil)
+			err = interceptor.ProcessRequest(w, processReq)
 			require.NoError(t, err)
-		}))
-		t.Cleanup(mockUpstream.Close)
 
-		provider := NewOpenAI(config.OpenAI{
-			BaseURL: mockUpstream.URL,
-			Key:     "test-key",
+			// Verify aibridge's configured key was used and the client's auth credential was not forwarded.
+			assert.Equal(t, "Bearer test-key", receivedHeaders.Get("Authorization"), "upstream must receive configured provider key")
+			assert.Empty(t, receivedHeaders.Get("X-Api-Key"), "X-Api-Key must not be set upstream")
 		})
-
-		body := `{"model": "gpt-5", "input": "hello", "stream": false}`
-		req := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+routeResponses, bytes.NewBufferString(body))
-		// Simulate a client sending its own auth credential, which must be replaced
-		// by aibridge with the configured provider key.
-		req.Header.Set("Authorization", "Bearer fake-client-bearer")
-		w := httptest.NewRecorder()
-
-		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
-		require.NoError(t, err)
-		require.NotNil(t, interceptor)
-
-		logger := slog.Make()
-		interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
-
-		processReq := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+routeResponses, nil)
-		err = interceptor.ProcessRequest(w, processReq)
-		require.NoError(t, err)
-
-		// Verify aibridge's configured key was used and the client's auth credential was not forwarded.
-		assert.Equal(t, "Bearer test-key", receivedHeaders.Get("Authorization"), "upstream must receive configured provider key")
-		assert.Empty(t, receivedHeaders.Get("X-Api-Key"), "X-Api-Key must not be set upstream")
-	})
+	}
 }
 
 func BenchmarkOpenAI_CreateInterceptor_ChatCompletions(b *testing.B) {
