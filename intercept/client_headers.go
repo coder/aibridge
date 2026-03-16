@@ -25,34 +25,36 @@ var nonForwardedHeaders = []string{
 }
 
 // authHeaders are headers that carry authentication credentials from the
-// client. These are stripped because the SDK re-injects the correct
-// provider credentials (API key or per-user token).
+// client. The upstream request is built by the SDK, which sets the correct
+// provider credentials via option.WithAPIKey. Client auth headers are
+// stripped here and the provider credentials are re-injected by
+// BuildUpstreamHeaders from the SDK-built request.
 var authHeaders = []string{
 	"Authorization",
 	"X-Api-Key",
 }
 
-// SanitizeClientHeaders returns a copy of the client headers with hop-by-hop,
+// PrepareClientHeaders returns a copy of the client headers with hop-by-hop,
 // transport, and auth headers removed.
-func SanitizeClientHeaders(clientHeaders http.Header) http.Header {
-	sanitized := clientHeaders.Clone()
+func PrepareClientHeaders(clientHeaders http.Header) http.Header {
+	prepared := clientHeaders.Clone()
 	for _, h := range hopByHopHeaders {
-		sanitized.Del(h)
+		prepared.Del(h)
 	}
 	for _, h := range nonForwardedHeaders {
-		sanitized.Del(h)
+		prepared.Del(h)
 	}
 	for _, h := range authHeaders {
-		sanitized.Del(h)
+		prepared.Del(h)
 	}
-	return sanitized
+	return prepared
 }
 
 // BuildUpstreamHeaders produces the header set for an upstream SDK request.
-// It starts from the sanitized client headers, then preserves specific
+// It starts from the prepared client headers, then preserves specific
 // headers from the SDK-built request that must not be overwritten.
 func BuildUpstreamHeaders(sdkHeader http.Header, clientHeaders http.Header, authHeaderName string) http.Header {
-	headers := SanitizeClientHeaders(clientHeaders)
+	headers := PrepareClientHeaders(clientHeaders)
 
 	// Preserve the auth header set by the SDK from the provider configuration.
 	if v := sdkHeader.Get(authHeaderName); v != "" {

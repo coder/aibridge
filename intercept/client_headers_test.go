@@ -8,13 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestSanitizeClientHeaders(t *testing.T) {
+func TestPrepareClientHeaders(t *testing.T) {
 	t.Parallel()
 
 	t.Run("nil input returns empty header", func(t *testing.T) {
 		t.Parallel()
 
-		result := SanitizeClientHeaders(nil)
+		result := PrepareClientHeaders(nil)
 		require.Empty(t, result)
 	})
 
@@ -29,7 +29,7 @@ func TestSanitizeClientHeaders(t *testing.T) {
 			"X-Custom":          {"preserved"},
 		}
 
-		result := SanitizeClientHeaders(input)
+		result := PrepareClientHeaders(input)
 
 		assert.Empty(t, result.Get("Connection"))
 		assert.Empty(t, result.Get("Keep-Alive"))
@@ -48,7 +48,7 @@ func TestSanitizeClientHeaders(t *testing.T) {
 			"X-Custom":        {"preserved"},
 		}
 
-		result := SanitizeClientHeaders(input)
+		result := PrepareClientHeaders(input)
 
 		assert.Empty(t, result.Get("Host"))
 		assert.Empty(t, result.Get("Accept-Encoding"))
@@ -65,7 +65,7 @@ func TestSanitizeClientHeaders(t *testing.T) {
 			"X-Custom":      {"preserved"},
 		}
 
-		result := SanitizeClientHeaders(input)
+		result := PrepareClientHeaders(input)
 
 		assert.Empty(t, result.Get("Authorization"))
 		assert.Empty(t, result.Get("X-Api-Key"))
@@ -79,7 +79,7 @@ func TestSanitizeClientHeaders(t *testing.T) {
 			"X-Custom": {"value-1", "value-2"},
 		}
 
-		result := SanitizeClientHeaders(input)
+		result := PrepareClientHeaders(input)
 
 		require.Equal(t, []string{"value-1", "value-2"}, result["X-Custom"])
 	})
@@ -93,7 +93,7 @@ func TestSanitizeClientHeaders(t *testing.T) {
 		}
 		originalCopy := input.Clone()
 
-		_ = SanitizeClientHeaders(input)
+		_ = PrepareClientHeaders(input)
 
 		require.Equal(t, originalCopy, input)
 	})

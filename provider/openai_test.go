@@ -18,6 +18,11 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
+const (
+	chatCompletionResponse = `{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`
+	responsesAPIResponse   = `{"id":"resp-123","object":"response","created_at":1677652288,"model":"gpt-5","output":[],"usage":{"input_tokens":5,"output_tokens":10,"total_tokens":15}}`
+)
+
 type message struct {
 	Role    string
 	Content string
@@ -166,7 +171,8 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			receivedHeaders = r.Header.Clone()
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`))
+			_, err := w.Write([]byte(chatCompletionResponse))
+			require.NoError(t, err)
 		}))
 		t.Cleanup(mockUpstream.Close)
 
@@ -207,7 +213,8 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			receivedHeaders = r.Header.Clone()
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write([]byte(`{"id":"resp-123","object":"response","created_at":1677652288,"model":"gpt-5","output":[],"usage":{"input_tokens":5,"output_tokens":10,"total_tokens":15}}`))
+			_, err := w.Write([]byte(responsesAPIResponse))
+			require.NoError(t, err)
 		}))
 		t.Cleanup(mockUpstream.Close)
 
