@@ -124,6 +124,107 @@ func TestAnthropicMessages(t *testing.T) {
 	})
 }
 
+func TestAnthropicMessagesModelThoughts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name             string
+		streaming        bool
+		fixture          []byte
+		expectedThoughts []recorder.ModelThoughtRecord // nil means no model thoughts expected
+	}{
+		{
+			name:             "single thinking block/streaming",
+			streaming:        true,
+			fixture:          fixtures.AntSingleBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants me to read", recorder.ThoughtSourceThinking)},
+		},
+		{
+			name:             "single thinking block/blocking",
+			streaming:        false,
+			fixture:          fixtures.AntSingleBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants me to read", recorder.ThoughtSourceThinking)},
+		},
+		{
+			name:      "multiple thinking blocks/streaming",
+			streaming: true,
+			fixture:   fixtures.AntMultiThinkingBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("The user wants me to read", recorder.ThoughtSourceThinking),
+				newModelThought("I should use the Read tool", recorder.ThoughtSourceThinking),
+			},
+		},
+		{
+			name:      "multiple thinking blocks/blocking",
+			streaming: false,
+			fixture:   fixtures.AntMultiThinkingBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("The user wants me to read", recorder.ThoughtSourceThinking),
+				newModelThought("I should use the Read tool", recorder.ThoughtSourceThinking),
+			},
+		},
+		{
+			name:             "parallel tool calls/streaming",
+			streaming:        true,
+			fixture:          fixtures.AntSingleBuiltinToolParallel,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants me to read two files", recorder.ThoughtSourceThinking)},
+		},
+		{
+			name:             "parallel tool calls/blocking",
+			streaming:        false,
+			fixture:          fixtures.AntSingleBuiltinToolParallel,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants me to read two files", recorder.ThoughtSourceThinking)},
+		},
+		{
+			name:             "thoughts without tool calls/streaming",
+			streaming:        true,
+			fixture:          fixtures.AntSimple,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("This is a classic philosophical question about medieval scholasticism", recorder.ThoughtSourceThinking)},
+		},
+		{
+			name:             "thoughts without tool calls/blocking",
+			streaming:        false,
+			fixture:          fixtures.AntSimple,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("This is a classic philosophical question about medieval scholasticism", recorder.ThoughtSourceThinking)},
+		},
+		{
+			name:             "no thoughts captured",
+			streaming:        false,
+			fixture:          fixtures.AntSingleInjectedTool,
+			expectedThoughts: nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+
+			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
+			require.NoError(t, err)
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			if tc.streaming {
+				sp := aibridge.NewSSEParser()
+				require.NoError(t, sp.Parse(resp.Body))
+				assert.Contains(t, sp.AllEvents(), "message_start")
+				assert.Contains(t, sp.AllEvents(), "message_stop")
+			}
+
+			bridgeServer.Recorder.VerifyModelThoughtsRecorded(t, tc.expectedThoughts)
+			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
+		})
+	}
+}
+
 func TestAWSBedrockIntegration(t *testing.T) {
 	t.Parallel()
 

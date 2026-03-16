@@ -936,6 +936,107 @@ func TestResponsesInjectedTool(t *testing.T) {
 	}
 }
 
+func TestResponsesModelThoughts(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name             string
+		fixture          []byte
+		expectedThoughts []recorder.ModelThoughtRecord // nil means no tool usages expected at all
+	}{
+		{
+			name:             "single reasoning/blocking",
+			fixture:          fixtures.OaiResponsesBlockingSingleBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants to add 3 and 5", recorder.ThoughtSourceReasoningSummary)},
+		},
+		{
+			name:             "single reasoning/streaming",
+			fixture:          fixtures.OaiResponsesStreamingBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants to add 3 and 5", recorder.ThoughtSourceReasoningSummary)},
+		},
+		{
+			name:    "multiple reasoning items/blocking",
+			fixture: fixtures.OaiResponsesBlockingMultiReasoningBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("The user wants to add 3 and 5", recorder.ThoughtSourceReasoningSummary),
+				newModelThought("After adding, I will check if the result is prime", recorder.ThoughtSourceReasoningSummary),
+			},
+		},
+		{
+			name:    "multiple reasoning items/streaming",
+			fixture: fixtures.OaiResponsesStreamingMultiReasoningBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("The user wants to add 3 and 5", recorder.ThoughtSourceReasoningSummary),
+				newModelThought("After adding, I will check if the result is prime", recorder.ThoughtSourceReasoningSummary),
+			},
+		},
+		{
+			name:             "commentary/blocking",
+			fixture:          fixtures.OaiResponsesBlockingCommentaryBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("Checking whether 3 + 5 is prime by calling the add function first.", recorder.ThoughtSourceCommentary)},
+		},
+		{
+			name:             "commentary/streaming",
+			fixture:          fixtures.OaiResponsesStreamingCommentaryBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("Checking whether 3 + 5 is prime by calling the add function first.", recorder.ThoughtSourceCommentary)},
+		},
+		{
+			name:    "summary and commentary/blocking",
+			fixture: fixtures.OaiResponsesBlockingSummaryAndCommentaryBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("I need to add 3 and 5 to check primality.", recorder.ThoughtSourceReasoningSummary),
+				newModelThought("Let me calculate the sum first using the add function.", recorder.ThoughtSourceCommentary),
+			},
+		},
+		{
+			name:    "summary and commentary/streaming",
+			fixture: fixtures.OaiResponsesStreamingSummaryAndCommentaryBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("I need to add 3 and 5 to check primality.", recorder.ThoughtSourceReasoningSummary),
+				newModelThought("Let me calculate the sum first using the add function.", recorder.ThoughtSourceCommentary),
+			},
+		},
+		{
+			name:             "parallel tool calls/blocking",
+			fixture:          fixtures.OaiResponsesBlockingSingleBuiltinToolParallel,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants two additions", recorder.ThoughtSourceReasoningSummary)},
+		},
+		{
+			name:             "parallel tool calls/streaming",
+			fixture:          fixtures.OaiResponsesStreamingSingleBuiltinToolParallel,
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants two additions", recorder.ThoughtSourceReasoningSummary)},
+		},
+		{
+			name:             "thoughts without tool calls",
+			fixture:          fixtures.OaiResponsesStreamingCodex, // This fixture contains reasoning, but it's not associated with tool calls.
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("Preparing simple response", recorder.ThoughtSourceReasoningSummary)},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+
+			_, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			bridgeServer.Recorder.VerifyModelThoughtsRecorded(t, tc.expectedThoughts)
+			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
+		})
+	}
+}
+
 func requireResponsesError(t *testing.T, code int, message string, body []byte) {
 	var respErr responses.Error
 	err := json.Unmarshal(body, &respErr)

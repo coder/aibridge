@@ -6,6 +6,7 @@ import (
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/recorder"
 )
 
 // anthropicCfg creates a minimal Anthropic config for testing.
@@ -52,4 +53,13 @@ func openaiCfgWithAPIDump(url string, key string, dumpDir string) config.OpenAI 
 func newLogger(t *testing.T) slog.Logger {
 	t.Helper()
 	return slogtest.Make(t, &slogtest.Options{}).Leveled(slog.LevelDebug)
+}
+
+func newModelThought(content, source string) recorder.ModelThoughtRecord {
+	return recorder.ModelThoughtRecord{
+		Content: content,
+		Metadata: recorder.Metadata{
+			"source": source,
+		},
+	}
 }

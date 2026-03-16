@@ -271,6 +271,16 @@ func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, respon
 	}
 }
 
+func (i *responsesInterceptionBase) recordModelThoughts(ctx context.Context, response *responses.Response) {
+	for _, t := range i.extractModelThoughts(response) {
+		_ = i.recorder.RecordModelThought(ctx, &recorder.ModelThoughtRecord{
+			InterceptionID: i.ID().String(),
+			Content:        t.Content,
+			Metadata:       t.Metadata,
+		})
+	}
+}
+
 func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Context, response *responses.Response) {
 	if response == nil {
 		i.logger.Warn(ctx, "got empty response, skipping tool usage recording")
@@ -341,6 +351,58 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 	}); err != nil {
 		i.logger.Warn(ctx, "failed to record token usage", slog.Error(err))
 	}
+}
+
+// extractModelThoughts extracts model thoughts from response output items.
+// It captures both reasoning summary items and commentary messages (message
+// output items with "phase": "commentary") as model thoughts.
+func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Response) []*recorder.ModelThoughtRecord {
+	if response == nil {
+		return nil
+	}
+
+	var thoughts []*recorder.ModelThoughtRecord
+	for _, item := range response.Output {
+		switch item.Type {
+		case string(constant.ValueOf[constant.Reasoning]()):
+			reasoning := item.AsReasoning()
+			for _, summary := range reasoning.Summary {
+				if summary.Text == "" {
+					continue
+				}
+				thoughts = append(thoughts, &recorder.ModelThoughtRecord{
+					Content:  summary.Text,
+					Metadata: recorder.Metadata{"source": recorder.ThoughtSourceReasoningSummary},
+				})
+			}
+
+		case string(constant.ValueOf[constant.Message]()):
+			// The API sometimes returns commentary messages instead of reasoning
+			// summaries. These are assistant message output items with "phase": "commentary".
+			// The SDK doesn't expose a Phase field, so we extract it from raw JSON.
+			// TODO: revisit when the OpenAI SDK adds a proper Phase field.
+			raw := item.RawJSON()
+			if gjson.Get(raw, "role").String() != string(constant.ValueOf[constant.Assistant]()) ||
+				gjson.Get(raw, "phase").String() != "commentary" {
+				continue
+			}
+			msg := item.AsMessage()
+			for _, part := range msg.Content {
+				if part.Type != string(constant.ValueOf[constant.OutputText]()) {
+					continue
+				}
+				if part.Text == "" {
+					continue
+				}
+				thoughts = append(thoughts, &recorder.ModelThoughtRecord{
+					Content:  part.Text,
+					Metadata: recorder.Metadata{"source": recorder.ThoughtSourceCommentary},
+				})
+			}
+		}
+	}
+
+	return thoughts
 }
 
 func (i *responsesInterceptionBase) hasInjectableTools() bool {

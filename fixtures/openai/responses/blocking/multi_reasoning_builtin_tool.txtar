@@ -1,3 +1,5 @@
+Two reasoning output items before a function_call.
+
 -- request --
 {
   "input": [
@@ -39,9 +41,6 @@
   "created_at": 1767875133,
   "status": "completed",
   "background": false,
-  "billing": {
-    "payer": "developer"
-  },
   "completed_at": 1767875134,
   "error": null,
   "incomplete_details": null,
@@ -58,6 +57,17 @@
         {
           "type": "summary_text",
           "text": "The user wants to add 3 and 5. Let me call the add function."
+        }
+      ]
+    },
+    {
+      "id": "rs_1aa7045a8b68fa5200695fa23e200082b29cf79998e58bf94e",
+      "type": "reasoning",
+      "status": "completed",
+      "summary": [
+        {
+          "type": "summary_text",
+          "text": "After adding, I will check if the result is prime."
         }
       ]
     },

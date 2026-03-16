@@ -173,6 +173,29 @@ func (i *interceptionBase) disableParallelToolCalls() {
 	}
 }
 
+// extractModelThoughts returns any thinking blocks that were returned in the response.
+func (i *interceptionBase) extractModelThoughts(msg *anthropic.Message) []*recorder.ModelThoughtRecord {
+	if msg == nil {
+		return nil
+	}
+
+	var thoughtRecords []*recorder.ModelThoughtRecord
+	for _, block := range msg.Content {
+		switch variant := block.AsAny().(type) {
+		case anthropic.ThinkingBlock:
+			if variant.Thinking == "" {
+				continue
+			}
+			thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
+				Content:  variant.Thinking,
+				Metadata: recorder.Metadata{"source": recorder.ThoughtSourceThinking},
+			})
+		}
+		// anthropic.RedactedThinkingBlock also exists, but there's nothing useful we can capture.
+	}
+	return thoughtRecords
+}
+
 // IsSmallFastModel checks if the model is a small/fast model (Haiku 3.5).
 // These models are optimized for tasks like code autocomplete and other small, quick operations.
 // See `ANTHROPIC_SMALL_FAST_MODEL`: https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables

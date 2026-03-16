@@ -171,7 +171,7 @@ func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(ctx context.Con
 	return nil
 }
 
-// getPendingInjectedToolCalls extracts function calls from the response that are managed by MCP proxy
+// getPendingInjectedToolCalls extracts function calls from the response that are managed by MCP proxy.
 func (i *responsesInterceptionBase) getPendingInjectedToolCalls(response *responses.Response) []responses.ResponseFunctionToolCall {
 	var calls []responses.ResponseFunctionToolCall
 

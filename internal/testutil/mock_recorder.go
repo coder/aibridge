@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -20,6 +21,7 @@ type MockRecorder struct {
 	tokenUsages      []*recorder.TokenUsageRecord
 	userPrompts      []*recorder.PromptUsageRecord
 	toolUsages       []*recorder.ToolUsageRecord
+	modelThoughts    []*recorder.ModelThoughtRecord
 	interceptionsEnd map[string]*recorder.InterceptionRecordEnded
 }
 
@@ -61,6 +63,13 @@ func (m *MockRecorder) RecordToolUsage(ctx context.Context, req *recorder.ToolUs
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.toolUsages = append(m.toolUsages, req)
+	return nil
+}
+
+func (m *MockRecorder) RecordModelThought(ctx context.Context, req *recorder.ModelThoughtRecord) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.modelThoughts = append(m.modelThoughts, req)
 	return nil
 }
 
@@ -112,6 +121,14 @@ func (m *MockRecorder) RecordedToolUsages() []*recorder.ToolUsageRecord {
 	return slices.Clone(m.toolUsages)
 }
 
+// RecordedModelThoughts returns a copy of recorded model thoughts in a thread-safe manner.
+// Note: This is a shallow clone (see RecordedTokenUsages for details).
+func (m *MockRecorder) RecordedModelThoughts() []*recorder.ModelThoughtRecord {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return slices.Clone(m.modelThoughts)
+}
+
 // RecordedInterceptions returns a copy of recorded interceptions in a thread-safe manner.
 // Note: This is a shallow clone (see RecordedTokenUsages for details).
 func (m *MockRecorder) RecordedInterceptions() []*recorder.InterceptionRecord {
@@ -145,5 +162,30 @@ func (m *MockRecorder) VerifyAllInterceptionsEnded(t *testing.T) {
 	require.Equalf(t, len(m.interceptions), len(m.interceptionsEnd), "got %v interception ended calls, want: %v", len(m.interceptionsEnd), len(m.interceptions))
 	for _, intc := range m.interceptions {
 		require.Containsf(t, m.interceptionsEnd, intc.ID, "interception with id: %v has not been ended", intc.ID)
+	}
+}
+
+func (m *MockRecorder) VerifyModelThoughtsRecorded(t *testing.T, expected []recorder.ModelThoughtRecord) {
+	thoughts := m.RecordedModelThoughts()
+	if expected == nil {
+		require.Empty(t, thoughts)
+		return
+	}
+
+	require.Len(t, thoughts, len(expected), "unexpected number of model thoughts")
+
+	// We can't guarantee the order of model thoughts since they're recorded separately, so
+	// we have to scan all thoughts for a match.
+
+	for _, exp := range expected {
+		var matched *recorder.ModelThoughtRecord
+		for _, thought := range thoughts {
+			if strings.Contains(thought.Content, exp.Content) {
+				matched = thought
+			}
+		}
+
+		require.NotNil(t, matched, "could not find thought matching %q", exp.Content)
+		require.EqualValues(t, exp.Metadata, matched.Metadata)
 	}
 }

@@ -265,6 +265,17 @@ newStream:
 
 			// Don't send message_stop until all tools have been called.
 			case string(constant.ValueOf[constant.MessageStop]()):
+
+				// Capture any thinking blocks that were returned.
+				for _, t := range i.extractModelThoughts(&message) {
+					_ = i.recorder.RecordModelThought(ctx, &recorder.ModelThoughtRecord{
+						InterceptionID: i.ID().String(),
+						Content:        t.Content,
+						Metadata:       t.Metadata,
+					})
+				}
+
+				// Process injected tools.
 				if len(pendingToolCalls) > 0 {
 					// Append the whole message from this stream as context since we'll be sending a new request with the tool results.
 					messages.Messages = append(messages.Messages, message.ToParam())

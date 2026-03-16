@@ -149,7 +149,16 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 		accumulateUsage(&cumulativeUsage, resp.Usage)
 
-		// Handle tool calls for non-streaming.
+		// Capture any thinking blocks that were returned.
+		for _, t := range i.extractModelThoughts(resp) {
+			_ = i.recorder.RecordModelThought(ctx, &recorder.ModelThoughtRecord{
+				InterceptionID: i.ID().String(),
+				Content:        t.Content,
+				Metadata:       t.Metadata,
+			})
+		}
+
+		// Handle tool calls.
 		var pendingToolCalls []anthropic.ToolUseBlock
 		for _, c := range resp.Content {
 			toolUse := c.AsToolUse()
@@ -171,7 +180,6 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				Args:           toolUse.Input,
 				Injected:       false,
 			})
-
 		}
 
 		// If no injected tool calls, we're done.
