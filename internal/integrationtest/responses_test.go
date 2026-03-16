@@ -10,7 +10,6 @@ import (
 	"net/http/httptest"
 	"slices"
 	"strconv"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -940,82 +939,77 @@ func TestResponsesInjectedTool(t *testing.T) {
 func TestResponsesModelThoughts(t *testing.T) {
 	t.Parallel()
 
-	type expectedThought struct {
-		content string
-		source  string // "reasoning_summary" or "commentary"
-	}
-
 	cases := []struct {
 		name             string
 		fixture          []byte
-		expectedThoughts []expectedThought // nil means no tool usages expected at all
+		expectedThoughts []recorder.ModelThoughtRecord // nil means no tool usages expected at all
 	}{
 		{
 			name:             "single reasoning/blocking",
 			fixture:          fixtures.OaiResponsesBlockingSingleBuiltinTool,
-			expectedThoughts: []expectedThought{{content: "The user wants to add 3 and 5", source: "reasoning_summary"}},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants to add 3 and 5", recorder.ThoughtSourceReasoningSummary)},
 		},
 		{
 			name:             "single reasoning/streaming",
 			fixture:          fixtures.OaiResponsesStreamingBuiltinTool,
-			expectedThoughts: []expectedThought{{content: "The user wants to add 3 and 5", source: "reasoning_summary"}},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants to add 3 and 5", recorder.ThoughtSourceReasoningSummary)},
 		},
 		{
 			name:    "multiple reasoning items/blocking",
 			fixture: fixtures.OaiResponsesBlockingMultiReasoningBuiltinTool,
-			expectedThoughts: []expectedThought{
-				{content: "The user wants to add 3 and 5", source: "reasoning_summary"},
-				{content: "After adding, I will check if the result is prime", source: "reasoning_summary"},
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("The user wants to add 3 and 5", recorder.ThoughtSourceReasoningSummary),
+				newModelThought("After adding, I will check if the result is prime", recorder.ThoughtSourceReasoningSummary),
 			},
 		},
 		{
 			name:    "multiple reasoning items/streaming",
 			fixture: fixtures.OaiResponsesStreamingMultiReasoningBuiltinTool,
-			expectedThoughts: []expectedThought{
-				{content: "The user wants to add 3 and 5", source: "reasoning_summary"},
-				{content: "After adding, I will check if the result is prime", source: "reasoning_summary"},
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("The user wants to add 3 and 5", recorder.ThoughtSourceReasoningSummary),
+				newModelThought("After adding, I will check if the result is prime", recorder.ThoughtSourceReasoningSummary),
 			},
 		},
 		{
 			name:             "commentary/blocking",
 			fixture:          fixtures.OaiResponsesBlockingCommentaryBuiltinTool,
-			expectedThoughts: []expectedThought{{content: "Checking whether 3 + 5 is prime by calling the add function first.", source: "commentary"}},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("Checking whether 3 + 5 is prime by calling the add function first.", recorder.ThoughtSourceCommentary)},
 		},
 		{
 			name:             "commentary/streaming",
 			fixture:          fixtures.OaiResponsesStreamingCommentaryBuiltinTool,
-			expectedThoughts: []expectedThought{{content: "Checking whether 3 + 5 is prime by calling the add function first.", source: "commentary"}},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("Checking whether 3 + 5 is prime by calling the add function first.", recorder.ThoughtSourceCommentary)},
 		},
 		{
 			name:    "summary and commentary/blocking",
 			fixture: fixtures.OaiResponsesBlockingSummaryAndCommentaryBuiltinTool,
-			expectedThoughts: []expectedThought{
-				{content: "I need to add 3 and 5 to check primality.", source: "reasoning_summary"},
-				{content: "Let me calculate the sum first using the add function.", source: "commentary"},
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("I need to add 3 and 5 to check primality.", recorder.ThoughtSourceReasoningSummary),
+				newModelThought("Let me calculate the sum first using the add function.", recorder.ThoughtSourceCommentary),
 			},
 		},
 		{
 			name:    "summary and commentary/streaming",
 			fixture: fixtures.OaiResponsesStreamingSummaryAndCommentaryBuiltinTool,
-			expectedThoughts: []expectedThought{
-				{content: "I need to add 3 and 5 to check primality.", source: "reasoning_summary"},
-				{content: "Let me calculate the sum first using the add function.", source: "commentary"},
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("I need to add 3 and 5 to check primality.", recorder.ThoughtSourceReasoningSummary),
+				newModelThought("Let me calculate the sum first using the add function.", recorder.ThoughtSourceCommentary),
 			},
 		},
 		{
 			name:             "parallel tool calls/blocking",
 			fixture:          fixtures.OaiResponsesBlockingSingleBuiltinToolParallel,
-			expectedThoughts: []expectedThought{{content: "The user wants two additions", source: "reasoning_summary"}},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants two additions", recorder.ThoughtSourceReasoningSummary)},
 		},
 		{
 			name:             "parallel tool calls/streaming",
 			fixture:          fixtures.OaiResponsesStreamingSingleBuiltinToolParallel,
-			expectedThoughts: []expectedThought{{content: "The user wants two additions", source: "reasoning_summary"}},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants two additions", recorder.ThoughtSourceReasoningSummary)},
 		},
 		{
 			name:             "thoughts without tool calls",
 			fixture:          fixtures.OaiResponsesStreamingCodex, // This fixture contains reasoning, but it's not associated with tool calls.
-			expectedThoughts: []expectedThought{{content: "Preparing simple response", source: "reasoning_summary"}},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("Preparing simple response", recorder.ThoughtSourceReasoningSummary)},
 		},
 	}
 
@@ -1037,31 +1031,8 @@ func TestResponsesModelThoughts(t *testing.T) {
 			_, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
-			interceptions := bridgeServer.Recorder.RecordedInterceptions()
-			require.GreaterOrEqual(t, len(interceptions), 1)
-
-			thoughts := bridgeServer.Recorder.RecordedModelThoughts()
-			if tc.expectedThoughts == nil {
-				assert.Empty(t, thoughts)
-			} else {
-				require.Len(t, thoughts, len(tc.expectedThoughts), "unexpected number of model thoughts")
-
-				// We can't guarantee the order of model thoughts since they're recorded separately, so
-				// we have to scan all thoughts for a match.
-
-				for _, expected := range tc.expectedThoughts {
-					var matched *aibridge.ModelThoughtRecord
-					for _, thought := range thoughts {
-						if strings.Contains(thought.Content, expected.content) {
-							matched = thought
-						}
-					}
-
-					require.NotNil(t, matched, "could not find thought matching %q", expected)
-					require.Equal(t, interceptions[0].ID, matched.InterceptionID)
-					require.Equal(t, expected.source, matched.Metadata["source"])
-				}
-			}
+			bridgeServer.Recorder.VerifyModelThoughtsRecorded(t, tc.expectedThoughts)
+			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 		})
 	}
 }

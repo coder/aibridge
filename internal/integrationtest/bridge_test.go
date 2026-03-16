@@ -131,55 +131,67 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 		name             string
 		streaming        bool
 		fixture          []byte
-		expectedThoughts []string // nil means no model thoughts expected
+		expectedThoughts []recorder.ModelThoughtRecord // nil means no model thoughts expected
 	}{
 		{
 			name:             "single thinking block/streaming",
 			streaming:        true,
 			fixture:          fixtures.AntSingleBuiltinTool,
-			expectedThoughts: []string{"The user wants me to read"},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants me to read", recorder.ThoughtSourceThinking)},
 		},
 		{
 			name:             "single thinking block/blocking",
 			streaming:        false,
 			fixture:          fixtures.AntSingleBuiltinTool,
-			expectedThoughts: []string{"The user wants me to read"},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants me to read", recorder.ThoughtSourceThinking)},
 		},
 		{
-			name:             "multiple thinking blocks/streaming",
-			streaming:        true,
-			fixture:          fixtures.AntMultiThinkingBuiltinTool,
-			expectedThoughts: []string{"The user wants me to read", "I should use the Read tool"},
+			name:      "multiple thinking blocks/streaming",
+			streaming: true,
+			fixture:   fixtures.AntMultiThinkingBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("The user wants me to read", recorder.ThoughtSourceThinking),
+				newModelThought("I should use the Read tool", recorder.ThoughtSourceThinking),
+			},
 		},
 		{
-			name:             "multiple thinking blocks/blocking",
-			streaming:        false,
-			fixture:          fixtures.AntMultiThinkingBuiltinTool,
-			expectedThoughts: []string{"The user wants me to read", "I should use the Read tool"},
+			name:      "multiple thinking blocks/blocking",
+			streaming: false,
+			fixture:   fixtures.AntMultiThinkingBuiltinTool,
+			expectedThoughts: []recorder.ModelThoughtRecord{
+				newModelThought("The user wants me to read", recorder.ThoughtSourceThinking),
+				newModelThought("I should use the Read tool", recorder.ThoughtSourceThinking),
+			},
 		},
 		{
 			name:             "parallel tool calls/streaming",
 			streaming:        true,
 			fixture:          fixtures.AntSingleBuiltinToolParallel,
-			expectedThoughts: []string{"The user wants me to read two files"},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants me to read two files", recorder.ThoughtSourceThinking)},
 		},
 		{
 			name:             "parallel tool calls/blocking",
 			streaming:        false,
 			fixture:          fixtures.AntSingleBuiltinToolParallel,
-			expectedThoughts: []string{"The user wants me to read two files"},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("The user wants me to read two files", recorder.ThoughtSourceThinking)},
 		},
 		{
 			name:             "thoughts without tool calls/streaming",
 			streaming:        true,
 			fixture:          fixtures.AntSimple,
-			expectedThoughts: []string{"This is a classic philosophical question about medieval scholasticism"},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("This is a classic philosophical question about medieval scholasticism", recorder.ThoughtSourceThinking)},
 		},
 		{
 			name:             "thoughts without tool calls/blocking",
 			streaming:        false,
 			fixture:          fixtures.AntSimple,
-			expectedThoughts: []string{"This is a classic philosophical question about medieval scholasticism"},
+			expectedThoughts: []recorder.ModelThoughtRecord{newModelThought("This is a classic philosophical question about medieval scholasticism", recorder.ThoughtSourceThinking)},
+		},
+		{
+			name:             "no thoughts captured",
+			streaming:        false,
+			fixture:          fixtures.AntSingleInjectedTool,
+			expectedThoughts: nil,
 		},
 	}
 
@@ -207,32 +219,7 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 				assert.Contains(t, sp.AllEvents(), "message_stop")
 			}
 
-			interceptions := bridgeServer.Recorder.RecordedInterceptions()
-			require.GreaterOrEqual(t, len(interceptions), 1)
-
-			thoughts := bridgeServer.Recorder.RecordedModelThoughts()
-			if tc.expectedThoughts == nil {
-				assert.Empty(t, thoughts)
-			} else {
-				require.Len(t, thoughts, len(tc.expectedThoughts), "unexpected number of model thoughts")
-
-				// We can't guarantee the order of model thoughts since they're recorded separately, so
-				// we have to scan all thoughts for a match.
-
-				for _, expected := range tc.expectedThoughts {
-					var matched *aibridge.ModelThoughtRecord
-					for _, thought := range thoughts {
-						if strings.Contains(thought.Content, expected) {
-							matched = thought
-						}
-					}
-
-					require.NotNil(t, matched, "could not find thought matching %q", expected)
-					require.Equal(t, interceptions[0].ID, matched.InterceptionID)
-					require.Equal(t, "thinking", matched.Metadata["source"])
-				}
-			}
-
+			bridgeServer.Recorder.VerifyModelThoughtsRecorded(t, tc.expectedThoughts)
 			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 		})
 	}

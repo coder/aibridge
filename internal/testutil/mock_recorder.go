@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 
@@ -161,5 +162,30 @@ func (m *MockRecorder) VerifyAllInterceptionsEnded(t *testing.T) {
 	require.Equalf(t, len(m.interceptions), len(m.interceptionsEnd), "got %v interception ended calls, want: %v", len(m.interceptionsEnd), len(m.interceptions))
 	for _, intc := range m.interceptions {
 		require.Containsf(t, m.interceptionsEnd, intc.ID, "interception with id: %v has not been ended", intc.ID)
+	}
+}
+
+func (m *MockRecorder) VerifyModelThoughtsRecorded(t *testing.T, expected []recorder.ModelThoughtRecord) {
+	thoughts := m.RecordedModelThoughts()
+	if expected == nil {
+		require.Empty(t, thoughts)
+		return
+	}
+
+	require.Len(t, thoughts, len(expected), "unexpected number of model thoughts")
+
+	// We can't guarantee the order of model thoughts since they're recorded separately, so
+	// we have to scan all thoughts for a match.
+
+	for _, exp := range expected {
+		var matched *recorder.ModelThoughtRecord
+		for _, thought := range thoughts {
+			if strings.Contains(thought.Content, exp.Content) {
+				matched = thought
+			}
+		}
+
+		require.NotNil(t, matched, "could not find thought matching %q", exp.Content)
+		require.EqualValues(t, exp.Metadata, matched.Metadata)
 	}
 }
