@@ -65,7 +65,7 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 	}
 }
 
-func TestWithInjectedTools(t *testing.T) {
+func TestInjectTools(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -134,31 +134,20 @@ func TestWithInjectedTools(t *testing.T) {
 	}
 }
 
-func TestWithParallelToolCallsDisabled(t *testing.T) {
+func TestDisableParallelToolCalls(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name        string
-		raw         []byte
-		wantErr     string
-		wantSame    bool
-		wantFlagSet bool
+		name string
+		raw  []byte
 	}{
 		{
-			name:        "sets flag when tools exist",
-			raw:         []byte(`{"tools":[{"type":"function","name":"existing"}]}`),
-			wantFlagSet: true,
+			name: "sets flag when not present",
+			raw:  []byte(`{"model":"gpt-4o"}`),
 		},
 		{
-			name:     "no tools is no op",
-			raw:      []byte(`{"model":"gpt-4o"}`),
-			wantSame: true,
-		},
-		{
-			name:     "invalid tools type",
-			raw:      []byte(`{"tools":"bad"}`),
-			wantErr:  "failed to get existing tools: unsupported 'tools' type: String",
-			wantSame: true,
+			name: "overrides when already true",
+			raw:  []byte(`{"model":"gpt-4o","parallel_tool_calls":true}`),
 		},
 	}
 
@@ -168,23 +157,13 @@ func TestWithParallelToolCallsDisabled(t *testing.T) {
 
 			p := mustPayload(t, tc.raw)
 			updated, err := p.disableParallelToolCalls()
-			if tc.wantErr != "" {
-				require.ErrorContains(t, err, tc.wantErr)
-			} else {
-				require.NoError(t, err)
-			}
-
-			if tc.wantSame {
-				assert.Equal(t, p, updated)
-			}
-			if tc.wantFlagSet {
-				assert.False(t, gjson.GetBytes(updated, "parallel_tool_calls").Bool())
-			}
+			require.NoError(t, err)
+			assert.False(t, gjson.GetBytes(updated, "parallel_tool_calls").Bool())
 		})
 	}
 }
 
-func TestWithAppendedInputItems(t *testing.T) {
+func TestAppendInputItems(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {

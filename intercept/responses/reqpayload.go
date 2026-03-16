@@ -72,14 +72,6 @@ func (p ResponsesRequestPayload) injectTools(injected []responses.ToolUnionParam
 }
 
 func (p ResponsesRequestPayload) disableParallelToolCalls() (ResponsesRequestPayload, error) {
-	existing, err := p.toolItems()
-	if err != nil {
-		return p, fmt.Errorf("failed to get existing tools: %w", err)
-	}
-	if len(existing) == 0 {
-		return p, nil
-	}
-
 	return p.set(reqPathParallelToolCalls, false)
 }
 

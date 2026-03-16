@@ -18,6 +18,8 @@ func (i *responsesInterceptionBase) injectTools() {
 		return
 	}
 
+	i.disableParallelToolCalls()
+
 	// Inject tools.
 	var injected []responses.ToolUnionParam
 	for _, tool := range i.mcpProxy.ListTools() {
@@ -53,10 +55,6 @@ func (i *responsesInterceptionBase) injectTools() {
 		return
 	}
 	i.reqPayload = updated
-
-	// Disable parallel tool calls after injecting tools, so the check for
-	// existing tools in the payload sees the newly injected ones.
-	i.disableParallelToolCalls()
 }
 
 // disableParallelToolCalls disables parallel tool calls, to simplify the inner agentic loop.
