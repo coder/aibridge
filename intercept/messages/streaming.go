@@ -36,8 +36,7 @@ type StreamingInterception struct {
 
 func NewStreamingInterceptor(
 	id uuid.UUID,
-	req *MessageNewParamsWrapper,
-	payload []byte,
+	reqPayload MessagesRequestPayload,
 	cfg config.Anthropic,
 	bedrockCfg *config.AWSBedrock,
 	clientHeaders http.Header,
@@ -46,8 +45,7 @@ func NewStreamingInterceptor(
 ) *StreamingInterception {
 	return &StreamingInterception{interceptionBase: interceptionBase{
 		id:             id,
-		req:            req,
-		payload:        payload,
+		reqPayload:     reqPayload,
 		cfg:            cfg,
 		bedrockCfg:     bedrockCfg,
 		clientHeaders:  clientHeaders,
@@ -88,8 +86,8 @@ func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.Key
 // results relayed to the SERVER. The response from the server will be handled synchronously, and this loop
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
 func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
-	if i.req == nil {
-		return fmt.Errorf("developer error: req is nil")
+	if len(i.reqPayload) == 0 {
+		return fmt.Errorf("developer error: request payload is empty")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -100,7 +98,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	defer cancel()
 	r = r.WithContext(ctx) // Rewire context for SSE cancellation.
 
-	logger := i.logger.With(slog.F("model", i.req.Model))
+	logger := i.logger.With(slog.F("model", i.Model()))
 
 	var (
 		prompt *string
@@ -109,9 +107,11 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 	// Claude Code uses a "small/fast model" for certain tasks.
 	if !i.isSmallFastModel() {
-		prompt, err = i.req.lastUserPrompt()
-		if err != nil {
-			logger.Warn(ctx, "failed to determine last user prompt", slog.Error(err))
+		promptText, promptFound, promptErr := i.reqPayload.lastUserPrompt()
+		if promptErr != nil {
+			logger.Warn(ctx, "failed to determine last user prompt", slog.Error(promptErr))
+		} else if promptFound {
+			prompt = &promptText
 		}
 
 		// Only inject tools into "actual" request.
@@ -142,8 +142,6 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.
 	}()
 
-	messages := i.req.MessageNewParams
-
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
 	var cumulativeUsage anthropic.Usage
 
@@ -159,7 +157,7 @@ newStream:
 			break
 		}
 
-		stream := i.newStream(streamCtx, svc, messages)
+		stream := i.newStream(streamCtx, svc)
 
 		var message anthropic.Message
 		var lastToolName string
@@ -278,7 +276,8 @@ newStream:
 				// Process injected tools.
 				if len(pendingToolCalls) > 0 {
 					// Append the whole message from this stream as context since we'll be sending a new request with the tool results.
-					messages.Messages = append(messages.Messages, message.ToParam())
+					var loopMessages []anthropic.MessageParam
+					loopMessages = append(loopMessages, message.ToParam())
 
 					for name, id := range pendingToolCalls {
 						if i.mcpProxy == nil {
@@ -296,11 +295,9 @@ newStream:
 							continue
 						}
 
-						var (
-							input      json.RawMessage
-							foundTool  bool
-							foundTools int
-						)
+						var input json.RawMessage
+						var foundTool bool
+						var foundTools int
 						for _, block := range message.Content {
 							switch variant := block.AsAny().(type) {
 							case anthropic.ToolUseBlock:
@@ -331,14 +328,12 @@ newStream:
 						})
 
 						if err != nil {
-							// Always provide a tool_result even if the tool call failed
-							messages.Messages = append(messages.Messages,
+							loopMessages = append(loopMessages,
 								anthropic.NewUserMessage(anthropic.NewToolResultBlock(id, fmt.Sprintf("Error calling tool: %v", err), true)),
 							)
 							continue
 						}
 
-						// Process tool result
 						toolResult := anthropic.ContentBlockParamUnion{
 							OfToolResult: &anthropic.ToolResultBlockParam{
 								ToolUseID: id,
@@ -398,7 +393,6 @@ newStream:
 							}
 						}
 
-						// If no content was processed, still add a tool_result
 						if !hasValidResult {
 							logger.Warn(ctx, "no tool result added", slog.F("content_len", len(res.Content)), slog.F("is_error", res.IsError))
 							toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
@@ -410,16 +404,16 @@ newStream:
 						}
 
 						if len(toolResult.OfToolResult.Content) > 0 {
-							messages.Messages = append(messages.Messages, anthropic.NewUserMessage(toolResult))
+							loopMessages = append(loopMessages, anthropic.NewUserMessage(toolResult))
 						}
 					}
 
-					// Sync the raw payload with updated messages so that withBody()
-					// sends the updated payload on the next iteration.
-					if syncErr := i.syncPayloadMessages(messages.Messages); syncErr != nil {
-						lastErr = fmt.Errorf("sync payload for agentic loop: %w", syncErr)
+					updatedPayload, rewriteErr := i.reqPayload.appendedMessages(loopMessages)
+					if rewriteErr != nil {
+						lastErr = fmt.Errorf("rewrite payload for agentic loop: %w", rewriteErr)
 						break
 					}
+					i.reqPayload = updatedPayload
 
 					// Causes a new stream to be run with updated messages.
 					isFirst = false
@@ -579,10 +573,10 @@ func (s *StreamingInterception) encodeForStream(payload []byte, typ string) []by
 	return buf.Bytes()
 }
 
-// newStream traces svc.NewStreaming(streamCtx, messages)
-func (s *StreamingInterception) newStream(ctx context.Context, svc anthropic.MessageService, messages anthropic.MessageNewParams) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
+// newStream traces svc.NewStreaming(streamCtx, anthropic.MessageNewParams{}).
+func (s *StreamingInterception) newStream(ctx context.Context, svc anthropic.MessageService) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
 	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
-	return svc.NewStreaming(ctx, messages, s.withBody())
+	return svc.NewStreaming(ctx, anthropic.MessageNewParams{}, s.withBody())
 }

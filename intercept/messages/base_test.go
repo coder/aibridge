@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"cdr.dev/slog/v3"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/coder/aibridge/config"
@@ -11,100 +12,63 @@ import (
 	"github.com/coder/aibridge/utils"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestScanForCorrelatingToolCallID(t *testing.T) {
 	t.Parallel()
 
-	tests := []struct {
-		name     string
-		messages []anthropic.MessageParam
-		expected *string
+	testCases := []struct {
+		name           string
+		requestBody    string
+		expectedToolID *string
 	}{
 		{
-			name:     "no messages",
-			messages: nil,
-			expected: nil,
+			name:           "no messages field",
+			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024}`,
+			expectedToolID: nil,
 		},
 		{
-			name: "last message has no tool_result blocks",
-			messages: []anthropic.MessageParam{
-				anthropic.NewUserMessage(anthropic.NewTextBlock("hello")),
-			},
-			expected: nil,
+			name:           "messages string",
+			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":"test"}`,
+			expectedToolID: nil,
 		},
 		{
-			name: "single tool_result block",
-			messages: []anthropic.MessageParam{
-				anthropic.NewUserMessage(
-					anthropic.ContentBlockParamUnion{
-						OfToolResult: &anthropic.ToolResultBlockParam{
-							ToolUseID: "toolu_abc",
-							Content: []anthropic.ToolResultBlockParamContentUnion{
-								{OfText: &anthropic.TextBlockParam{Text: "result"}},
-							},
-						},
-					},
-				),
-			},
-			expected: utils.PtrTo("toolu_abc"),
+			name:           "empty messages array",
+			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[]}`,
+			expectedToolID: nil,
 		},
 		{
-			name: "multiple tool_result blocks returns last",
-			messages: []anthropic.MessageParam{
-				anthropic.NewUserMessage(
-					anthropic.ContentBlockParamUnion{
-						OfToolResult: &anthropic.ToolResultBlockParam{
-							ToolUseID: "toolu_first",
-							Content: []anthropic.ToolResultBlockParamContentUnion{
-								{OfText: &anthropic.TextBlockParam{Text: "first"}},
-							},
-						},
-					},
-					anthropic.NewTextBlock("some text"),
-					anthropic.ContentBlockParamUnion{
-						OfToolResult: &anthropic.ToolResultBlockParam{
-							ToolUseID: "toolu_second",
-							Content: []anthropic.ToolResultBlockParamContentUnion{
-								{OfText: &anthropic.TextBlockParam{Text: "second"}},
-							},
-						},
-					},
-				),
-			},
-			expected: utils.PtrTo("toolu_second"),
+			name:           "last message has no tool result blocks",
+			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`,
+			expectedToolID: nil,
 		},
 		{
-			name: "last message is not a tool result",
-			messages: []anthropic.MessageParam{
-				anthropic.NewUserMessage(
-					anthropic.ContentBlockParamUnion{
-						OfToolResult: &anthropic.ToolResultBlockParam{
-							ToolUseID: "toolu_first",
-							Content: []anthropic.ToolResultBlockParamContentUnion{
-								{OfText: &anthropic.TextBlockParam{Text: "first"}},
-							},
-						},
-					}),
-				anthropic.NewUserMessage(anthropic.NewTextBlock("some text")),
-			},
-			expected: nil,
+			name:           "single tool result block",
+			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_abc","content":"result"}]}]}`,
+			expectedToolID: utils.PtrTo("toolu_abc"),
+		},
+		{
+			name:           "multiple tool result blocks returns last",
+			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_first","content":"first"},{"type":"text","text":"ignored"},{"type":"tool_result","tool_use_id":"toolu_second","content":"second"}]}]}`,
+			expectedToolID: utils.PtrTo("toolu_second"),
+		},
+		{
+			name:           "last message is not a tool result",
+			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_first","content":"first"}]},{"role":"user","content":"some text"}]}`,
+			expectedToolID: nil,
 		},
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
 			base := &interceptionBase{
-				req: &MessageNewParamsWrapper{
-					MessageNewParams: anthropic.MessageNewParams{
-						Messages: tc.messages,
-					},
-				},
+				reqPayload: mustMessagesPayload(t, testCase.requestBody),
 			}
 
-			require.Equal(t, tc.expected, base.CorrelatingToolCallID())
+			require.Equal(t, testCase.expectedToolID, base.CorrelatingToolCallID())
 		})
 	}
 }
@@ -402,303 +366,171 @@ func TestAccumulateUsage(t *testing.T) {
 func TestInjectTools_CacheBreakpoints(t *testing.T) {
 	t.Parallel()
 
-	t.Run("cache control preserved when no tools to inject", func(t *testing.T) {
-		t.Parallel()
+	testCases := []struct {
+		name                      string
+		requestBody               string
+		injectedTools             []*mcp.Tool
+		expectedToolNames         []string
+		expectedCacheControlTypes []string
+	}{
+		{
+			name: "cache control preserved when no tools to inject",
+			requestBody: `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tools":[` +
+				`{"name":"existing_tool","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}}]}`,
 
-		// Request has existing tool with cache control, but no tools to inject.
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					Tools: []anthropic.ToolUnionParam{
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "existing_tool",
-								CacheControl: anthropic.CacheControlEphemeralParam{
-									Type: constant.ValueOf[constant.Ephemeral](),
-								},
-							},
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{tools: nil},
-		}
+			injectedTools:             nil,
+			expectedToolNames:         []string{"existing_tool"},
+			expectedCacheControlTypes: []string{string(constant.ValueOf[constant.Ephemeral]())},
+		},
+		{
+			name: "cache control breakpoint is preserved by prepending injected tools",
+			requestBody: `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tools":[` +
+				`{"name":"existing_tool","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}}]}`,
 
-		i.injectTools()
+			injectedTools:             []*mcp.Tool{{ID: "injected_tool", Name: "injected", Description: "Injected tool"}},
+			expectedToolNames:         []string{"injected_tool", "existing_tool"},
+			expectedCacheControlTypes: []string{"", string(constant.ValueOf[constant.Ephemeral]())},
+		},
+		{
+			name: "cache control breakpoint in non standard location is preserved",
+			requestBody: `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tools":[` +
+				`{"name":"tool_with_cache_1","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}},` +
+				`{"name":"tool_with_cache_2","type":"custom","input_schema":{"type":"object","properties":{}}}]}`,
 
-		// Cache control should remain untouched since no tools were injected.
-		require.Len(t, i.req.Tools, 1)
-		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[0].OfTool.CacheControl.Type)
-	})
+			injectedTools:             []*mcp.Tool{{ID: "injected_tool", Name: "injected", Description: "Injected tool"}},
+			expectedToolNames:         []string{"injected_tool", "tool_with_cache_1", "tool_with_cache_2"},
+			expectedCacheControlTypes: []string{"", string(constant.ValueOf[constant.Ephemeral]()), ""},
+		},
+		{
+			name: "no cache control added when none originally set",
+			requestBody: `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tools":[` +
+				`{"name":"existing_tool_no_cache","type":"custom","input_schema":{"type":"object","properties":{}}}]}`,
 
-	t.Run("cache control breakpoint is preserved by prepending injected tools", func(t *testing.T) {
-		t.Parallel()
+			injectedTools:             []*mcp.Tool{{ID: "injected_tool", Name: "injected", Description: "Injected tool"}},
+			expectedToolNames:         []string{"injected_tool", "existing_tool_no_cache"},
+			expectedCacheControlTypes: []string{"", ""},
+		},
+	}
 
-		// Request has existing tool with cache control.
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					Tools: []anthropic.ToolUnionParam{
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "existing_tool",
-								CacheControl: anthropic.CacheControlEphemeralParam{
-									Type: constant.ValueOf[constant.Ephemeral](),
-								},
-							},
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{
-				tools: []*mcp.Tool{
-					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
-				},
-			},
-		}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		i.injectTools()
+			base := &interceptionBase{
+				reqPayload: mustMessagesPayload(t, testCase.requestBody),
+				mcpProxy:   &mockServerProxier{tools: testCase.injectedTools},
+				logger:     slog.Make(),
+			}
 
-		require.Len(t, i.req.Tools, 2)
-		// Injected tools are prepended.
-		require.Equal(t, "injected_tool", i.req.Tools[0].OfTool.Name)
-		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
-		// Original tool's cache control should be preserved at the end.
-		require.Equal(t, "existing_tool", i.req.Tools[1].OfTool.Name)
-		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[1].OfTool.CacheControl.Type)
-	})
+			base.injectTools()
 
-	// The cache breakpoint SHOULD be on the final tool, but may not be; we must preserve that intention.
-	t.Run("cache control breakpoint in non-standard location is preserved", func(t *testing.T) {
-		t.Parallel()
-
-		// Request has multiple tools with cache control breakpoints.
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					Tools: []anthropic.ToolUnionParam{
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "tool_with_cache_1",
-								CacheControl: anthropic.CacheControlEphemeralParam{
-									Type: constant.ValueOf[constant.Ephemeral](),
-								},
-							},
-						},
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "tool_with_cache_2",
-							},
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{
-				tools: []*mcp.Tool{
-					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
-				},
-			},
-		}
-
-		i.injectTools()
-
-		require.Len(t, i.req.Tools, 3)
-		// Injected tool is prepended without cache control.
-		require.Equal(t, "injected_tool", i.req.Tools[0].OfTool.Name)
-		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
-		// Both original tools' cache controls should remain.
-		require.Equal(t, "tool_with_cache_1", i.req.Tools[1].OfTool.Name)
-		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[1].OfTool.CacheControl.Type)
-		require.Equal(t, "tool_with_cache_2", i.req.Tools[2].OfTool.Name)
-		require.Zero(t, i.req.Tools[2].OfTool.CacheControl)
-	})
-
-	t.Run("no cache control added when none originally set", func(t *testing.T) {
-		t.Parallel()
-
-		// Request has tools but none with cache control.
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					Tools: []anthropic.ToolUnionParam{
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "existing_tool_no_cache",
-							},
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{
-				tools: []*mcp.Tool{
-					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
-				},
-			},
-		}
-
-		i.injectTools()
-
-		require.Len(t, i.req.Tools, 2)
-		// Injected tool is prepended without cache control.
-		require.Equal(t, "injected_tool", i.req.Tools[0].OfTool.Name)
-		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
-		// Original tool remains at the end without cache control.
-		require.Equal(t, "existing_tool_no_cache", i.req.Tools[1].OfTool.Name)
-		require.Zero(t, i.req.Tools[1].OfTool.CacheControl)
-	})
+			toolItems := gjson.GetBytes(base.reqPayload, "tools").Array()
+			require.Len(t, toolItems, len(testCase.expectedToolNames))
+			for idx := range toolItems {
+				require.Equal(t, testCase.expectedToolNames[idx], toolItems[idx].Get("name").String())
+				require.Equal(t, testCase.expectedCacheControlTypes[idx], toolItems[idx].Get("cache_control.type").String())
+			}
+		})
+	}
 }
 
 func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Parallel()
 
-	t.Run("does not modify tool choice when no tools to inject", func(t *testing.T) {
-		t.Parallel()
+	testCases := []struct {
+		name                    string
+		requestBody             string
+		injectedTools           []*mcp.Tool
+		expectedToolChoiceType  string
+		expectedDisableParallel *bool
+		expectedToolCount       int
+	}{
+		{
+			name:                    "does not modify tool choice when no tools to inject",
+			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"auto"}}`,
+			injectedTools:           nil,
+			expectedToolChoiceType:  string(constant.ValueOf[constant.Auto]()),
+			expectedDisableParallel: nil,
+			expectedToolCount:       0,
+		},
+		{
+			name:                    "disables parallel tool use for auto tool choice default",
+			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`,
+			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			expectedToolChoiceType:  string(constant.ValueOf[constant.Auto]()),
+			expectedDisableParallel: utils.PtrTo(true),
+			expectedToolCount:       1,
+		},
+		{
+			name:                    "disables parallel tool use for explicit auto tool choice",
+			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"auto"}}`,
+			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			expectedToolChoiceType:  string(constant.ValueOf[constant.Auto]()),
+			expectedDisableParallel: utils.PtrTo(true),
+			expectedToolCount:       1,
+		},
+		{
+			name:                    "disables parallel tool use for any tool choice",
+			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"any"}}`,
+			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			expectedToolChoiceType:  string(constant.ValueOf[constant.Any]()),
+			expectedDisableParallel: utils.PtrTo(true),
+			expectedToolCount:       1,
+		},
+		{
+			name:                    "disables parallel tool use for tool choice type",
+			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"tool","name":"specific_tool"}}`,
+			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			expectedToolChoiceType:  string(constant.ValueOf[constant.Tool]()),
+			expectedDisableParallel: utils.PtrTo(true),
+			expectedToolCount:       1,
+		},
+		{
+			name:                    "no op for none tool choice type",
+			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"none"}}`,
+			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			expectedToolChoiceType:  string(constant.ValueOf[constant.None]()),
+			expectedDisableParallel: nil,
+			expectedToolCount:       1,
+		},
+	}
 
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfAuto: &anthropic.ToolChoiceAutoParam{
-							Type: constant.ValueOf[constant.Auto](),
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{tools: nil}, // No tools to inject.
-		}
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
 
-		i.injectTools()
+			base := &interceptionBase{
+				reqPayload: mustMessagesPayload(t, testCase.requestBody),
+				mcpProxy:   &mockServerProxier{tools: testCase.injectedTools},
+				logger:     slog.Make(),
+			}
 
-		// Tool choice should remain unchanged - DisableParallelToolUse should not be set.
-		require.NotNil(t, i.req.ToolChoice.OfAuto)
-		require.False(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Valid())
-	})
+			base.injectTools()
 
-	t.Run("disables parallel tool use for auto tool choice (default)", func(t *testing.T) {
-		t.Parallel()
+			require.Len(t, gjson.GetBytes(base.reqPayload, "tools").Array(), testCase.expectedToolCount)
 
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					// No tool choice set (default).
-				},
-			},
-			mcpProxy: &mockServerProxier{
-				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			},
-		}
+			toolChoice := gjson.GetBytes(base.reqPayload, "tool_choice")
+			require.Equal(t, testCase.expectedToolChoiceType, toolChoice.Get("type").String())
 
-		i.injectTools()
+			disableParallelResult := toolChoice.Get("disable_parallel_tool_use")
+			if testCase.expectedDisableParallel == nil {
+				require.False(t, disableParallelResult.Exists())
+				return
+			}
 
-		require.NotNil(t, i.req.ToolChoice.OfAuto)
-		require.True(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Valid())
-		require.True(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Value)
-	})
+			require.True(t, disableParallelResult.Exists())
+			require.Equal(t, *testCase.expectedDisableParallel, disableParallelResult.Bool())
+		})
+	}
+}
 
-	t.Run("disables parallel tool use for explicit auto tool choice", func(t *testing.T) {
-		t.Parallel()
+func mustMessagesPayload(t *testing.T, requestBody string) MessagesRequestPayload {
+	t.Helper()
 
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfAuto: &anthropic.ToolChoiceAutoParam{
-							Type: constant.ValueOf[constant.Auto](),
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{
-				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			},
-		}
+	payload, err := NewMessagesRequestPayload([]byte(requestBody))
+	require.NoError(t, err)
 
-		i.injectTools()
-
-		require.NotNil(t, i.req.ToolChoice.OfAuto)
-		require.True(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Valid())
-		require.True(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Value)
-	})
-
-	t.Run("disables parallel tool use for any tool choice", func(t *testing.T) {
-		t.Parallel()
-
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfAny: &anthropic.ToolChoiceAnyParam{
-							Type: constant.ValueOf[constant.Any](),
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{
-				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			},
-		}
-
-		i.injectTools()
-
-		require.NotNil(t, i.req.ToolChoice.OfAny)
-		require.True(t, i.req.ToolChoice.OfAny.DisableParallelToolUse.Valid())
-		require.True(t, i.req.ToolChoice.OfAny.DisableParallelToolUse.Value)
-	})
-
-	t.Run("disables parallel tool use for tool choice type", func(t *testing.T) {
-		t.Parallel()
-
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfTool: &anthropic.ToolChoiceToolParam{
-							Type: constant.ValueOf[constant.Tool](),
-							Name: "specific_tool",
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{
-				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			},
-		}
-
-		i.injectTools()
-
-		require.NotNil(t, i.req.ToolChoice.OfTool)
-		require.True(t, i.req.ToolChoice.OfTool.DisableParallelToolUse.Valid())
-		require.True(t, i.req.ToolChoice.OfTool.DisableParallelToolUse.Value)
-	})
-
-	t.Run("no-op for none tool choice type", func(t *testing.T) {
-		t.Parallel()
-
-		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfNone: &anthropic.ToolChoiceNoneParam{
-							Type: constant.ValueOf[constant.None](),
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{
-				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			},
-		}
-
-		i.injectTools()
-
-		// Tools are still injected.
-		require.Len(t, i.req.Tools, 1)
-		// But no parallel tool use modification for "none" type.
-		require.Nil(t, i.req.ToolChoice.OfAuto)
-		require.Nil(t, i.req.ToolChoice.OfAny)
-		require.Nil(t, i.req.ToolChoice.OfTool)
-		require.NotNil(t, i.req.ToolChoice.OfNone)
-	})
+	return payload
 }
 
 // mockServerProxier is a test implementation of mcp.ServerProxier.
