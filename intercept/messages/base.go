@@ -311,10 +311,15 @@ func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibco
 	return out, nil
 }
 
-// defaultAdaptiveFallbackBudgetTokens is the default budget_tokens value used when
-// converting adaptive thinking to enabled thinking for Bedrock models that don't
-// support adaptive thinking.
-const defaultAdaptiveFallbackBudgetTokens = 10000
+const (
+	// defaultAdaptiveFallbackBudgetTokens is the default budget_tokens value used when
+	// converting adaptive thinking to enabled thinking for Bedrock models that don't
+	// support adaptive thinking, and the request does not contain a max_tokens value.
+	defaultAdaptiveFallbackBudgetTokens = 10000
+
+	// minBedrockBudgetTokens is the minimum budget_tokens value that Bedrock accepts.
+	minBedrockBudgetTokens = 1024
+)
 
 // bedrockModelSupportsAdaptiveThinking returns true if the given Bedrock model
 // supports the adaptive thinking type. Only Claude Opus 4.6 and Sonnet 4.6 support it.
@@ -348,6 +353,10 @@ func (i *interceptionBase) augmentRequestForBedrock() {
 // convertAdaptiveThinkingForBedrock converts "thinking": {"type": "adaptive"} to
 // "thinking": {"type": "enabled", "budget_tokens": N} when the target Bedrock model
 // does not support adaptive thinking.
+//
+// The budget_tokens value is derived from the request's max_tokens to satisfy the
+// API constraint that budget_tokens < max_tokens. If max_tokens is not set or too
+// small, a safe default is used.
 func (i *interceptionBase) convertAdaptiveThinkingForBedrock() {
 	thinkingType := gjson.GetBytes(i.payload, "thinking.type").Str
 	if thinkingType != "adaptive" {
@@ -358,19 +367,42 @@ func (i *interceptionBase) convertAdaptiveThinkingForBedrock() {
 		return
 	}
 
+	budgetTokens := adaptiveFallbackBudgetTokens(i.payload)
+
 	i.logger.Info(context.Background(), "converting adaptive thinking to enabled for Bedrock model",
 		slog.F("model", i.Model()),
-		slog.F("budget_tokens", defaultAdaptiveFallbackBudgetTokens),
+		slog.F("budget_tokens", budgetTokens),
 	)
 
 	var err error
 	i.payload, err = sjson.SetBytes(i.payload, "thinking", map[string]any{
 		"type":          "enabled",
-		"budget_tokens": defaultAdaptiveFallbackBudgetTokens,
+		"budget_tokens": budgetTokens,
 	})
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to convert adaptive thinking for Bedrock", slog.Error(err))
 	}
+}
+
+// adaptiveFallbackBudgetTokens computes a safe budget_tokens value from the
+// request payload. The Anthropic API requires budget_tokens < max_tokens and
+// Bedrock enforces a minimum of 1024.
+func adaptiveFallbackBudgetTokens(payload []byte) int64 {
+	maxTokens := gjson.GetBytes(payload, "max_tokens").Int()
+	if maxTokens <= 0 {
+		return defaultAdaptiveFallbackBudgetTokens
+	}
+
+	// budget_tokens must be strictly less than max_tokens.
+	budget := maxTokens * 80 / 100 // use 80% of max_tokens
+	if budget < minBedrockBudgetTokens {
+		budget = minBedrockBudgetTokens
+	}
+	if budget >= maxTokens {
+		// max_tokens is too small to fit the minimum budget; use half.
+		budget = maxTokens / 2
+	}
+	return budget
 }
 
 // writeUpstreamError marshals and writes a given error.

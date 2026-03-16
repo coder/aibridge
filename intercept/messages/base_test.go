@@ -755,6 +755,23 @@ func TestConvertAdaptiveThinkingForBedrock(t *testing.T) {
 		t.Parallel()
 
 		base := newBaseWithBedrock("anthropic.claude-sonnet-4-5-20250929-v1:0", map[string]any{
+			"model":      "claude-sonnet-4-5",
+			"max_tokens": 16000,
+			"thinking":   map[string]string{"type": "adaptive"},
+			"messages":   []any{},
+		})
+
+		base.convertAdaptiveThinkingForBedrock()
+
+		require.Equal(t, "enabled", gjson.GetBytes(base.payload, "thinking.type").Str)
+		// 80% of 16000 = 12800
+		require.Equal(t, int64(12800), gjson.GetBytes(base.payload, "thinking.budget_tokens").Int())
+	})
+
+	t.Run("uses default when max_tokens is absent", func(t *testing.T) {
+		t.Parallel()
+
+		base := newBaseWithBedrock("anthropic.claude-sonnet-4-5-20250929-v1:0", map[string]any{
 			"model":    "claude-sonnet-4-5",
 			"thinking": map[string]string{"type": "adaptive"},
 			"messages": []any{},
@@ -764,6 +781,41 @@ func TestConvertAdaptiveThinkingForBedrock(t *testing.T) {
 
 		require.Equal(t, "enabled", gjson.GetBytes(base.payload, "thinking.type").Str)
 		require.Equal(t, int64(defaultAdaptiveFallbackBudgetTokens), gjson.GetBytes(base.payload, "thinking.budget_tokens").Int())
+	})
+
+	t.Run("clamps to minimum when max_tokens is small", func(t *testing.T) {
+		t.Parallel()
+
+		// max_tokens=1200: 80% = 960, below min 1024, so clamped to 1024.
+		// 1024 < 1200, so budget_tokens = 1024.
+		base := newBaseWithBedrock("anthropic.claude-sonnet-4-5-20250929-v1:0", map[string]any{
+			"model":      "claude-sonnet-4-5",
+			"max_tokens": 1200,
+			"thinking":   map[string]string{"type": "adaptive"},
+			"messages":   []any{},
+		})
+
+		base.convertAdaptiveThinkingForBedrock()
+
+		require.Equal(t, "enabled", gjson.GetBytes(base.payload, "thinking.type").Str)
+		require.Equal(t, int64(1024), gjson.GetBytes(base.payload, "thinking.budget_tokens").Int())
+	})
+
+	t.Run("falls back to half when max_tokens is very small", func(t *testing.T) {
+		t.Parallel()
+
+		base := newBaseWithBedrock("anthropic.claude-sonnet-4-5-20250929-v1:0", map[string]any{
+			"model":      "claude-sonnet-4-5",
+			"max_tokens": 1024,
+			"thinking":   map[string]string{"type": "adaptive"},
+			"messages":   []any{},
+		})
+
+		base.convertAdaptiveThinkingForBedrock()
+
+		require.Equal(t, "enabled", gjson.GetBytes(base.payload, "thinking.type").Str)
+		// 80% of 1024 = 819, clamped to min 1024, but 1024 >= 1024 (max_tokens), so half: 512.
+		require.Equal(t, int64(512), gjson.GetBytes(base.payload, "thinking.budget_tokens").Int())
 	})
 
 	t.Run("preserves adaptive for opus 4.6", func(t *testing.T) {
