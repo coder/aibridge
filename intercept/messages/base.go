@@ -24,6 +24,7 @@ import (
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/quartz"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
 	"github.com/google/uuid"
@@ -310,8 +311,24 @@ func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibco
 	return out, nil
 }
 
+// defaultAdaptiveFallbackBudgetTokens is the default budget_tokens value used when
+// converting adaptive thinking to enabled thinking for Bedrock models that don't
+// support adaptive thinking.
+const defaultAdaptiveFallbackBudgetTokens = 10000
+
+// bedrockModelSupportsAdaptiveThinking returns true if the given Bedrock model
+// supports the adaptive thinking type. Only Claude Opus 4.6 and Sonnet 4.6 support it.
+func bedrockModelSupportsAdaptiveThinking(model string) bool {
+	model = strings.ToLower(model)
+	return strings.Contains(model, "opus-4-6") ||
+		strings.Contains(model, "sonnet-4-6") ||
+		strings.Contains(model, "opus-4.6") ||
+		strings.Contains(model, "sonnet-4.6")
+}
+
 // augmentRequestForBedrock will change the model used for the request since AWS Bedrock doesn't support
-// Anthropics' model names.
+// Anthropics' model names. It also converts adaptive thinking to enabled thinking for Bedrock models
+// that don't support the adaptive thinking type.
 func (i *interceptionBase) augmentRequestForBedrock() {
 	if i.bedrockCfg == nil {
 		return
@@ -323,6 +340,36 @@ func (i *interceptionBase) augmentRequestForBedrock() {
 	i.payload, err = sjson.SetBytes(i.payload, "model", i.Model())
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to set model in request payload for Bedrock", slog.Error(err))
+	}
+
+	i.convertAdaptiveThinkingForBedrock()
+}
+
+// convertAdaptiveThinkingForBedrock converts "thinking": {"type": "adaptive"} to
+// "thinking": {"type": "enabled", "budget_tokens": N} when the target Bedrock model
+// does not support adaptive thinking.
+func (i *interceptionBase) convertAdaptiveThinkingForBedrock() {
+	thinkingType := gjson.GetBytes(i.payload, "thinking.type").Str
+	if thinkingType != "adaptive" {
+		return
+	}
+
+	if bedrockModelSupportsAdaptiveThinking(i.Model()) {
+		return
+	}
+
+	i.logger.Info(context.Background(), "converting adaptive thinking to enabled for Bedrock model",
+		slog.F("model", i.Model()),
+		slog.F("budget_tokens", defaultAdaptiveFallbackBudgetTokens),
+	)
+
+	var err error
+	i.payload, err = sjson.SetBytes(i.payload, "thinking", map[string]any{
+		"type":          "enabled",
+		"budget_tokens": defaultAdaptiveFallbackBudgetTokens,
+	})
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to convert adaptive thinking for Bedrock", slog.Error(err))
 	}
 }
 
