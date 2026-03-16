@@ -367,7 +367,19 @@ func (i *interceptionBase) convertAdaptiveThinkingForBedrock() {
 		return
 	}
 
-	budgetTokens := adaptiveFallbackBudgetTokens(i.payload)
+	budgetTokens, ok := adaptiveFallbackBudgetTokens(i.payload)
+
+	if !ok {
+		// max_tokens is too small to accommodate the Bedrock minimum budget.
+		// Leave the payload unchanged and let the request fail with a clear
+		// upstream error rather than sending a known-bad budget_tokens value.
+		i.logger.Warn(context.Background(),
+			"cannot convert adaptive thinking for Bedrock: max_tokens is too small to fit minimum budget_tokens",
+			slog.F("model", i.Model()),
+			slog.F("min_budget_tokens", minBedrockBudgetTokens),
+		)
+		return
+	}
 
 	i.logger.Info(context.Background(), "converting adaptive thinking to enabled for Bedrock model",
 		slog.F("model", i.Model()),
@@ -387,22 +399,26 @@ func (i *interceptionBase) convertAdaptiveThinkingForBedrock() {
 // adaptiveFallbackBudgetTokens computes a safe budget_tokens value from the
 // request payload. The Anthropic API requires budget_tokens < max_tokens and
 // Bedrock enforces a minimum of 1024.
-func adaptiveFallbackBudgetTokens(payload []byte) int64 {
+//
+// Returns (budget, true) on success, or (0, false) when max_tokens is present
+// but too small to accommodate the minimum — the caller should skip conversion
+// in that case rather than write an invalid value.
+func adaptiveFallbackBudgetTokens(payload []byte) (int64, bool) {
 	maxTokens := gjson.GetBytes(payload, "max_tokens").Int()
 	if maxTokens <= 0 {
-		return defaultAdaptiveFallbackBudgetTokens
+		return defaultAdaptiveFallbackBudgetTokens, true
 	}
 
 	// budget_tokens must be strictly less than max_tokens.
-	budget := maxTokens * 80 / 100 // use 80% of max_tokens
+	budget := maxTokens * 80 / 100 // 80% of max_tokens
 	if budget < minBedrockBudgetTokens {
 		budget = minBedrockBudgetTokens
 	}
 	if budget >= maxTokens {
-		// max_tokens is too small to fit the minimum budget; use half.
-		budget = maxTokens / 2
+		// max_tokens is too small to fit even the minimum budget; can't convert.
+		return 0, false
 	}
-	return budget
+	return budget, true
 }
 
 // writeUpstreamError marshals and writes a given error.

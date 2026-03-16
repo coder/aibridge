@@ -801,9 +801,11 @@ func TestConvertAdaptiveThinkingForBedrock(t *testing.T) {
 		require.Equal(t, int64(1024), gjson.GetBytes(base.payload, "thinking.budget_tokens").Int())
 	})
 
-	t.Run("falls back to half when max_tokens is very small", func(t *testing.T) {
+	t.Run("no-op when max_tokens is too small for minimum budget", func(t *testing.T) {
 		t.Parallel()
 
+		// max_tokens=1024: 80% = 819, clamped to min 1024, but 1024 >= 1024 (max_tokens).
+		// No valid budget_tokens exists — conversion should be skipped entirely.
 		base := newBaseWithBedrock("anthropic.claude-sonnet-4-5-20250929-v1:0", map[string]any{
 			"model":      "claude-sonnet-4-5",
 			"max_tokens": 1024,
@@ -813,9 +815,9 @@ func TestConvertAdaptiveThinkingForBedrock(t *testing.T) {
 
 		base.convertAdaptiveThinkingForBedrock()
 
-		require.Equal(t, "enabled", gjson.GetBytes(base.payload, "thinking.type").Str)
-		// 80% of 1024 = 819, clamped to min 1024, but 1024 >= 1024 (max_tokens), so half: 512.
-		require.Equal(t, int64(512), gjson.GetBytes(base.payload, "thinking.budget_tokens").Int())
+		// thinking.type must remain "adaptive" — the conversion was skipped.
+		require.Equal(t, "adaptive", gjson.GetBytes(base.payload, "thinking.type").Str)
+		require.False(t, gjson.GetBytes(base.payload, "thinking.budget_tokens").Exists())
 	})
 
 	t.Run("preserves adaptive for opus 4.6", func(t *testing.T) {
@@ -888,6 +890,60 @@ func TestConvertAdaptiveThinkingForBedrock(t *testing.T) {
 
 		require.Equal(t, "disabled", gjson.GetBytes(base.payload, "thinking.type").Str)
 	})
+}
+
+func TestAdaptiveFallbackBudgetTokens(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		payload    map[string]any
+		wantBudget int64
+		wantOK     bool
+	}{
+		{
+			name:       "no max_tokens uses default",
+			payload:    map[string]any{},
+			wantBudget: defaultAdaptiveFallbackBudgetTokens,
+			wantOK:     true,
+		},
+		{
+			name:       "normal max_tokens uses 80%",
+			payload:    map[string]any{"max_tokens": 16000},
+			wantBudget: 12800,
+			wantOK:     true,
+		},
+		{
+			name:       "small max_tokens clamped to minimum",
+			payload:    map[string]any{"max_tokens": 1200},
+			wantBudget: 1024,
+			wantOK:     true,
+		},
+		{
+			name:    "max_tokens too small returns false",
+			payload: map[string]any{"max_tokens": 1024},
+			wantOK:  false,
+		},
+		{
+			name:    "max_tokens below minimum returns false",
+			payload: map[string]any{"max_tokens": 500},
+			wantOK:  false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			raw, err := json.Marshal(tc.payload)
+			require.NoError(t, err)
+
+			budget, ok := adaptiveFallbackBudgetTokens(raw)
+			require.Equal(t, tc.wantOK, ok)
+			if ok {
+				require.Equal(t, tc.wantBudget, budget)
+			}
+		})
+	}
 }
 
 // slogtest returns a no-op logger for tests.
