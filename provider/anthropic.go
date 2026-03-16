@@ -121,18 +121,20 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		//     WithAuthToken(), and clear the centralized key.
 		//   - X-Api-Key: <api-key> → personal API key. Overwrite the
 		//     centralized key with the user's key.
+		authHeaderName := p.AuthHeader()
 		if bearer := r.Header.Get("Authorization"); bearer != "" {
 			cfg.BYOKBearerToken = strings.TrimPrefix(bearer, "Bearer ")
 			cfg.Key = ""
+			authHeaderName = "Authorization"
 		} else if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 			cfg.Key = apiKey
 		}
 
 		var interceptor intercept.Interceptor
 		if req.Stream {
-			interceptor = messages.NewStreamingInterceptor(id, &req, payload, cfg, p.bedrockCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = messages.NewStreamingInterceptor(id, &req, payload, cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
 		} else {
-			interceptor = messages.NewBlockingInterceptor(id, &req, payload, cfg, p.bedrockCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = messages.NewBlockingInterceptor(id, &req, payload, cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
 		}
 		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
