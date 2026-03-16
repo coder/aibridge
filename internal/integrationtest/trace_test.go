@@ -70,35 +70,69 @@ func TestTraceAnthropic(t *testing.T) {
 
 	cases := []struct {
 		name      string
+		fixture   []byte
 		streaming bool
 		bedrock   bool
 		expect    []expectTrace
 	}{
 		{
-			name:   "trace_anthr_non_streaming",
-			expect: expectNonStreaming,
+			name:    "trace_anthr_non_streaming",
+			expect:  expectNonStreaming,
+			fixture: fixtures.AntSingleBuiltinTool,
 		},
 		{
 			name:    "trace_bedrock_non_streaming",
 			bedrock: true,
 			expect:  expectNonStreaming,
+			fixture: fixtures.AntSingleBuiltinTool,
 		},
 		{
 			name:      "trace_anthr_streaming",
 			streaming: true,
 			expect:    expectStreaming,
+			fixture:   fixtures.AntSingleBuiltinTool,
 		},
 		{
 			name:      "trace_bedrock_streaming",
 			streaming: true,
 			bedrock:   true,
 			expect:    expectStreaming,
+			fixture:   fixtures.AntSingleBuiltinTool,
+		},
+		{
+			name:    "trace_multi_thinking_non_streaming",
+			fixture: fixtures.AntMultiThinkingBuiltinTool,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Unset},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Unset},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.RecordPromptUsage", 1, codes.Unset},
+				{"Intercept.RecordTokenUsage", 1, codes.Unset},
+				{"Intercept.RecordToolUsage", 1, codes.Unset},
+				{"Intercept.RecordModelThought", 2, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+			},
+		},
+		{
+			name:      "trace_multi_thinking_streaming",
+			fixture:   fixtures.AntMultiThinkingBuiltinTool,
+			streaming: true,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Unset},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Unset},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.RecordPromptUsage", 1, codes.Unset},
+				{"Intercept.RecordTokenUsage", 2, codes.Unset},
+				{"Intercept.RecordToolUsage", 1, codes.Unset},
+				{"Intercept.RecordModelThought", 2, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+			},
 		},
 	}
-
-	fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
-
-	fixtureReqBody := fix.Request()
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -107,6 +141,7 @@ func TestTraceAnthropic(t *testing.T) {
 
 			sr, tracer := setupTracer(t)
 
+			fix := fixtures.Parse(t, tc.fixture)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
 			opts := []bridgeOption{
@@ -117,7 +152,7 @@ func TestTraceAnthropic(t *testing.T) {
 			}
 			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
 
-			reqBody, err := sjson.SetBytes(fixtureReqBody, "stream", tc.streaming)
+			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
 			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
@@ -450,6 +485,42 @@ func TestTraceOpenAI(t *testing.T) {
 				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
 				{"Intercept.RecordPromptUsage", 1, codes.Unset},
 				{"Intercept.RecordTokenUsage", 1, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+			},
+		},
+		{
+			name:      "trace_openai_responses_streaming_with_reasoning",
+			fixture:   fixtures.OaiResponsesStreamingMultiReasoningBuiltinTool,
+			streaming: true,
+			path:      pathOpenAIResponses,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Unset},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Unset},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.RecordPromptUsage", 1, codes.Unset},
+				{"Intercept.RecordTokenUsage", 1, codes.Unset},
+				{"Intercept.RecordToolUsage", 1, codes.Unset},
+				{"Intercept.RecordModelThought", 2, codes.Unset},
+				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
+			},
+		},
+		{
+			name:      "trace_openai_responses_blocking_with_reasoning",
+			fixture:   fixtures.OaiResponsesBlockingMultiReasoningBuiltinTool,
+			streaming: false,
+			path:      pathOpenAIResponses,
+			expect: []expectTrace{
+				{"Intercept", 1, codes.Unset},
+				{"Intercept.CreateInterceptor", 1, codes.Unset},
+				{"Intercept.RecordInterception", 1, codes.Unset},
+				{"Intercept.ProcessRequest", 1, codes.Unset},
+				{"Intercept.RecordInterceptionEnded", 1, codes.Unset},
+				{"Intercept.RecordPromptUsage", 1, codes.Unset},
+				{"Intercept.RecordTokenUsage", 1, codes.Unset},
+				{"Intercept.RecordToolUsage", 1, codes.Unset},
+				{"Intercept.RecordModelThought", 2, codes.Unset},
 				{"Intercept.ProcessRequest.Upstream", 1, codes.Unset},
 			},
 		},
