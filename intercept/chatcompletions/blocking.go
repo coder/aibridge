@@ -28,12 +28,21 @@ type BlockingInterception struct {
 	interceptionBase
 }
 
-func NewBlockingInterceptor(id uuid.UUID, req *ChatCompletionNewParamsWrapper, cfg config.OpenAI, tracer trace.Tracer) *BlockingInterception {
+func NewBlockingInterceptor(
+	id uuid.UUID,
+	req *ChatCompletionNewParamsWrapper,
+	cfg config.OpenAI,
+	clientHeaders http.Header,
+	authHeaderName string,
+	tracer trace.Tracer,
+) *BlockingInterception {
 	return &BlockingInterception{interceptionBase: interceptionBase{
-		id:     id,
-		req:    req,
-		cfg:    cfg,
-		tracer: tracer,
+		id:             id,
+		req:            req,
+		cfg:            cfg,
+		clientHeaders:  clientHeaders,
+		authHeaderName: authHeaderName,
+		tracer:         tracer,
 	}}
 }
 
@@ -78,6 +87,9 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 		var opts []option.RequestOption
 		opts = append(opts, option.WithRequestTimeout(time.Second*600))
+
+		// TODO(ssncferreira): inject actor headers directly in the client-header
+		//   middleware instead of using SDK options.
 		if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
 			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
 		}

@@ -9,9 +9,18 @@ import (
 	"strings"
 	"testing"
 
+	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/internal/testutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace/noop"
 	"golang.org/x/sync/errgroup"
+)
+
+const (
+	chatCompletionResponse = `{"id":"chatcmpl-123","object":"chat.completion","created":1677652288,"model":"gpt-4","choices":[{"index":0,"message":{"role":"assistant","content":"Hello!"},"finish_reason":"stop"}],"usage":{"prompt_tokens":9,"completion_tokens":12,"total_tokens":21}}`
+	responsesAPIResponse   = `{"id":"resp-123","object":"response","created_at":1677652288,"model":"gpt-5","output":[],"usage":{"input_tokens":5,"output_tokens":10,"total_tokens":15}}`
 )
 
 type message struct {
@@ -148,6 +157,73 @@ func generateResponsesPayload(payloadSize int, inputCount int, stream bool) []by
 		panic(err)
 	}
 	return bodyBytes
+}
+
+func TestOpenAI_CreateInterceptor(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		route        string
+		requestBody  string
+		responseBody string
+	}{
+		{
+			name:         "ChatCompletions_ClientHeaders",
+			route:        routeChatCompletions,
+			requestBody:  `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
+			responseBody: chatCompletionResponse,
+		},
+		{
+			name:         "Responses_ClientHeaders",
+			route:        routeResponses,
+			requestBody:  `{"model": "gpt-5", "input": "hello", "stream": false}`,
+			responseBody: responsesAPIResponse,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			var receivedHeaders http.Header
+
+			mockUpstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				receivedHeaders = r.Header.Clone()
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusOK)
+				_, err := w.Write([]byte(tc.responseBody))
+				require.NoError(t, err)
+			}))
+			t.Cleanup(mockUpstream.Close)
+
+			provider := NewOpenAI(config.OpenAI{
+				BaseURL: mockUpstream.URL,
+				Key:     "test-key",
+			})
+
+			req := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+tc.route, bytes.NewBufferString(tc.requestBody))
+			// Simulate a client sending its own auth credential, which must be replaced
+			// by aibridge with the configured provider key.
+			req.Header.Set("Authorization", "Bearer fake-client-bearer")
+			w := httptest.NewRecorder()
+
+			interceptor, err := provider.CreateInterceptor(w, req, testTracer)
+			require.NoError(t, err)
+			require.NotNil(t, interceptor)
+
+			logger := slog.Make()
+			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
+
+			processReq := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+tc.route, nil)
+			err = interceptor.ProcessRequest(w, processReq)
+			require.NoError(t, err)
+
+			// Verify aibridge's configured key was used and the client's auth credential was not forwarded.
+			assert.Equal(t, "Bearer test-key", receivedHeaders.Get("Authorization"), "upstream must receive configured provider key")
+			assert.Empty(t, receivedHeaders.Get("X-Api-Key"), "X-Api-Key must not be set upstream")
+		})
+	}
 }
 
 func BenchmarkOpenAI_CreateInterceptor_ChatCompletions(b *testing.B) {

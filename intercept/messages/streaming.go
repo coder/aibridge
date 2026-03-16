@@ -34,14 +34,25 @@ type StreamingInterception struct {
 	interceptionBase
 }
 
-func NewStreamingInterceptor(id uuid.UUID, req *MessageNewParamsWrapper, payload []byte, cfg config.Anthropic, bedrockCfg *config.AWSBedrock, tracer trace.Tracer) *StreamingInterception {
+func NewStreamingInterceptor(
+	id uuid.UUID,
+	req *MessageNewParamsWrapper,
+	payload []byte,
+	cfg config.Anthropic,
+	bedrockCfg *config.AWSBedrock,
+	clientHeaders http.Header,
+	authHeaderName string,
+	tracer trace.Tracer,
+) *StreamingInterception {
 	return &StreamingInterception{interceptionBase: interceptionBase{
-		id:         id,
-		req:        req,
-		payload:    payload,
-		cfg:        cfg,
-		bedrockCfg: bedrockCfg,
-		tracer:     tracer,
+		id:             id,
+		req:            req,
+		payload:        payload,
+		cfg:            cfg,
+		bedrockCfg:     bedrockCfg,
+		clientHeaders:  clientHeaders,
+		authHeaderName: authHeaderName,
+		tracer:         tracer,
 	}}
 }
 
@@ -110,6 +121,8 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
 	defer streamCancel(errors.New("deferred"))
 
+	// TODO(ssncferreira): inject actor headers directly in the client-header
+	//   middleware instead of using SDK options.
 	var opts []option.RequestOption
 	if actor := aibcontext.ActorFromContext(ctx); actor != nil && i.cfg.SendActorHeaders {
 		opts = append(opts, intercept.ActorHeadersAsAnthropicOpts(actor)...)

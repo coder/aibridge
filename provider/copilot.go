@@ -148,9 +148,9 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, cfg, tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, cfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, cfg, tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, cfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	case routeCopilotResponses:
@@ -164,9 +164,9 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		}
 
 		if req.Stream {
-			interceptor = responses.NewStreamingInterceptor(id, &req, payload, cfg, req.Model, tracer)
+			interceptor = responses.NewStreamingInterceptor(id, &req, payload, cfg, req.Model, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, &req, payload, cfg, req.Model, tracer)
+			interceptor = responses.NewBlockingInterceptor(id, &req, payload, cfg, req.Model, r.Header, p.AuthHeader(), tracer)
 		}
 
 	default:

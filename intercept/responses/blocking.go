@@ -25,15 +25,26 @@ type BlockingResponsesInterceptor struct {
 	responsesInterceptionBase
 }
 
-func NewBlockingInterceptor(id uuid.UUID, req *ResponsesNewParamsWrapper, reqPayload []byte, cfg config.OpenAI, model string, tracer trace.Tracer) *BlockingResponsesInterceptor {
+func NewBlockingInterceptor(
+	id uuid.UUID,
+	req *ResponsesNewParamsWrapper,
+	reqPayload []byte,
+	cfg config.OpenAI,
+	model string,
+	clientHeaders http.Header,
+	authHeaderName string,
+	tracer trace.Tracer,
+) *BlockingResponsesInterceptor {
 	return &BlockingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
-			id:         id,
-			req:        req,
-			reqPayload: reqPayload,
-			cfg:        cfg,
-			model:      model,
-			tracer:     tracer,
+			id:             id,
+			req:            req,
+			reqPayload:     reqPayload,
+			cfg:            cfg,
+			model:          model,
+			clientHeaders:  clientHeaders,
+			authHeaderName: authHeaderName,
+			tracer:         tracer,
 		},
 	}
 }
@@ -79,6 +90,9 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 
 		opts := i.requestOptions(&respCopy)
 		opts = append(opts, option.WithRequestTimeout(time.Second*600))
+
+		// TODO(ssncferreira): inject actor headers directly in the client-header
+		//   middleware instead of using SDK options.
 		if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
 			opts = append(opts, intercept.ActorHeadersAsOpenAIOpts(actor)...)
 		}
