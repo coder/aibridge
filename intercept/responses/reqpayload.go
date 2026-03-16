@@ -24,14 +24,15 @@ var reqPathModel = string(constant.ValueOf[constant.Model]())
 // ResponsesRequestPayload is raw JSON bytes of a Responses API request.
 // Methods provide package-specific reads and rewrites while preserving the
 // original body for upstream pass-through.
+// Note: No changes are made on schema error.
 type ResponsesRequestPayload []byte
 
 func NewResponsesRequestPayload(raw []byte) (ResponsesRequestPayload, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return nil, fmt.Errorf("responses empty request body")
+		return nil, fmt.Errorf("empty request body")
 	}
 	if !json.Valid(raw) {
-		return nil, fmt.Errorf("responses invalid JSON request body")
+		return nil, fmt.Errorf("invalid JSON payload")
 	}
 
 	return ResponsesRequestPayload(raw), nil
@@ -49,14 +50,14 @@ func (p ResponsesRequestPayload) background() bool {
 	return gjson.GetBytes(p, reqPathBackground).Bool()
 }
 
-func (p ResponsesRequestPayload) withInjectedTools(injected []responses.ToolUnionParam) (ResponsesRequestPayload, error) {
+func (p ResponsesRequestPayload) injectTools(injected []responses.ToolUnionParam) (ResponsesRequestPayload, error) {
 	if len(injected) == 0 {
 		return p, nil
 	}
 
-	existing, err := p.existingToolItems()
+	existing, err := p.toolItems()
 	if err != nil {
-		return p, err
+		return p, fmt.Errorf("failed to get existing tools: %w", err)
 	}
 
 	allTools := make([]any, 0, len(existing)+len(injected))
@@ -70,10 +71,10 @@ func (p ResponsesRequestPayload) withInjectedTools(injected []responses.ToolUnio
 	return p.set(reqPathTools, allTools)
 }
 
-func (p ResponsesRequestPayload) withParallelToolCallsDisabled() (ResponsesRequestPayload, error) {
-	existing, err := p.existingToolItems()
+func (p ResponsesRequestPayload) disableParallelToolCalls() (ResponsesRequestPayload, error) {
+	existing, err := p.toolItems()
 	if err != nil {
-		return p, err
+		return p, fmt.Errorf("failed to get existing tools: %w", err)
 	}
 	if len(existing) == 0 {
 		return p, nil
@@ -82,14 +83,14 @@ func (p ResponsesRequestPayload) withParallelToolCallsDisabled() (ResponsesReque
 	return p.set(reqPathParallelToolCalls, false)
 }
 
-func (p ResponsesRequestPayload) withAppendedInputItems(items []responses.ResponseInputItemUnionParam) (ResponsesRequestPayload, error) {
+func (p ResponsesRequestPayload) appendInputItems(items []responses.ResponseInputItemUnionParam) (ResponsesRequestPayload, error) {
 	if len(items) == 0 {
 		return p, nil
 	}
 
-	existing, err := p.inputItemsForRewrite()
+	existing, err := p.inputItems()
 	if err != nil {
-		return p, err
+		return p, fmt.Errorf("failed to get existing 'input' items: %w", err)
 	}
 
 	allInput := make([]any, 0, len(existing)+len(items))
@@ -101,7 +102,7 @@ func (p ResponsesRequestPayload) withAppendedInputItems(items []responses.Respon
 	return p.set(reqPathInput, allInput)
 }
 
-func (p ResponsesRequestPayload) inputItemsForRewrite() ([]any, error) {
+func (p ResponsesRequestPayload) inputItems() ([]any, error) {
 	input := gjson.GetBytes(p, reqPathInput)
 	if !input.Exists() || input.Type == gjson.Null {
 		return []any{}, nil
@@ -112,7 +113,7 @@ func (p ResponsesRequestPayload) inputItemsForRewrite() ([]any, error) {
 	}
 
 	if !input.IsArray() {
-		return nil, fmt.Errorf("unsupported input type: %s", input.Type)
+		return nil, fmt.Errorf("unsupported 'input' type: %s", input.Type)
 	}
 
 	items := input.Array()
@@ -124,13 +125,13 @@ func (p ResponsesRequestPayload) inputItemsForRewrite() ([]any, error) {
 	return existing, nil
 }
 
-func (p ResponsesRequestPayload) existingToolItems() ([]json.RawMessage, error) {
+func (p ResponsesRequestPayload) toolItems() ([]json.RawMessage, error) {
 	tools := gjson.GetBytes(p, reqPathTools)
 	if !tools.Exists() {
 		return nil, nil
 	}
 	if !tools.IsArray() {
-		return nil, fmt.Errorf("unsupported tools type: %s", tools.Type)
+		return nil, fmt.Errorf("unsupported 'tools' type: %s", tools.Type)
 	}
 
 	items := tools.Array()
@@ -144,5 +145,8 @@ func (p ResponsesRequestPayload) existingToolItems() ([]json.RawMessage, error) 
 
 func (p ResponsesRequestPayload) set(path string, value any) (ResponsesRequestPayload, error) {
 	b, err := sjson.SetBytes(p, path, value)
-	return ResponsesRequestPayload(b), err
+	if err != nil {
+		return ResponsesRequestPayload(b), fmt.Errorf("failed to set value at path %s: %w", path, err)
+	}
+	return ResponsesRequestPayload(b), nil
 }

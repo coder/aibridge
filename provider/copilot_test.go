@@ -217,7 +217,7 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 
 		require.Error(t, err)
 		require.Nil(t, interceptor)
-		assert.Contains(t, err.Error(), "responses invalid JSON request body")
+		assert.Contains(t, err.Error(), "invalid JSON payload")
 	})
 
 	t.Run("Responses_ClientHeaders", func(t *testing.T) {

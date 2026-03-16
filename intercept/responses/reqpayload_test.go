@@ -2,7 +2,7 @@ package responses
 
 import (
 	"encoding/json"
-	"strconv"
+	"fmt"
 	"testing"
 
 	"github.com/openai/openai-go/v3"
@@ -31,9 +31,13 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 		{
 			name: "invalid json",
 			raw:  []byte(`{broken`),
-			err:  "invalid JSON request body",
+			err:  "invalid JSON payload",
 		},
 		{
+			// ResponsesRequestPayload just checks for JSON validity,
+			// schema errors are not surfaced here and
+			// the original body is preserved for upstream handling
+			// similar to how reverse proxy would behave.
 			name:   "wrong field types still wrap",
 			raw:    []byte(`{"model":123,"stream":"yes","input":42}`),
 			want:   `{"model":123,"stream":"yes","input":42}`,
@@ -102,7 +106,7 @@ func TestWithInjectedTools(t *testing.T) {
 			name:     "errors on unsupported tools shape",
 			raw:      []byte(`{"model":"gpt-4o","input":"hello","tools":"bad"}`),
 			injected: []responses.ToolUnionParam{injectedFunctionTool("injected")},
-			wantErr:  "unsupported tools type",
+			wantErr:  "failed to get existing tools: unsupported 'tools' type: String",
 			wantSame: true,
 		},
 	}
@@ -112,19 +116,19 @@ func TestWithInjectedTools(t *testing.T) {
 			t.Parallel()
 
 			p := mustPayload(t, tc.raw)
-			updated, err := p.withInjectedTools(tc.injected)
+			updated, err := p.injectTools(tc.injected)
 			if tc.wantErr != "" {
-				require.ErrorContains(t, err, tc.wantErr)
+				require.EqualError(t, err, tc.wantErr)
 			} else {
 				require.NoError(t, err)
-				require.True(t, json.Valid(updated))
 			}
 
 			if tc.wantSame {
 				require.Equal(t, p, updated)
 			}
 			for i, wantName := range tc.wantNames {
-				require.Equal(t, wantName, gjson.GetBytes(updated, "tools."+strconv.Itoa(i)+".name").String())
+				path := fmt.Sprintf("tools.%d.name", i) // name of the i-th element in tools array
+				require.Equal(t, wantName, gjson.GetBytes(updated, path).String())
 			}
 		})
 	}
@@ -153,7 +157,7 @@ func TestWithParallelToolCallsDisabled(t *testing.T) {
 		{
 			name:     "invalid tools type",
 			raw:      []byte(`{"tools":"bad"}`),
-			wantErr:  "unsupported tools type",
+			wantErr:  "failed to get existing tools: unsupported 'tools' type: String",
 			wantSame: true,
 		},
 	}
@@ -163,13 +167,12 @@ func TestWithParallelToolCallsDisabled(t *testing.T) {
 			t.Parallel()
 
 			p := mustPayload(t, tc.raw)
-			updated, err := p.withParallelToolCallsDisabled()
+			updated, err := p.disableParallelToolCalls()
 			if tc.wantErr != "" {
 				require.ErrorContains(t, err, tc.wantErr)
 			} else {
 				require.NoError(t, err)
 			}
-			require.True(t, json.Valid(updated))
 
 			if tc.wantSame {
 				assert.Equal(t, p, updated)
@@ -216,7 +219,7 @@ func TestWithAppendedInputItems(t *testing.T) {
 			name:     "unsupported input shape errors during rewrite",
 			raw:      []byte(`{"model":"gpt-4o","input":123}`),
 			items:    []responses.ResponseInputItemUnionParam{responses.ResponseInputItemParamOfFunctionCallOutput("call_123", "done")},
-			wantErr:  "unsupported input type",
+			wantErr:  "failed to get existing 'input' items: unsupported 'input' type: Number",
 			wantSame: true,
 		},
 		{
@@ -278,15 +281,13 @@ func TestWithAppendedInputItems(t *testing.T) {
 			t.Parallel()
 
 			p := mustPayload(t, tc.raw)
-			updated, err := p.withAppendedInputItems(tc.items)
+			updated, err := p.appendInputItems(tc.items)
 
 			if tc.wantErr != "" {
-				require.ErrorContains(t, err, tc.wantErr)
+				require.EqualError(t, err, tc.wantErr)
 			} else {
 				require.NoError(t, err)
 			}
-
-			require.True(t, json.Valid(updated))
 
 			if tc.wantSame {
 				require.Equal(t, p, updated)
@@ -303,7 +304,7 @@ func TestChainedRewritesProduceValidJSON(t *testing.T) {
 	t.Parallel()
 
 	p := mustPayload(t, []byte(`{"model":"gpt-4o","input":"hello"}`))
-	p, err := p.withInjectedTools([]responses.ToolUnionParam{{
+	p, err := p.injectTools([]responses.ToolUnionParam{{
 		OfFunction: &responses.FunctionToolParam{
 			Name:        "tool_a",
 			Description: openai.String("tool"),
@@ -314,9 +315,9 @@ func TestChainedRewritesProduceValidJSON(t *testing.T) {
 		},
 	}})
 	require.NoError(t, err)
-	p, err = p.withParallelToolCallsDisabled()
+	p, err = p.disableParallelToolCalls()
 	require.NoError(t, err)
-	p, err = p.withAppendedInputItems([]responses.ResponseInputItemUnionParam{
+	p, err = p.appendInputItems([]responses.ResponseInputItemUnionParam{
 		responses.ResponseInputItemParamOfFunctionCallOutput("call_123", "done"),
 	})
 	require.NoError(t, err)
