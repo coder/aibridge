@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"testing"
 
+	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/require"
@@ -295,14 +296,14 @@ func validateOpenAIResponses(t *testing.T, body []byte, msgAndArgs ...any) {
 }
 
 // validateAnthropicMessages validates that an Anthropic messages request
-// has the required top-level fields while remaining tolerant of raw payload
-// shapes that do not round-trip through anthropic.MessageNewParams.
+// has all required fields.
+// See https://github.com/anthropics/anthropic-sdk-go.
 func validateAnthropicMessages(t *testing.T, body []byte, msgAndArgs ...any) {
 	t.Helper()
 
-	var requestBody map[string]any
-	require.NoError(t, json.Unmarshal(body, &requestBody), msgAndArgs...)
-	require.NotEmpty(t, requestBody["model"], "model is required", msgAndArgs)
-	require.NotEmpty(t, requestBody["messages"], "messages is required", msgAndArgs)
-	require.NotZero(t, requestBody["max_tokens"], "max_tokens is required", msgAndArgs)
+	var req anthropic.MessageNewParams
+	require.NoError(t, json.Unmarshal(body, &req), msgAndArgs...)
+	require.NotEmpty(t, req.Model, "model is required", msgAndArgs)
+	require.NotEmpty(t, req.Messages, "messages is required", msgAndArgs)
+	require.NotZero(t, req.MaxTokens, "max_tokens is required", msgAndArgs)
 }

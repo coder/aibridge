@@ -101,17 +101,16 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	logger := i.logger.With(slog.F("model", i.Model()))
 
 	var (
-		prompt *string
-		err    error
+		prompt      string
+		promptFound bool
+		err         error
 	)
 
 	// Claude Code uses a "small/fast model" for certain tasks.
 	if !i.isSmallFastModel() {
-		promptText, promptFound, promptErr := i.reqPayload.lastUserPrompt()
-		if promptErr != nil {
-			logger.Warn(ctx, "failed to determine last user prompt", slog.Error(promptErr))
-		} else if promptFound {
-			prompt = &promptText
+		prompt, promptFound, err = i.reqPayload.lastUserPrompt()
+		if err != nil {
+			logger.Warn(ctx, "failed to determine last user prompt", slog.Error(err))
 		}
 
 		// Only inject tools into "actual" request.
@@ -295,9 +294,11 @@ newStream:
 							continue
 						}
 
-						var input json.RawMessage
-						var foundTool bool
-						var foundTools int
+						var (
+							input      json.RawMessage
+							foundTool  bool
+							foundTools int
+						)
 						for _, block := range message.Content {
 							switch variant := block.AsAny().(type) {
 							case anthropic.ToolUseBlock:
@@ -328,12 +329,14 @@ newStream:
 						})
 
 						if err != nil {
+							// Always provide a tool_result even if the tool call failed
 							loopMessages = append(loopMessages,
 								anthropic.NewUserMessage(anthropic.NewToolResultBlock(id, fmt.Sprintf("Error calling tool: %v", err), true)),
 							)
 							continue
 						}
 
+						// Process tool result
 						toolResult := anthropic.ContentBlockParamUnion{
 							OfToolResult: &anthropic.ToolResultBlockParam{
 								ToolUseID: id,
@@ -393,6 +396,7 @@ newStream:
 							}
 						}
 
+						// If no content was processed, still add a tool_result
 						if !hasValidResult {
 							logger.Warn(ctx, "no tool result added", slog.F("content_len", len(res.Content)), slog.F("is_error", res.IsError))
 							toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
@@ -408,9 +412,11 @@ newStream:
 						}
 					}
 
-					updatedPayload, rewriteErr := i.reqPayload.appendedMessages(loopMessages)
-					if rewriteErr != nil {
-						lastErr = fmt.Errorf("rewrite payload for agentic loop: %w", rewriteErr)
+					// Sync the raw payload with updated messages so that withBody()
+					// sends the updated payload on the next iteration.
+					updatedPayload, syncErr := i.reqPayload.appendedMessages(loopMessages)
+					if syncErr != nil {
+						lastErr = fmt.Errorf("sync payload for agentic loop: %w", syncErr)
 						break
 					}
 					i.reqPayload = updatedPayload
@@ -459,13 +465,14 @@ newStream:
 			}
 		}
 
-		if prompt != nil {
+		if promptFound {
 			_ = i.recorder.RecordPromptUsage(ctx, &recorder.PromptUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          message.ID,
-				Prompt:         *prompt,
+				Prompt:         prompt,
 			})
-			prompt = nil
+			prompt = ""
+			promptFound = false
 		}
 
 		if events.IsStreaming() {
@@ -573,7 +580,7 @@ func (s *StreamingInterception) encodeForStream(payload []byte, typ string) []by
 	return buf.Bytes()
 }
 
-// newStream traces svc.NewStreaming(streamCtx, anthropic.MessageNewParams{}).
+// newStream traces svc.NewStreaming() call.
 func (s *StreamingInterception) newStream(ctx context.Context, svc anthropic.MessageService) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
 	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()

@@ -82,12 +82,12 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	// TODO(ssncferreira): inject actor headers directly in the client-header
 	//   middleware instead of using SDK options.
-	requestOptions := []option.RequestOption{option.WithRequestTimeout(time.Second * 600)}
+	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 600)}
 	if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
-		requestOptions = append(requestOptions, intercept.ActorHeadersAsAnthropicOpts(actor)...)
+		opts = append(opts, intercept.ActorHeadersAsAnthropicOpts(actor)...)
 	}
 
-	svc, err := i.newMessagesService(ctx, requestOptions...)
+	svc, err := i.newMessagesService(ctx, opts...)
 	if err != nil {
 		err = fmt.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -97,12 +97,15 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	logger := i.logger.With(slog.F("model", i.Model()))
 
 	var resp *anthropic.Message
+	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
 	var cumulativeUsage anthropic.Usage
 
 	for {
+		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
 		resp, err = i.newMessage(ctx, svc)
 		if err != nil {
 			if eventstream.IsConnError(err) {
+				// Can't write a response, just error out.
 				return fmt.Errorf("upstream connection closed: %w", err)
 			}
 
@@ -151,8 +154,8 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 		// Handle tool calls.
 		var pendingToolCalls []anthropic.ToolUseBlock
-		for _, contentBlock := range resp.Content {
-			toolUse := contentBlock.AsToolUse()
+		for _, c := range resp.Content {
+			toolUse := c.AsToolUse()
 			if toolUse.ID == "" {
 				continue
 			}
@@ -162,6 +165,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				continue
 			}
 
+			// If tool is not injected, track it since the client will be handling it.
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID: i.ID().String(),
 				MsgID:          resp.ID,
@@ -172,6 +176,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			})
 		}
 
+		// If no injected tool calls, we're done.
 		if len(pendingToolCalls) == 0 {
 			break
 		}
@@ -179,71 +184,79 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		var loopMessages []anthropic.MessageParam
 		loopMessages = append(loopMessages, resp.ToParam())
 
-		for _, toolCall := range pendingToolCalls {
+		// Process each pending tool call.
+		for _, tc := range pendingToolCalls {
 			if i.mcpProxy == nil {
 				continue
 			}
 
-			tool := i.mcpProxy.GetTool(toolCall.Name)
+			tool := i.mcpProxy.GetTool(tc.Name)
 			if tool == nil {
-				logger.Warn(ctx, "tool not found in manager", slog.F("tool", toolCall.Name))
+				logger.Warn(ctx, "tool not found in manager", slog.F("tool", tc.Name))
+				// Continue to next tool call, but still append an error tool_result
 				loopMessages = append(loopMessages,
-					anthropic.NewUserMessage(anthropic.NewToolResultBlock(toolCall.ID, fmt.Sprintf("Error: tool %s not found", toolCall.Name), true)),
+					anthropic.NewUserMessage(anthropic.NewToolResultBlock(tc.ID, fmt.Sprintf("Error: tool %s not found", tc.Name), true)),
 				)
 				continue
 			}
 
-			toolResultResponse, toolCallErr := tool.Call(ctx, toolCall.Input, i.tracer)
+			res, err := tool.Call(ctx, tc.Input, i.tracer)
+
 			_ = i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 				InterceptionID:  i.ID().String(),
 				MsgID:           resp.ID,
-				ToolCallID:      toolCall.ID,
+				ToolCallID:      tc.ID,
 				ServerURL:       &tool.ServerURL,
 				Tool:            tool.Name,
-				Args:            toolCall.Input,
+				Args:            tc.Input,
 				Injected:        true,
-				InvocationError: toolCallErr,
+				InvocationError: err,
 			})
 
-			if toolCallErr != nil {
+			if err != nil {
+				// Always provide a tool_result even if the tool call failed
 				loopMessages = append(loopMessages,
-					anthropic.NewUserMessage(anthropic.NewToolResultBlock(toolCall.ID, fmt.Sprintf("Error: calling tool: %v", toolCallErr), true)),
+					anthropic.NewUserMessage(anthropic.NewToolResultBlock(tc.ID, fmt.Sprintf("Error: calling tool: %v", err), true)),
 				)
 				continue
 			}
 
+			// Process tool result
 			toolResult := anthropic.ContentBlockParamUnion{
 				OfToolResult: &anthropic.ToolResultBlockParam{
-					ToolUseID: toolCall.ID,
+					ToolUseID: tc.ID,
 					IsError:   anthropic.Bool(false),
 				},
 			}
 
 			var hasValidResult bool
-			for _, toolContent := range toolResultResponse.Content {
-				switch contentBlock := toolContent.(type) {
+			for _, content := range res.Content {
+				switch cb := content.(type) {
 				case mcplib.TextContent:
 					toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
 						OfText: &anthropic.TextBlockParam{
-							Text: contentBlock.Text,
+							Text: cb.Text,
 						},
 					})
 					hasValidResult = true
+				// TODO: is there a more correct way of handling these non-text content responses?
 				case mcplib.EmbeddedResource:
-					switch resource := contentBlock.Resource.(type) {
+					switch resource := cb.Resource.(type) {
 					case mcplib.TextResourceContents:
-						value := fmt.Sprintf("Binary resource (MIME: %s, URI: %s): %s", resource.MIMEType, resource.URI, resource.Text)
+						val := fmt.Sprintf("Binary resource (MIME: %s, URI: %s): %s",
+							resource.MIMEType, resource.URI, resource.Text)
 						toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
 							OfText: &anthropic.TextBlockParam{
-								Text: value,
+								Text: val,
 							},
 						})
 						hasValidResult = true
 					case mcplib.BlobResourceContents:
-						value := fmt.Sprintf("Binary resource (MIME: %s, URI: %s): %s", resource.MIMEType, resource.URI, resource.Blob)
+						val := fmt.Sprintf("Binary resource (MIME: %s, URI: %s): %s",
+							resource.MIMEType, resource.URI, resource.Blob)
 						toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
 							OfText: &anthropic.TextBlockParam{
-								Text: value,
+								Text: val,
 							},
 						})
 						hasValidResult = true
@@ -258,7 +271,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 						hasValidResult = true
 					}
 				default:
-					i.logger.Warn(ctx, "not handling non-text tool result", slog.F("type", fmt.Sprintf("%T", contentBlock)))
+					i.logger.Warn(ctx, "not handling non-text tool result", slog.F("type", fmt.Sprintf("%T", cb)))
 					toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
 						OfText: &anthropic.TextBlockParam{
 							Text: "Error: unsupported tool result type",
@@ -269,8 +282,9 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 				}
 			}
 
+			// If no content was processed, still add a tool_result
 			if !hasValidResult {
-				i.logger.Warn(ctx, "no tool result added", slog.F("content_len", len(toolResultResponse.Content)), slog.F("is_error", toolResultResponse.IsError))
+				i.logger.Warn(ctx, "no tool result added", slog.F("content_len", len(res.Content)), slog.F("is_error", res.IsError))
 				toolResult.OfToolResult.Content = append(toolResult.OfToolResult.Content, anthropic.ToolResultBlockParamContentUnion{
 					OfText: &anthropic.TextBlockParam{
 						Text: "Error: no valid tool result content",
@@ -296,19 +310,21 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		return nil
 	}
 
-	responseJSON, err := sjson.Set(resp.RawJSON(), "id", i.ID().String())
+	// Overwrite response identifier since proxy obscures injected tool call invocations.
+	sj, err := sjson.Set(resp.RawJSON(), "id", i.ID().String())
 	if err != nil {
 		return fmt.Errorf("marshal response id failed: %w", err)
 	}
 
-	responseJSON, err = sjson.Set(responseJSON, "usage", cumulativeUsage)
+	// Overwrite the response's usage with the cumulative usage across any inner loops which invokes injected MCP tools.
+	sj, err = sjson.Set(sj, "usage", cumulativeUsage)
 	if err != nil {
 		return fmt.Errorf("marshal response usage failed: %w", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(responseJSON))
+	_, _ = w.Write([]byte(sj))
 
 	return nil
 }

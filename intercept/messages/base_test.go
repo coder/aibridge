@@ -18,57 +18,57 @@ import (
 func TestScanForCorrelatingToolCallID(t *testing.T) {
 	t.Parallel()
 
-	testCases := []struct {
-		name           string
-		requestBody    string
-		expectedToolID *string
+	tests := []struct {
+		name        string
+		requestBody string
+		expected    *string
 	}{
 		{
-			name:           "no messages field",
-			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024}`,
-			expectedToolID: nil,
+			name:        "no messages field",
+			requestBody: `{}`,
+			expected:    nil,
 		},
 		{
-			name:           "messages string",
-			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":"test"}`,
-			expectedToolID: nil,
+			name:        "messages string",
+			requestBody: `{"messages":"test"}`,
+			expected:    nil,
 		},
 		{
-			name:           "empty messages array",
-			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[]}`,
-			expectedToolID: nil,
+			name:        "empty messages array",
+			requestBody: `{"messages":[]}`,
+			expected:    nil,
 		},
 		{
-			name:           "last message has no tool result blocks",
-			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`,
-			expectedToolID: nil,
+			name:        "last message has no tool result blocks",
+			requestBody: `{"messages":[{"role":"user","content":"hello"}]}`,
+			expected:    nil,
 		},
 		{
-			name:           "single tool result block",
-			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_abc","content":"result"}]}]}`,
-			expectedToolID: utils.PtrTo("toolu_abc"),
+			name:        "single tool result block",
+			requestBody: `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_abc","content":"result"}]}]}`,
+			expected:    utils.PtrTo("toolu_abc"),
 		},
 		{
-			name:           "multiple tool result blocks returns last",
-			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_first","content":"first"},{"type":"text","text":"ignored"},{"type":"tool_result","tool_use_id":"toolu_second","content":"second"}]}]}`,
-			expectedToolID: utils.PtrTo("toolu_second"),
+			name:        "multiple tool result blocks returns last",
+			requestBody: `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_first","content":"first"},{"type":"text","text":"ignored"},{"type":"tool_result","tool_use_id":"toolu_second","content":"second"}]}]}`,
+			expected:    utils.PtrTo("toolu_second"),
 		},
 		{
-			name:           "last message is not a tool result",
-			requestBody:    `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_first","content":"first"}]},{"role":"user","content":"some text"}]}`,
-			expectedToolID: nil,
+			name:        "last message is not a tool result",
+			requestBody: `{"messages":[{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_first","content":"first"}]},{"role":"user","content":"some text"}]}`,
+			expected:    nil,
 		},
 	}
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
 			base := &interceptionBase{
-				reqPayload: mustMessagesPayload(t, testCase.requestBody),
+				reqPayload: mustMessagesPayload(t, tc.requestBody),
 			}
 
-			require.Equal(t, testCase.expectedToolID, base.CorrelatingToolCallID())
+			require.Equal(t, tc.expected, base.CorrelatingToolCallID())
 		})
 	}
 }
@@ -366,162 +366,228 @@ func TestAccumulateUsage(t *testing.T) {
 func TestInjectTools_CacheBreakpoints(t *testing.T) {
 	t.Parallel()
 
-	testCases := []struct {
-		name                      string
-		requestBody               string
-		injectedTools             []*mcp.Tool
-		expectedToolNames         []string
-		expectedCacheControlTypes []string
-	}{
-		{
-			name: "cache control preserved when no tools to inject",
-			requestBody: `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tools":[` +
-				`{"name":"existing_tool","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}}]}`,
+	t.Run("cache control preserved when no tools to inject", func(t *testing.T) {
+		t.Parallel()
 
-			injectedTools:             nil,
-			expectedToolNames:         []string{"existing_tool"},
-			expectedCacheControlTypes: []string{string(constant.ValueOf[constant.Ephemeral]())},
-		},
-		{
-			name: "cache control breakpoint is preserved by prepending injected tools",
-			requestBody: `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tools":[` +
-				`{"name":"existing_tool","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}}]}`,
+		// Request has existing tool with cache control, but no tools to inject.
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{"tools":[`+
+				`{"name":"existing_tool","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}}]}`),
+			mcpProxy: &mockServerProxier{tools: nil},
+			logger:   slog.Make(),
+		}
 
-			injectedTools:             []*mcp.Tool{{ID: "injected_tool", Name: "injected", Description: "Injected tool"}},
-			expectedToolNames:         []string{"injected_tool", "existing_tool"},
-			expectedCacheControlTypes: []string{"", string(constant.ValueOf[constant.Ephemeral]())},
-		},
-		{
-			name: "cache control breakpoint in non standard location is preserved",
-			requestBody: `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tools":[` +
-				`{"name":"tool_with_cache_1","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}},` +
-				`{"name":"tool_with_cache_2","type":"custom","input_schema":{"type":"object","properties":{}}}]}`,
+		i.injectTools()
 
-			injectedTools:             []*mcp.Tool{{ID: "injected_tool", Name: "injected", Description: "Injected tool"}},
-			expectedToolNames:         []string{"injected_tool", "tool_with_cache_1", "tool_with_cache_2"},
-			expectedCacheControlTypes: []string{"", string(constant.ValueOf[constant.Ephemeral]()), ""},
-		},
-		{
-			name: "no cache control added when none originally set",
-			requestBody: `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tools":[` +
-				`{"name":"existing_tool_no_cache","type":"custom","input_schema":{"type":"object","properties":{}}}]}`,
+		// Cache control should remain untouched since no tools were injected.
+		toolItems := gjson.GetBytes(i.reqPayload, "tools").Array()
+		require.Len(t, toolItems, 1)
+		require.Equal(t, "existing_tool", toolItems[0].Get("name").String())
+		require.Equal(t, string(constant.ValueOf[constant.Ephemeral]()), toolItems[0].Get("cache_control.type").String())
+	})
 
-			injectedTools:             []*mcp.Tool{{ID: "injected_tool", Name: "injected", Description: "Injected tool"}},
-			expectedToolNames:         []string{"injected_tool", "existing_tool_no_cache"},
-			expectedCacheControlTypes: []string{"", ""},
-		},
-	}
+	t.Run("cache control breakpoint is preserved by prepending injected tools", func(t *testing.T) {
+		t.Parallel()
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
+		// Request has existing tool with cache control.
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{"tools":[`+
+				`{"name":"existing_tool","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}}]}`),
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{
+					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
+				},
+			},
+			logger: slog.Make(),
+		}
 
-			base := &interceptionBase{
-				reqPayload: mustMessagesPayload(t, testCase.requestBody),
-				mcpProxy:   &mockServerProxier{tools: testCase.injectedTools},
-				logger:     slog.Make(),
-			}
+		i.injectTools()
 
-			base.injectTools()
+		toolItems := gjson.GetBytes(i.reqPayload, "tools").Array()
+		require.Len(t, toolItems, 2)
+		// Injected tools are prepended.
+		require.Equal(t, "injected_tool", toolItems[0].Get("name").String())
+		require.Empty(t, toolItems[0].Get("cache_control.type").String())
+		// Original tool's cache control should be preserved at the end.
+		require.Equal(t, "existing_tool", toolItems[1].Get("name").String())
+		require.Equal(t, string(constant.ValueOf[constant.Ephemeral]()), toolItems[1].Get("cache_control.type").String())
+	})
 
-			toolItems := gjson.GetBytes(base.reqPayload, "tools").Array()
-			require.Len(t, toolItems, len(testCase.expectedToolNames))
-			for idx := range toolItems {
-				require.Equal(t, testCase.expectedToolNames[idx], toolItems[idx].Get("name").String())
-				require.Equal(t, testCase.expectedCacheControlTypes[idx], toolItems[idx].Get("cache_control.type").String())
-			}
-		})
-	}
+	// The cache breakpoint SHOULD be on the final tool, but may not be; we must preserve that intention.
+	t.Run("cache control breakpoint in non-standard location is preserved", func(t *testing.T) {
+		t.Parallel()
+
+		// Request has multiple tools with cache control breakpoints.
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{"tools":[`+
+				`{"name":"tool_with_cache_1","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}},`+
+				`{"name":"tool_with_cache_2","type":"custom","input_schema":{"type":"object","properties":{}}}]}`),
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{
+					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
+				},
+			},
+			logger: slog.Make(),
+		}
+
+		i.injectTools()
+
+		toolItems := gjson.GetBytes(i.reqPayload, "tools").Array()
+		require.Len(t, toolItems, 3)
+		// Injected tool is prepended without cache control.
+		require.Equal(t, "injected_tool", toolItems[0].Get("name").String())
+		require.Empty(t, toolItems[0].Get("cache_control.type").String())
+		// Both original tools' cache controls should remain.
+		require.Equal(t, "tool_with_cache_1", toolItems[1].Get("name").String())
+		require.Equal(t, string(constant.ValueOf[constant.Ephemeral]()), toolItems[1].Get("cache_control.type").String())
+		require.Equal(t, "tool_with_cache_2", toolItems[2].Get("name").String())
+		require.Empty(t, toolItems[2].Get("cache_control.type").String())
+	})
+
+	t.Run("no cache control added when none originally set", func(t *testing.T) {
+		t.Parallel()
+
+		// Request has tools but none with cache control.
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{"tools":[`+
+				`{"name":"existing_tool_no_cache","type":"custom","input_schema":{"type":"object","properties":{}}}]}`),
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{
+					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
+				},
+			},
+			logger: slog.Make(),
+		}
+
+		i.injectTools()
+
+		toolItems := gjson.GetBytes(i.reqPayload, "tools").Array()
+		require.Len(t, toolItems, 2)
+		// Injected tool is prepended without cache control.
+		require.Equal(t, "injected_tool", toolItems[0].Get("name").String())
+		require.Empty(t, toolItems[0].Get("cache_control.type").String())
+		// Original tool remains at the end without cache control.
+		require.Equal(t, "existing_tool_no_cache", toolItems[1].Get("name").String())
+		require.Empty(t, toolItems[1].Get("cache_control.type").String())
+	})
 }
 
 func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	t.Parallel()
 
-	testCases := []struct {
-		name                    string
-		requestBody             string
-		injectedTools           []*mcp.Tool
-		expectedToolChoiceType  string
-		expectedDisableParallel *bool
-		expectedToolCount       int
-	}{
-		{
-			name:                    "does not modify tool choice when no tools to inject",
-			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"auto"}}`,
-			injectedTools:           nil,
-			expectedToolChoiceType:  string(constant.ValueOf[constant.Auto]()),
-			expectedDisableParallel: nil,
-			expectedToolCount:       0,
-		},
-		{
-			name:                    "disables parallel tool use for auto tool choice default",
-			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`,
-			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			expectedToolChoiceType:  string(constant.ValueOf[constant.Auto]()),
-			expectedDisableParallel: utils.PtrTo(true),
-			expectedToolCount:       1,
-		},
-		{
-			name:                    "disables parallel tool use for explicit auto tool choice",
-			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"auto"}}`,
-			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			expectedToolChoiceType:  string(constant.ValueOf[constant.Auto]()),
-			expectedDisableParallel: utils.PtrTo(true),
-			expectedToolCount:       1,
-		},
-		{
-			name:                    "disables parallel tool use for any tool choice",
-			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"any"}}`,
-			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			expectedToolChoiceType:  string(constant.ValueOf[constant.Any]()),
-			expectedDisableParallel: utils.PtrTo(true),
-			expectedToolCount:       1,
-		},
-		{
-			name:                    "disables parallel tool use for tool choice type",
-			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"tool","name":"specific_tool"}}`,
-			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			expectedToolChoiceType:  string(constant.ValueOf[constant.Tool]()),
-			expectedDisableParallel: utils.PtrTo(true),
-			expectedToolCount:       1,
-		},
-		{
-			name:                    "no op for none tool choice type",
-			requestBody:             `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tool_choice":{"type":"none"}}`,
-			injectedTools:           []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
-			expectedToolChoiceType:  string(constant.ValueOf[constant.None]()),
-			expectedDisableParallel: nil,
-			expectedToolCount:       1,
-		},
-	}
+	t.Run("does not modify tool choice when no tools to inject", func(t *testing.T) {
+		t.Parallel()
 
-	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"auto"}}`),
+			mcpProxy:   &mockServerProxier{tools: nil}, // No tools to inject.
+			logger:     slog.Make(),
+		}
 
-			base := &interceptionBase{
-				reqPayload: mustMessagesPayload(t, testCase.requestBody),
-				mcpProxy:   &mockServerProxier{tools: testCase.injectedTools},
-				logger:     slog.Make(),
-			}
+		i.injectTools()
 
-			base.injectTools()
+		// Tool choice should remain unchanged - DisableParallelToolUse should not be set.
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Auto]()), toolChoice.Get("type").String())
+		require.False(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+	})
 
-			require.Len(t, gjson.GetBytes(base.reqPayload, "tools").Array(), testCase.expectedToolCount)
+	t.Run("disables parallel tool use for empty tool choice (default)", func(t *testing.T) {
+		t.Parallel()
 
-			toolChoice := gjson.GetBytes(base.reqPayload, "tool_choice")
-			require.Equal(t, testCase.expectedToolChoiceType, toolChoice.Get("type").String())
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{}`),
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			},
+			logger: slog.Make(),
+		}
 
-			disableParallelResult := toolChoice.Get("disable_parallel_tool_use")
-			if testCase.expectedDisableParallel == nil {
-				require.False(t, disableParallelResult.Exists())
-				return
-			}
+		i.injectTools()
 
-			require.True(t, disableParallelResult.Exists())
-			require.Equal(t, *testCase.expectedDisableParallel, disableParallelResult.Bool())
-		})
-	}
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Auto]()), toolChoice.Get("type").String())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Bool())
+	})
+
+	t.Run("disables parallel tool use for explicit auto tool choice", func(t *testing.T) {
+		t.Parallel()
+
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"auto"}}`),
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			},
+			logger: slog.Make(),
+		}
+
+		i.injectTools()
+
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Auto]()), toolChoice.Get("type").String())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Bool())
+	})
+
+	t.Run("disables parallel tool use for any tool choice", func(t *testing.T) {
+		t.Parallel()
+
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"any"}}`),
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			},
+			logger: slog.Make(),
+		}
+
+		i.injectTools()
+
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Any]()), toolChoice.Get("type").String())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Bool())
+	})
+
+	t.Run("disables parallel tool use for tool choice type", func(t *testing.T) {
+		t.Parallel()
+
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"tool","name":"specific_tool"}}`),
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			},
+			logger: slog.Make(),
+		}
+
+		i.injectTools()
+
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Tool]()), toolChoice.Get("type").String())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Bool())
+	})
+
+	t.Run("no-op for none tool choice type", func(t *testing.T) {
+		t.Parallel()
+
+		i := &interceptionBase{
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"none"}}`),
+			mcpProxy: &mockServerProxier{
+				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
+			},
+			logger: slog.Make(),
+		}
+
+		i.injectTools()
+
+		// Tools are still injected.
+		require.Len(t, gjson.GetBytes(i.reqPayload, "tools").Array(), 1)
+		// But no parallel tool use modification for "none" type.
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.None]()), toolChoice.Get("type").String())
+		require.False(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+	})
 }
 
 func mustMessagesPayload(t *testing.T, requestBody string) MessagesRequestPayload {
