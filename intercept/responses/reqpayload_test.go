@@ -313,7 +313,7 @@ func TestInjectTools(t *testing.T) {
 			t.Parallel()
 
 			p := mustPayload(t, tc.raw)
-			_, err := p.injectTools(tc.injected)
+			err := p.injectTools(tc.injected)
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
 			} else {
@@ -353,7 +353,7 @@ func TestDisableParallelToolCalls(t *testing.T) {
 			t.Parallel()
 
 			p := mustPayload(t, tc.raw)
-			_, err := p.disableParallelToolCalls()
+			err := p.disableParallelToolCalls()
 			require.NoError(t, err)
 			assert.False(t, gjson.GetBytes(p.payload, "parallel_tool_calls").Bool())
 		})
@@ -457,7 +457,7 @@ func TestAppendInputItems(t *testing.T) {
 			t.Parallel()
 
 			p := mustPayload(t, tc.raw)
-			_, err := p.appendInputItems(tc.items)
+			err := p.appendInputItems(tc.items)
 
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
@@ -480,7 +480,7 @@ func TestChainedRewritesProduceValidJSON(t *testing.T) {
 	t.Parallel()
 
 	p := mustPayload(t, []byte(`{"model":"gpt-4o","input":"hello"}`))
-	p, err := p.injectTools([]responses.ToolUnionParam{{
+	err := p.injectTools([]responses.ToolUnionParam{{
 		OfFunction: &responses.FunctionToolParam{
 			Name:        "tool_a",
 			Description: openai.String("tool"),
@@ -491,9 +491,9 @@ func TestChainedRewritesProduceValidJSON(t *testing.T) {
 		},
 	}})
 	require.NoError(t, err)
-	p, err = p.disableParallelToolCalls()
+	err = p.disableParallelToolCalls()
 	require.NoError(t, err)
-	p, err = p.appendInputItems([]responses.ResponseInputItemUnionParam{
+	err = p.appendInputItems([]responses.ResponseInputItemUnionParam{
 		responses.ResponseInputItemParamOfFunctionCallOutput("call_123", "done"),
 	})
 	require.NoError(t, err)

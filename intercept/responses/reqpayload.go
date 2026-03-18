@@ -172,14 +172,14 @@ func (p *ResponsesRequestPayload) lastUserPrompt(ctx context.Context) (string, b
 	return sb.String(), true, nil
 }
 
-func (p *ResponsesRequestPayload) injectTools(injected []responses.ToolUnionParam) (*ResponsesRequestPayload, error) {
+func (p *ResponsesRequestPayload) injectTools(injected []responses.ToolUnionParam) error {
 	if len(injected) == 0 {
-		return p, nil
+		return nil
 	}
 
 	existing, err := p.toolItems()
 	if err != nil {
-		return p, fmt.Errorf("failed to get existing tools: %w", err)
+		return fmt.Errorf("failed to get existing tools: %w", err)
 	}
 
 	allTools := make([]any, 0, len(existing)+len(injected))
@@ -193,18 +193,18 @@ func (p *ResponsesRequestPayload) injectTools(injected []responses.ToolUnionPara
 	return p.set(reqPathTools, allTools)
 }
 
-func (p *ResponsesRequestPayload) disableParallelToolCalls() (*ResponsesRequestPayload, error) {
+func (p *ResponsesRequestPayload) disableParallelToolCalls() error {
 	return p.set(reqPathParallelToolCalls, false)
 }
 
-func (p *ResponsesRequestPayload) appendInputItems(items []responses.ResponseInputItemUnionParam) (*ResponsesRequestPayload, error) {
+func (p *ResponsesRequestPayload) appendInputItems(items []responses.ResponseInputItemUnionParam) error {
 	if len(items) == 0 {
-		return p, nil
+		return nil
 	}
 
 	existing, err := p.inputItems()
 	if err != nil {
-		return p, fmt.Errorf("failed to get existing 'input' items: %w", err)
+		return fmt.Errorf("failed to get existing 'input' items: %w", err)
 	}
 
 	allInput := make([]any, 0, len(existing)+len(items))
@@ -257,11 +257,11 @@ func (p *ResponsesRequestPayload) toolItems() ([]json.RawMessage, error) {
 	return existing, nil
 }
 
-func (p *ResponsesRequestPayload) set(path string, value any) (*ResponsesRequestPayload, error) {
+func (p *ResponsesRequestPayload) set(path string, value any) error {
 	b, err := sjson.SetBytes(p.payload, path, value)
 	if err != nil {
-		return p, fmt.Errorf("failed to set value at path %s: %w", path, err)
+		return fmt.Errorf("failed to set value at path %s: %w", path, err)
 	}
 	p.payload = b
-	return p, nil
+	return nil
 }
