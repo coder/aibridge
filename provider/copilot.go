@@ -158,15 +158,15 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		if err != nil {
 			return nil, fmt.Errorf("read body: %w", err)
 		}
-		var req responses.ResponsesNewParamsWrapper
-		if err := json.Unmarshal(payload, &req); err != nil {
-			return nil, fmt.Errorf("unmarshal responses request body: %w", err)
+		reqPayload, err := responses.NewResponsesRequestPayload(payload)
+		if err != nil {
+			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 
-		if req.Stream {
-			interceptor = responses.NewStreamingInterceptor(id, &req, payload, cfg, req.Model, r.Header, p.AuthHeader(), tracer)
+		if reqPayload.Stream() {
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, cfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, &req, payload, cfg, req.Model, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, cfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	default:
