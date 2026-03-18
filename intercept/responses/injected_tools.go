@@ -49,22 +49,24 @@ func (i *responsesInterceptionBase) injectTools() {
 		})
 	}
 
-	err := i.reqPayload.injectTools(injected)
+	updated, err := i.reqPayload.injectTools(injected)
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to inject tools", slog.Error(err))
 		return
 	}
+	i.reqPayload = updated
 }
 
 // disableParallelToolCalls disables parallel tool calls, to simplify the inner agentic loop.
 // This is best-effort, and failing to set this flag does not fail the request.
 // TODO: implement parallel tool calls.
 func (i *responsesInterceptionBase) disableParallelToolCalls() {
-	err := i.reqPayload.disableParallelToolCalls()
+	updated, err := i.reqPayload.disableParallelToolCalls()
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to disable parallel_tool_calls", slog.Error(err))
 		return
 	}
+	i.reqPayload = updated
 }
 
 // handleInnerAgenticLoop orchestrates the inner agentic loop whereby injected tools
@@ -128,11 +130,12 @@ func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(ctx context.Con
 	}
 	newItems = append(newItems, toolResults...)
 
-	err := i.reqPayload.appendInputItems(newItems)
+	updated, err := i.reqPayload.appendInputItems(newItems)
 	if err != nil {
 		i.logger.Error(ctx, "failed to rewrite input in inner agentic loop", slog.Error(err))
 		return fmt.Errorf("failed to rewrite input: %w", err)
 	}
+	i.reqPayload = updated
 
 	return nil
 }

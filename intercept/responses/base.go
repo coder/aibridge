@@ -40,7 +40,7 @@ type responsesInterceptionBase struct {
 	// clientHeaders are the original HTTP headers from the client request.
 	clientHeaders  http.Header
 	authHeaderName string
-	reqPayload     *ResponsesRequestPayload
+	reqPayload     ResponsesRequestPayload
 
 	cfg      config.OpenAI
 	recorder recorder.Recorder
@@ -141,7 +141,7 @@ func (i *responsesInterceptionBase) requestOptions(respCopy *responseCopier) []o
 		// eg. Codex CLI produces requests without ID set in reasoning items: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-item-reasoning-id
 		// when re-encoded, ID field is set to empty string which results
 		// in bad request while not sending ID field at all somehow works.
-		option.WithRequestBody("application/json", i.reqPayload.payload),
+		option.WithRequestBody("application/json", []byte(i.reqPayload)),
 
 		// copyMiddleware copies body of original response body to the buffer in responseCopier,
 		// also reference to headers and status code is kept responseCopier.

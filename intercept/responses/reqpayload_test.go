@@ -58,7 +58,7 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			payload, err := NewResponsesRequestPayload(tc.raw, slog.Make())
+			payload, err := NewResponsesRequestPayload(tc.raw)
 
 			if tc.err != "" {
 				require.ErrorContains(t, err, tc.err)
@@ -68,7 +68,7 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 
 			require.NoError(t, err)
 			require.NotNil(t, payload)
-			assert.EqualValues(t, tc.want, payload.payload)
+			assert.EqualValues(t, tc.want, payload)
 			assert.Equal(t, tc.model, payload.model())
 			assert.Equal(t, tc.stream, payload.Stream())
 			assert.Equal(t, tc.background, payload.background())
@@ -244,7 +244,7 @@ func TestLastUserPrompt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			prompt, promptFound, err := mustPayload(t, tc.reqPayload).lastUserPrompt(t.Context())
+			prompt, promptFound, err := mustPayload(t, tc.reqPayload).lastUserPrompt(t.Context(), slog.Make())
 			if tc.expectErr != "" {
 				require.ErrorContains(t, err, tc.expectErr)
 				return
@@ -313,7 +313,7 @@ func TestInjectTools(t *testing.T) {
 			t.Parallel()
 
 			p := mustPayload(t, tc.raw)
-			err := p.injectTools(tc.injected)
+			updated, err := p.injectTools(tc.injected)
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
 			} else {
@@ -321,11 +321,11 @@ func TestInjectTools(t *testing.T) {
 			}
 
 			if tc.wantSame {
-				require.Equal(t, tc.raw, p.payload)
+				require.EqualValues(t, tc.raw, updated)
 			}
 			for i, wantName := range tc.wantNames {
 				path := fmt.Sprintf("tools.%d.name", i) // name of the i-th element in tools array
-				require.Equal(t, wantName, gjson.GetBytes(p.payload, path).String())
+				require.Equal(t, wantName, gjson.GetBytes(updated, path).String())
 			}
 		})
 	}
@@ -353,9 +353,9 @@ func TestDisableParallelToolCalls(t *testing.T) {
 			t.Parallel()
 
 			p := mustPayload(t, tc.raw)
-			err := p.disableParallelToolCalls()
+			updated, err := p.disableParallelToolCalls()
 			require.NoError(t, err)
-			assert.False(t, gjson.GetBytes(p.payload, "parallel_tool_calls").Bool())
+			assert.False(t, gjson.GetBytes(updated, "parallel_tool_calls").Bool())
 		})
 	}
 }
@@ -457,7 +457,7 @@ func TestAppendInputItems(t *testing.T) {
 			t.Parallel()
 
 			p := mustPayload(t, tc.raw)
-			err := p.appendInputItems(tc.items)
+			updated, err := p.appendInputItems(tc.items)
 
 			if tc.wantErr != "" {
 				require.EqualError(t, err, tc.wantErr)
@@ -466,11 +466,11 @@ func TestAppendInputItems(t *testing.T) {
 			}
 
 			if tc.wantSame {
-				require.Equal(t, tc.raw, p.payload)
+				require.EqualValues(t, tc.raw, updated)
 			}
 
 			for path, want := range tc.wantPaths {
-				require.Equal(t, want, gjson.GetBytes(p.payload, path).String())
+				require.Equal(t, want, gjson.GetBytes(updated, path).String())
 			}
 		})
 	}
@@ -480,7 +480,7 @@ func TestChainedRewritesProduceValidJSON(t *testing.T) {
 	t.Parallel()
 
 	p := mustPayload(t, []byte(`{"model":"gpt-4o","input":"hello"}`))
-	err := p.injectTools([]responses.ToolUnionParam{{
+	p, err := p.injectTools([]responses.ToolUnionParam{{
 		OfFunction: &responses.FunctionToolParam{
 			Name:        "tool_a",
 			Description: openai.String("tool"),
@@ -491,17 +491,17 @@ func TestChainedRewritesProduceValidJSON(t *testing.T) {
 		},
 	}})
 	require.NoError(t, err)
-	err = p.disableParallelToolCalls()
+	p, err = p.disableParallelToolCalls()
 	require.NoError(t, err)
-	err = p.appendInputItems([]responses.ResponseInputItemUnionParam{
+	p, err = p.appendInputItems([]responses.ResponseInputItemUnionParam{
 		responses.ResponseInputItemParamOfFunctionCallOutput("call_123", "done"),
 	})
 	require.NoError(t, err)
 
-	assert.True(t, json.Valid(p.payload), "chained rewrites should produce valid JSON")
-	assert.Equal(t, "tool_a", gjson.GetBytes(p.payload, "tools.0.name").String())
-	assert.Equal(t, "call_123", gjson.GetBytes(p.payload, "input.1.call_id").String())
-	assert.False(t, gjson.GetBytes(p.payload, "parallel_tool_calls").Bool())
+	assert.True(t, json.Valid(p), "chained rewrites should produce valid JSON")
+	assert.Equal(t, "tool_a", gjson.GetBytes(p, "tools.0.name").String())
+	assert.Equal(t, "call_123", gjson.GetBytes(p, "input.1.call_id").String())
+	assert.False(t, gjson.GetBytes(p, "parallel_tool_calls").Bool())
 }
 
 func injectedFunctionTool(name string) responses.ToolUnionParam {
@@ -517,10 +517,10 @@ func injectedFunctionTool(name string) responses.ToolUnionParam {
 	}
 }
 
-func mustPayload(t *testing.T, raw []byte) *ResponsesRequestPayload {
+func mustPayload(t *testing.T, raw []byte) ResponsesRequestPayload {
 	t.Helper()
 
-	payload, err := NewResponsesRequestPayload(raw, slog.Make())
+	payload, err := NewResponsesRequestPayload(raw)
 	require.NoError(t, err)
 	return payload
 }
