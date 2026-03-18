@@ -92,7 +92,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	var innerLoopErr error
 	var streamErr error
 
-	prompt, promptFound, err := i.lastUserPrompt()
+	prompt, promptFound, err := i.lastUserPrompt(ctx)
 	if err != nil {
 		i.logger.Warn(ctx, "failed to get user prompt", slog.Error(err))
 	}

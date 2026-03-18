@@ -126,7 +126,7 @@ func TestLastUserPrompt(t *testing.T) {
 				reqPayload: rp,
 			}
 
-			prompt, promptFound, err := base.lastUserPrompt()
+			prompt, promptFound, err := base.lastUserPrompt(t.Context())
 			require.NoError(t, err)
 			require.Equal(t, tc.expect, prompt)
 			require.True(t, promptFound)
@@ -141,7 +141,7 @@ func TestLastUserPromptNotFound(t *testing.T) {
 		t.Parallel()
 
 		var base *responsesInterceptionBase
-		prompt, promptFound, err := base.lastUserPrompt()
+		prompt, promptFound, err := base.lastUserPrompt(t.Context())
 		require.Error(t, err)
 		require.Empty(t, prompt)
 		require.False(t, promptFound)
@@ -152,7 +152,7 @@ func TestLastUserPromptNotFound(t *testing.T) {
 		t.Parallel()
 
 		base := responsesInterceptionBase{}
-		prompt, promptFound, err := base.lastUserPrompt()
+		prompt, promptFound, err := base.lastUserPrompt(t.Context())
 		require.Error(t, err)
 		require.Empty(t, prompt)
 		require.False(t, promptFound)
@@ -216,7 +216,7 @@ func TestLastUserPromptNotFound(t *testing.T) {
 				reqPayload: rp,
 			}
 
-			prompt, promptFound, err := base.lastUserPrompt()
+			prompt, promptFound, err := base.lastUserPrompt(t.Context())
 			if tc.expectErr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.expectErr)

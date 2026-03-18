@@ -15,22 +15,26 @@ import (
 func TestNewResponsesRequestPayload(t *testing.T) {
 	t.Parallel()
 
+	payloadWithWrongTypes := []byte(`{"model":123,"stream":"yes","input":42,"background":"nope"}`)
 	tests := []struct {
-		name   string
-		raw    []byte
-		want   string
-		model  string
-		stream bool
-		err    string
+		name       string
+		raw        []byte
+		want       []byte
+		model      string
+		stream     bool
+		background bool
+		err        string
 	}{
 		{
 			name: "empty payload",
 			raw:  nil,
+			want: nil,
 			err:  "empty request body",
 		},
 		{
 			name: "invalid json",
 			raw:  []byte(`{broken`),
+			want: nil,
 			err:  "invalid JSON payload",
 		},
 		{
@@ -38,11 +42,12 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 			// schema errors are not surfaced here and
 			// the original body is preserved for upstream handling
 			// similar to how reverse proxy would behave.
-			name:   "wrong field types still wrap",
-			raw:    []byte(`{"model":123,"stream":"yes","input":42}`),
-			want:   `{"model":123,"stream":"yes","input":42}`,
-			model:  "123",
-			stream: false,
+			name:       "wrong field types still wrap",
+			raw:        payloadWithWrongTypes,
+			want:       payloadWithWrongTypes,
+			model:      "123",
+			stream:     false,
+			background: false,
 		},
 	}
 
@@ -51,6 +56,8 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 			t.Parallel()
 
 			payload, err := NewResponsesRequestPayload(tc.raw)
+			assert.EqualValues(t, tc.want, payload)
+
 			if tc.err != "" {
 				require.ErrorContains(t, err, tc.err)
 				assert.Nil(t, payload)
@@ -58,9 +65,9 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			assert.Equal(t, tc.want, string(payload))
 			assert.Equal(t, tc.model, payload.model())
 			assert.Equal(t, tc.stream, payload.Stream())
+			assert.Equal(t, tc.background, payload.background())
 		})
 	}
 }
@@ -85,6 +92,12 @@ func TestInjectTools(t *testing.T) {
 		{
 			name:      "adds tools when none exist",
 			raw:       []byte(`{"model":"gpt-4o","input":"hello"}`),
+			injected:  []responses.ToolUnionParam{injectedFunctionTool("injected")},
+			wantNames: []string{"injected"},
+		},
+		{
+			name:      "adds to empty tools array",
+			raw:       []byte(`{"model":"gpt-4o","input":"hello","tools":[]}`),
 			injected:  []responses.ToolUnionParam{injectedFunctionTool("injected")},
 			wantNames: []string{"injected"},
 		},

@@ -181,7 +181,7 @@ func (i *responsesInterceptionBase) requestOptions(respCopy *responseCopier) []o
 // lastUserPrompt returns input text with "user" role from last input item
 // or string input value if it is present + bool indicating if input was found or not.
 // If no such input was found empty string + false is returned.
-func (i *responsesInterceptionBase) lastUserPrompt() (string, bool, error) {
+func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (string, bool, error) {
 	if i == nil {
 		return "", false, errors.New("cannot get last user prompt: nil struct")
 	}
@@ -243,6 +243,7 @@ func (i *responsesInterceptionBase) lastUserPrompt() (string, bool, error) {
 
 		text := c.Get(string(constant.ValueOf[constant.Text]()))
 		if text.Type != gjson.String {
+			i.logger.Warn(ctx, fmt.Sprintf("unexpected input content array element text type: %v", text.Type))
 			continue
 		}
 
