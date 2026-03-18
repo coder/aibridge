@@ -19,6 +19,7 @@ import (
 	aibconfig "github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/intercept"
+	"github.com/coder/aibridge/utils"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
@@ -208,8 +209,14 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	// BYOK with OAuth token (Claude Max/Pro) uses Authorization: Bearer.
 	// Otherwise use X-Api-Key (centralized or BYOK with personal API key).
 	if i.cfg.BYOKBearerToken != "" {
+		i.logger.Debug(ctx, "using byok oauth bearer auth",
+			slog.F("bearer_hint", utils.MaskSecret(i.cfg.BYOKBearerToken)),
+		)
 		opts = append(opts, option.WithAuthToken(i.cfg.BYOKBearerToken))
 	} else {
+		i.logger.Debug(ctx, "using api key auth",
+			slog.F("api_key_hint", utils.MaskSecret(i.cfg.Key)),
+		)
 		opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	}
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))

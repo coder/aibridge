@@ -9,6 +9,7 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/intercept/apidump"
+	"github.com/coder/aibridge/utils"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
@@ -96,6 +97,16 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 
 				// Inject provider auth.
 				provider.InjectAuthHeader(&req.Header)
+
+				if authz := req.Header.Get("Authorization"); authz != "" {
+					logger.Debug(ctx, "passthrough using oauth bearer auth",
+						slog.F("bearer_hint", utils.MaskSecret(authz)),
+					)
+				} else {
+					logger.Debug(ctx, "passthrough using api key auth",
+						slog.F("api_key_hint", utils.MaskSecret(req.Header.Get("X-Api-Key"))),
+					)
+				}
 			},
 			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, e error) {
 				logger.Warn(req.Context(), "reverse proxy error", slog.Error(e), slog.F("path", req.URL.Path))
@@ -117,3 +128,4 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 		proxy.ServeHTTP(w, r)
 	}
 }
+
