@@ -293,7 +293,7 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 		// recording other function types to be considered: https://github.com/coder/aibridge/issues/121
 		switch item.Type {
 		case string(constant.ValueOf[constant.FunctionCall]()):
-			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments)
+			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments.OfString)
 		case string(constant.ValueOf[constant.CustomToolCall]()):
 			args = item.Input
 		default:
