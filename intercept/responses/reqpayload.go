@@ -2,9 +2,12 @@ package responses
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
+	"cdr.dev/slog/v3"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared/constant"
 	"github.com/tidwall/gjson"
@@ -13,13 +16,24 @@ import (
 
 const (
 	reqPathBackground        = "background"
+	reqPathCallID            = "call_id"
+	reqPathRole              = "role"
 	reqPathInput             = "input"
 	reqPathParallelToolCalls = "parallel_tool_calls"
 	reqPathStream            = "stream"
 	reqPathTools             = "tools"
 )
 
-var reqPathModel = string(constant.ValueOf[constant.Model]())
+var (
+	constFunctionCallOutput = string(constant.ValueOf[constant.FunctionCallOutput]())
+	constInputText          = string(constant.ValueOf[constant.InputText]())
+	constUser               = string(constant.ValueOf[constant.User]())
+
+	reqPathContent = string(constant.ValueOf[constant.Content]())
+	reqPathModel   = string(constant.ValueOf[constant.Model]())
+	reqPathText    = string(constant.ValueOf[constant.Text]())
+	reqPathType    = string(constant.ValueOf[constant.Type]())
+)
 
 // ResponsesRequestPayload is raw JSON bytes of a Responses API request.
 // Methods provide package-specific reads and rewrites while preserving the
@@ -48,6 +62,108 @@ func (p ResponsesRequestPayload) model() string {
 
 func (p ResponsesRequestPayload) background() bool {
 	return gjson.GetBytes(p, reqPathBackground).Bool()
+}
+
+func (p ResponsesRequestPayload) correlatingToolCallID() *string {
+	items := gjson.GetBytes(p, reqPathInput)
+	if !items.IsArray() {
+		return nil
+	}
+
+	arr := items.Array()
+	if len(arr) == 0 {
+		return nil
+	}
+
+	last := arr[len(arr)-1]
+	if last.Get(reqPathType).String() != constFunctionCallOutput {
+		return nil
+	}
+
+	callID := last.Get(reqPathCallID).String()
+	if callID == "" {
+		return nil
+	}
+
+	return &callID
+}
+
+// LastUserPrompt returns input text with the "user" role from the last input
+// item, or the string input value if present. If no prompt is found, it returns
+// empty string, false, nil. Unexpected shapes are treated as unsupported and do
+// not fail the request path.
+func (p ResponsesRequestPayload) lastUserPrompt(ctx context.Context, logger slog.Logger) (string, bool, error) {
+	inputItems := gjson.GetBytes(p, reqPathInput)
+	if !inputItems.Exists() || inputItems.Type == gjson.Null {
+		return "", false, nil
+	}
+
+	// 'input' can be either a string or an array of input items:
+	// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input
+
+	// String variant: treat the whole input as the user prompt.
+	if inputItems.Type == gjson.String {
+		return inputItems.String(), true, nil
+	}
+
+	// Array variant: checking only the last input item
+	if !inputItems.IsArray() {
+		return "", false, fmt.Errorf("unexpected input type: %s", inputItems.Type)
+	}
+
+	inputItemsArr := inputItems.Array()
+	if len(inputItemsArr) == 0 {
+		return "", false, nil
+	}
+
+	lastItem := inputItemsArr[len(inputItemsArr)-1]
+	if lastItem.Get(reqPathRole).Str != constUser {
+		// Request was likely not initiated by a prompt but is an iteration of agentic loop.
+		return "", false, nil
+	}
+
+	// Message content can be either a string or an array of typed content items:
+	// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message-content
+	content := lastItem.Get(reqPathContent)
+	if !content.Exists() || content.Type == gjson.Null {
+		return "", false, nil
+	}
+
+	// String variant: use it directly as the prompt.
+	if content.Type == gjson.String {
+		return content.Str, true, nil
+	}
+
+	if !content.IsArray() {
+		return "", false, fmt.Errorf("unexpected input content type: %s", content.Type)
+	}
+
+	var sb strings.Builder
+	promptExists := false
+	for _, c := range content.Array() {
+		// Ignore non-text content blocks such as images or files.
+		if c.Get(reqPathType).Str != constInputText {
+			continue
+		}
+
+		text := c.Get(reqPathText)
+		if text.Type != gjson.String {
+			logger.Warn(ctx, fmt.Sprintf("unexpected input content array element text type: %v", text.Type))
+			continue
+		}
+
+		if promptExists {
+			sb.WriteByte('\n')
+		}
+		promptExists = true
+		sb.WriteString(text.Str)
+	}
+
+	if !promptExists {
+		return "", false, nil
+	}
+
+	return sb.String(), true, nil
 }
 
 func (p ResponsesRequestPayload) injectTools(injected []responses.ToolUnionParam) (ResponsesRequestPayload, error) {
@@ -136,9 +252,9 @@ func (p ResponsesRequestPayload) toolItems() ([]json.RawMessage, error) {
 }
 
 func (p ResponsesRequestPayload) set(path string, value any) (ResponsesRequestPayload, error) {
-	b, err := sjson.SetBytes(p, path, value)
+	updated, err := sjson.SetBytes(p, path, value)
 	if err != nil {
-		return ResponsesRequestPayload(b), fmt.Errorf("failed to set value at path %s: %w", path, err)
+		return p, fmt.Errorf("failed to set value at path %s: %w", path, err)
 	}
-	return ResponsesRequestPayload(b), nil
+	return updated, nil
 }

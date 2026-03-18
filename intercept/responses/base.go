@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +19,6 @@ import (
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
-	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/quartz"
@@ -48,9 +46,8 @@ type responsesInterceptionBase struct {
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
 
-	logger  slog.Logger
-	metrics metrics.Metrics
-	tracer  trace.Tracer
+	logger slog.Logger
+	tracer trace.Tracer
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -96,27 +93,7 @@ func (i *responsesInterceptionBase) Model() string {
 }
 
 func (i *responsesInterceptionBase) CorrelatingToolCallID() *string {
-	items := gjson.GetBytes(i.reqPayload, "input")
-	if !items.IsArray() {
-		return nil
-	}
-
-	arr := items.Array()
-	if len(arr) == 0 {
-		return nil
-	}
-
-	last := arr[len(arr)-1]
-	if last.Get(string(constant.ValueOf[constant.Type]())).String() != string(constant.ValueOf[constant.FunctionCallOutput]()) {
-		return nil
-	}
-
-	callID := last.Get("call_id").String()
-	if callID == "" {
-		return nil
-	}
-
-	return &callID
+	return i.reqPayload.correlatingToolCallID()
 }
 
 func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
@@ -176,89 +153,6 @@ func (i *responsesInterceptionBase) requestOptions(respCopy *responseCopier) []o
 		opts = append(opts, option.WithRequestTimeout(requestTimeout))
 	}
 	return opts
-}
-
-// lastUserPrompt returns input text with "user" role from last input item
-// or string input value if it is present + bool indicating if input was found or not.
-// If no such input was found empty string + false is returned.
-func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (string, bool, error) {
-	if i == nil {
-		return "", false, errors.New("cannot get last user prompt: nil struct")
-	}
-	if i.reqPayload == nil {
-		return "", false, errors.New("cannot get last user prompt: nil request struct")
-	}
-
-	// 'input' can be either a string or an array of input items:
-	// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input
-	inputItems := gjson.GetBytes(i.reqPayload, "input")
-	if !inputItems.Exists() || inputItems.Type == gjson.Null {
-		return "", false, nil
-	}
-
-	// String variant: treat the whole input as the user prompt.
-	if inputItems.Type == gjson.String {
-		return inputItems.String(), true, nil
-	}
-
-	// Array variant: checking only the last input item
-	if !inputItems.IsArray() {
-		return "", false, fmt.Errorf("unexpected input type: %s", inputItems.Type)
-	}
-
-	inputItemsArr := inputItems.Array()
-	if len(inputItemsArr) == 0 {
-		return "", false, nil
-	}
-
-	lastItem := inputItemsArr[len(inputItemsArr)-1]
-	if lastItem.Get("role").Str != string(constant.ValueOf[constant.User]()) {
-		// Request was likely not initiated by a prompt but is an iteration of agentic loop.
-		return "", false, nil
-	}
-
-	// Message content can be either a string or an array of typed content items:
-	// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message-content
-	content := lastItem.Get(string(constant.ValueOf[constant.Content]()))
-	if !content.Exists() || content.Type == gjson.Null {
-		return "", false, nil
-	}
-
-	// String variant: use it directly as the prompt.
-	if content.Type == gjson.String {
-		return content.Str, true, nil
-	}
-
-	if !content.IsArray() {
-		return "", false, fmt.Errorf("unexpected input content type: %s", content.Type)
-	}
-
-	var sb strings.Builder
-	promptExists := false
-	for _, c := range content.Array() {
-		// Ignore non-text content blocks such as images or files.
-		if c.Get(string(constant.ValueOf[constant.Type]())).Str != string(constant.ValueOf[constant.InputText]()) {
-			continue
-		}
-
-		text := c.Get(string(constant.ValueOf[constant.Text]()))
-		if text.Type != gjson.String {
-			i.logger.Warn(ctx, fmt.Sprintf("unexpected input content array element text type: %v", text.Type))
-			continue
-		}
-
-		if promptExists {
-			sb.WriteByte('\n')
-		}
-		promptExists = true
-		sb.WriteString(text.Str)
-	}
-
-	if !promptExists {
-		return "", false, nil
-	}
-
-	return sb.String(), true, nil
 }
 
 func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string, prompt string) {

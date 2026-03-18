@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"testing"
 
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/assert"
@@ -56,7 +59,6 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 			t.Parallel()
 
 			payload, err := NewResponsesRequestPayload(tc.raw)
-			assert.EqualValues(t, tc.want, payload)
 
 			if tc.err != "" {
 				require.ErrorContains(t, err, tc.err)
@@ -65,9 +67,191 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 			}
 
 			require.NoError(t, err)
+			require.NotNil(t, payload)
+			assert.EqualValues(t, tc.want, payload)
 			assert.Equal(t, tc.model, payload.model())
 			assert.Equal(t, tc.stream, payload.Stream())
 			assert.Equal(t, tc.background, payload.background())
+		})
+	}
+}
+
+func TestCorrelatingToolCallID(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		payload  []byte
+		wantCall *string
+	}{
+		{
+			name:    "no input items",
+			payload: []byte(`{"model":"gpt-4o"}`),
+		},
+		{
+			name:    "empty input array",
+			payload: []byte(`{"model":"gpt-4o","input":[]}`),
+		},
+		{
+			name:    "no function_call_output items",
+			payload: []byte(`{"model":"gpt-4o","input":[{"role":"user","content":"hi"}]}`),
+		},
+		{
+			name:     "single function_call_output",
+			payload:  []byte(`{"model":"gpt-4o","input":[{"role":"user","content":"hi"},{"type":"function_call_output","call_id":"call_abc","output":"result"}]}`),
+			wantCall: utils.PtrTo("call_abc"),
+		},
+		{
+			name:     "multiple function_call_outputs returns last",
+			payload:  []byte(`{"model":"gpt-4o","input":[{"type":"function_call_output","call_id":"call_first","output":"r1"},{"role":"user","content":"hi"},{"type":"function_call_output","call_id":"call_second","output":"r2"}]}`),
+			wantCall: utils.PtrTo("call_second"),
+		},
+		{
+			name:    "last input is not a tool result",
+			payload: []byte(`{"model":"gpt-4o","input":[{"type":"function_call_output","call_id":"call_first","output":"r1"},{"role":"user","content":"hi"}]}`),
+		},
+		{
+			name:    "missing call id",
+			payload: []byte(`{"input":[{"type":"function_call_output","output":"ok"}]}`),
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			callID := mustPayload(t, tc.payload).correlatingToolCallID()
+			assert.Equal(t, tc.wantCall, callID)
+		})
+	}
+}
+
+func TestLastUserPrompt(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		reqPayload []byte
+		expect     string
+		found      bool
+		expectErr  string
+	}{
+		{
+			name:       "no input",
+			reqPayload: []byte(`{}`),
+			found:      false,
+		},
+		{
+			name:       "input null",
+			reqPayload: []byte(`{"input": null}`),
+			found:      false,
+		},
+		{
+			name:       "empty input array",
+			reqPayload: []byte(`{"input": []}`),
+			found:      false,
+		},
+		{
+			name:       "input empty string",
+			reqPayload: []byte(`{"input": ""}`),
+			expect:     "",
+			found:      true,
+		},
+		{
+			name:       "input array content empty string",
+			reqPayload: []byte(`{"input": [{"role": "user", "content": ""}]}`),
+			expect:     "",
+			found:      true,
+		},
+		{
+			name:       "input array content array empty string",
+			reqPayload: []byte(`{"input": [ { "role": "user", "content": [{"type": "input_text", "text": ""}] } ] }`),
+			expect:     "",
+			found:      true,
+		},
+		{
+			name:       "input array content array multiple inputs",
+			reqPayload: []byte(`{"input": [ { "role": "user", "content": [{"type": "input_text", "text": "a"}, {"type": "input_text", "text": "b"}] } ] }`),
+			expect:     "a\nb",
+			found:      true,
+		},
+		{
+			name:       "simple string input",
+			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingSimple),
+			expect:     "tell me a joke",
+			found:      true,
+		},
+		{
+			name:       "array single input string",
+			reqPayload: fixtures.Request(t, fixtures.OaiResponsesBlockingSingleBuiltinTool),
+			expect:     "Is 3 + 5 a prime number? Use the add function to calculate the sum.",
+			found:      true,
+		},
+		{
+			name:       "array multiple items content objects",
+			reqPayload: fixtures.Request(t, fixtures.OaiResponsesStreamingCodex),
+			expect:     "hello",
+			found:      true,
+		},
+		{
+			name:       "input integer",
+			reqPayload: []byte(`{"input": 123}`),
+			expectErr:  "unexpected input type",
+		},
+		{
+			name:       "no user role",
+			reqPayload: []byte(`{"input": [{"role": "assistant", "content": "hello"}]}`),
+			found:      false,
+		},
+		{
+			name:       "user with empty content array",
+			reqPayload: []byte(`{"input": [{"role": "user", "content": []}]}`),
+			found:      false,
+		},
+		{
+			name:       "user content missing",
+			reqPayload: []byte(`{"input": [{"role": "user"}]}`),
+			found:      false,
+		},
+		{
+			name:       "user content null",
+			reqPayload: []byte(`{"input": [{"role": "user", "content": null}]}`),
+			found:      false,
+		},
+		{
+			name:       "input array integer",
+			reqPayload: []byte(`{"input": [{"role": "user", "content": 123}]}`),
+			expectErr:  "unexpected input content type",
+		},
+		{
+			name:       "user with non input_text content",
+			reqPayload: []byte(`{"input": [{"role": "user", "content": [{"type": "input_image", "url": "http://example.com/img.png"}]}]}`),
+			found:      false,
+		},
+		{
+			name:       "user content not last",
+			reqPayload: []byte(`{"input": [ {"role": "user", "content":"input"}, {"role": "assistant", "content": "hello"} ]}`),
+			found:      false,
+		},
+		{
+			name:       "input array content array integer",
+			reqPayload: []byte(`{"input": [ { "role": "user", "content": [{"type": "input_text", "text": 123}] } ] }`),
+			found:      false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			prompt, promptFound, err := mustPayload(t, tc.reqPayload).lastUserPrompt(t.Context(), slog.Make())
+			if tc.expectErr != "" {
+				require.ErrorContains(t, err, tc.expectErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.expect, prompt)
+			require.Equal(t, tc.found, promptFound)
 		})
 	}
 }
@@ -137,7 +321,7 @@ func TestInjectTools(t *testing.T) {
 			}
 
 			if tc.wantSame {
-				require.Equal(t, p, updated)
+				require.EqualValues(t, tc.raw, updated)
 			}
 			for i, wantName := range tc.wantNames {
 				path := fmt.Sprintf("tools.%d.name", i) // name of the i-th element in tools array
@@ -282,7 +466,7 @@ func TestAppendInputItems(t *testing.T) {
 			}
 
 			if tc.wantSame {
-				require.Equal(t, p, updated)
+				require.EqualValues(t, tc.raw, updated)
 			}
 
 			for path, want := range tc.wantPaths {
