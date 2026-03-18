@@ -9,10 +9,10 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/intercept/apidump"
-	"github.com/coder/aibridge/utils"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/aibridge/utils"
 	"github.com/coder/quartz"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -128,4 +128,3 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 		proxy.ServeHTTP(w, r)
 	}
 }
-

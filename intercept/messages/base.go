@@ -19,11 +19,11 @@ import (
 	aibconfig "github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/intercept"
-	"github.com/coder/aibridge/utils"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/aibridge/utils"
 	"github.com/coder/quartz"
 	"github.com/tidwall/sjson"
 
