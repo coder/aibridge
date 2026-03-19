@@ -277,19 +277,45 @@ func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibco
 }
 
 // augmentRequestForBedrock will change the model used for the request since AWS Bedrock doesn't support
-// Anthropics' model names.
+// Anthropics' model names. It also converts adaptive thinking to enabled with a budget for models that
+// don't support adaptive thinking natively.
 func (i *interceptionBase) augmentRequestForBedrock() {
 	if i.bedrockCfg == nil {
 		return
 	}
 
-	updated, err := i.reqPayload.withModel(i.Model())
+	model := i.Model()
+	updated, err := i.reqPayload.withModel(model)
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to set model in request payload for Bedrock", slog.Error(err))
 		return
 	}
-
 	i.reqPayload = updated
+
+	if !bedrockModelSupportsAdaptiveThinking(model) {
+		updated, err = i.reqPayload.convertAdaptiveThinkingForBedrock()
+		if err != nil {
+			i.logger.Warn(context.Background(), "failed to convert adaptive thinking for Bedrock", slog.Error(err))
+			return
+		}
+		i.reqPayload = updated
+	}
+
+	// Strip fields that Bedrock does not accept.
+	updated, err = i.reqPayload.removeUnsupportedBedrockFields()
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to remove unsupported fields for Bedrock", slog.Error(err))
+		return
+	}
+	i.reqPayload = updated
+}
+
+// bedrockModelSupportsAdaptiveThinking returns true if the given Bedrock model ID
+// supports the "adaptive" thinking type natively (i.e. Claude 4.6 models).
+// See https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-adaptive-thinking.html
+func bedrockModelSupportsAdaptiveThinking(model string) bool {
+	return strings.Contains(model, "anthropic.claude-opus-4-6") ||
+		strings.Contains(model, "anthropic.claude-sonnet-4-6")
 }
 
 // writeUpstreamError marshals and writes a given error.

@@ -14,8 +14,19 @@ import (
 const (
 	// Absolute JSON paths from the request root.
 	messagesReqPathMessages                  = "messages"
+	messagesReqPathMaxTokens                 = "max_tokens"
 	messagesReqPathModel                     = "model"
+	messagesReqPathOutputConfig              = "output_config"
+	messagesReqPathOutputConfigEffort        = "output_config.effort"
+	messagesReqPathMetadata                  = "metadata"
+	messagesReqPathServiceTier               = "service_tier"
+	messagesReqPathContainer                 = "container"
+	messagesReqPathInferenceGeo              = "inference_geo"
+	messagesReqPathContextManagement         = "context_management"
 	messagesReqPathStream                    = "stream"
+	messagesReqPathThinking                  = "thinking"
+	messagesReqPathThinkingBudgetTokens      = "thinking.budget_tokens"
+	messagesReqPathThinkingType              = "thinking.type"
 	messagesReqPathToolChoice                = "tool_choice"
 	messagesReqPathToolChoiceDisableParallel = "tool_choice.disable_parallel_tool_use"
 	messagesReqPathToolChoiceType            = "tool_choice.type"
@@ -29,6 +40,12 @@ const (
 	messagesReqFieldType      = "type"
 )
 
+const (
+	constAdaptive = "adaptive"
+	constDisabled = "disabled"
+	constEnabled  = "enabled"
+)
+
 var (
 	constAny        = string(constant.ValueOf[constant.Any]())
 	constAuto       = string(constant.ValueOf[constant.Auto]())
@@ -37,6 +54,21 @@ var (
 	constTool       = string(constant.ValueOf[constant.Tool]())
 	constToolResult = string(constant.ValueOf[constant.ToolResult]())
 	constUser       = string(anthropic.MessageParamRoleUser)
+
+	// bedrockUnsupportedFields are top-level fields present in the Anthropic Messages
+	// API that are absent from the Bedrock request body schema. Sending them results
+	// in a 400 "Extra inputs are not permitted" error.
+	//
+	// Anthropic API fields: https://platform.claude.com/docs/en/api/messages/create
+	// Bedrock request body: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
+	bedrockUnsupportedFields = []string{
+		messagesReqPathOutputConfig, // requires beta header 'effort-2025-11-24'
+		messagesReqPathMetadata,
+		messagesReqPathServiceTier,
+		messagesReqPathContainer,
+		messagesReqPathInferenceGeo,
+		messagesReqPathContextManagement,
+	}
 )
 
 // MessagesRequestPayload is raw JSON bytes of an Anthropic Messages API request.
@@ -281,10 +313,74 @@ func (p MessagesRequestPayload) resultToRawMessage(items []gjson.Result) []json.
 	return rawMessages
 }
 
+// convertAdaptiveThinkingForBedrock converts thinking.type "adaptive" to "enabled" with a calculated budget_tokens
+func (p MessagesRequestPayload) convertAdaptiveThinkingForBedrock() (MessagesRequestPayload, error) {
+	thinkingType := gjson.GetBytes(p, messagesReqPathThinkingType)
+	if thinkingType.String() != constAdaptive {
+		return p, nil
+	}
+
+	maxTokens := gjson.GetBytes(p, messagesReqPathMaxTokens).Int()
+	if maxTokens <= 0 {
+		// max_tokens is required by messages API
+		return p, fmt.Errorf("max_tokens: field required")
+	}
+
+	effort := gjson.GetBytes(p, messagesReqPathOutputConfigEffort).String()
+
+	// Effort-to-ratio mapping adapted from OpenRouter:
+	// https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#reasoning-effort-level
+	var ratio float64
+	switch effort {
+	case "low":
+		ratio = 0.2
+	case "medium":
+		ratio = 0.5
+	case "max":
+		ratio = 0.95
+	default: // "high" or absent (high is the default effort)
+		ratio = 0.8
+	}
+
+	// budget_tokens must be ≥ 1024 && < max_tokens. If the calculated budget
+	// doesn't meet the minimum, disable thinking entirely rather than forcing
+	// an artificially high budget that would starve the output.
+	// https://platform.claude.com/docs/en/api/messages/create#create.thinking
+	// https://platform.claude.com/docs/en/build-with-claude/extended-thinking#how-to-use-extended-thinking
+	budgetTokens := int64(float64(maxTokens) * ratio)
+	if budgetTokens < 1024 {
+		return p.set(messagesReqPathThinking, map[string]string{"type": constDisabled})
+	}
+
+	return p.set(messagesReqPathThinking, map[string]any{
+		"type":          constEnabled,
+		"budget_tokens": budgetTokens,
+	})
+}
+
+// removeUnsupportedBedrockFields strips all top-level fields that Bedrock does
+// not support from the payload.
+func (p MessagesRequestPayload) removeUnsupportedBedrockFields() (MessagesRequestPayload, error) {
+	result := p
+	for _, field := range bedrockUnsupportedFields {
+		var err error
+		result, err = result.delete(field)
+		if err != nil {
+			return p, fmt.Errorf("removing %q: %w", field, err)
+		}
+	}
+	return result, nil
+}
+
 func (p MessagesRequestPayload) set(path string, value any) (MessagesRequestPayload, error) {
 	out, err := sjson.SetBytes(p, path, value)
 	if err != nil {
 		return p, fmt.Errorf("set %s: %w", path, err)
 	}
 	return MessagesRequestPayload(out), nil
+}
+
+func (p MessagesRequestPayload) delete(path string) (MessagesRequestPayload, error) {
+	out, err := sjson.DeleteBytes(p, path)
+	return MessagesRequestPayload(out), err
 }

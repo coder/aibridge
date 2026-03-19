@@ -590,6 +590,124 @@ func TestInjectTools_ParallelToolCalls(t *testing.T) {
 	})
 }
 
+func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+
+		bedrockModel string
+		requestBody  string
+
+		expectThinkingType string
+		// expectBudgetTokens is the exact expected budget_tokens value.
+		// 0 means budget_tokens should not be present in the output.
+		expectBudgetTokens int64
+	}{
+		{
+			name:               "non_4_6_model_with_adaptive_thinking_gets_converted",
+			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":10000,"thinking":{"type":"adaptive"},"messages":[]}`,
+			expectThinkingType: "enabled",
+			expectBudgetTokens: 8000, // 10000 * 0.8 (default/high effort)
+		},
+		{
+			name:               "non_4_6_model_with_adaptive_thinking_and_small_max_tokens_disables_thinking",
+			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":1000,"thinking":{"type":"adaptive"},"messages":[]}`,
+			expectThinkingType: "disabled", // 1000 * 0.6 = 600, below 1024 minimum
+		},
+		{
+			name:               "opus_4_6_model_with_adaptive_thinking_is_not_converted",
+			bedrockModel:       "anthropic.claude-opus-4-6-v1",
+			requestBody:        `{"model":"claude-opus-4-6","max_tokens":10000,"thinking":{"type":"adaptive"},"messages":[]}`,
+			expectThinkingType: "adaptive",
+			expectBudgetTokens: 0,
+		},
+		{
+			name:               "sonnet_4_6_model_with_adaptive_thinking_is_not_converted",
+			bedrockModel:       "anthropic.claude-sonnet-4-6",
+			requestBody:        `{"model":"claude-sonnet-4-6","max_tokens":10000,"thinking":{"type":"adaptive"},"messages":[]}`,
+			expectThinkingType: "adaptive",
+			expectBudgetTokens: 0,
+		},
+		{
+			name:               "non_4_6_model_with_no_thinking_field_is_unchanged",
+			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[]}`,
+			expectThinkingType: "",
+			expectBudgetTokens: 0,
+		},
+		{
+			name:               "non_4_6_model_with_enabled_thinking_is_unchanged",
+			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":10000,"thinking":{"type":"enabled","budget_tokens":5000},"messages":[]}`,
+			expectThinkingType: "enabled",
+			expectBudgetTokens: 5000, // already set, not recalculated
+		},
+		{
+			name:               "non_4_6_model_with_output_config_strips_it_and_uses_effort_for_budget",
+			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":10000,"thinking":{"type":"adaptive"},"output_config":{"effort":"low"},"messages":[]}`,
+			expectThinkingType: "enabled",
+			expectBudgetTokens: 2000, // 10000 * 0.2 (low effort)
+		},
+		{
+			name:               "4_6_model_with_output_config_strips_it",
+			bedrockModel:       "anthropic.claude-opus-4-6-v1",
+			requestBody:        `{"model":"claude-opus-4-6","max_tokens":10000,"thinking":{"type":"adaptive"},"output_config":{"effort":"high"},"messages":[]}`,
+			expectThinkingType: "adaptive",
+			expectBudgetTokens: 0,
+		},
+		{
+			name:               "all_unsupported_fields_are_stripped",
+			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[],"output_config":{"effort":"high"},"metadata":{"user_id":"u123"},"service_tier":"auto","container":"ctr_abc","inference_geo":"us","context_management":{"type":"auto"}}`,
+			expectThinkingType: "",
+			expectBudgetTokens: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			i := &interceptionBase{
+				reqPayload: mustMessagesPayload(t, tc.requestBody),
+				bedrockCfg: &config.AWSBedrock{
+					Model:          tc.bedrockModel,
+					SmallFastModel: "anthropic.claude-haiku-3-5",
+				},
+				logger: slog.Make(),
+			}
+
+			i.augmentRequestForBedrock()
+
+			thinkingType := gjson.GetBytes(i.reqPayload, "thinking.type")
+			if tc.expectThinkingType == "" {
+				require.False(t, thinkingType.Exists())
+			} else {
+				require.Equal(t, tc.expectThinkingType, thinkingType.String())
+			}
+
+			budgetTokens := gjson.GetBytes(i.reqPayload, "thinking.budget_tokens")
+			if tc.expectBudgetTokens == 0 {
+				require.False(t, budgetTokens.Exists(), "budget_tokens should not be set")
+			} else {
+				require.Equal(t, tc.expectBudgetTokens, budgetTokens.Int())
+			}
+
+			// Model should always be set to the bedrock model.
+			require.Equal(t, tc.bedrockModel, gjson.GetBytes(i.reqPayload, "model").String())
+
+			// Unsupported fields should always be stripped for Bedrock.
+			for _, field := range bedrockUnsupportedFields {
+				require.False(t, gjson.GetBytes(i.reqPayload, field).Exists(), "%s should be removed for Bedrock", field)
+			}
+		})
+	}
+}
+
 func mustMessagesPayload(t *testing.T, requestBody string) MessagesRequestPayload {
 	t.Helper()
 
