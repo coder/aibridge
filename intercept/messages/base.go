@@ -285,6 +285,7 @@ func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibco
 
 	opts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
+		config.WithAppID("APN_1.1/pc_cdfmjwn8i6u8l9fwz8h82e4w3$"),
 		config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(
 				cfg.AccessKey,
