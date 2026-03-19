@@ -22,6 +22,8 @@ func initSchema(db *sql.DB) error {
 		provider_response_id TEXT NOT NULL,
 		input_tokens INTEGER NOT NULL,
 		output_tokens INTEGER NOT NULL,
+		cache_read_input_tokens INTEGER NOT NULL DEFAULT 0,
+		cache_write_input_tokens INTEGER NOT NULL DEFAULT 0,
 		metadata TEXT,
 		created_at DATETIME NOT NULL,
 		FOREIGN KEY (interception_id) REFERENCES aibridge_interceptions(id)

@@ -44,25 +44,31 @@ func TestAnthropicMessages(t *testing.T) {
 		t.Parallel()
 
 		cases := []struct {
-			name                 string
-			streaming            bool
-			expectedInputTokens  int
-			expectedOutputTokens int
-			expectedToolCallID   string
+			name                           string
+			streaming                      bool
+			expectedInputTokens            int
+			expectedOutputTokens           int
+			expectedCacheReadInputTokens   int
+			expectedCacheWriteInputTokens  int
+			expectedToolCallID             string
 		}{
 			{
-				name:                 "streaming",
-				streaming:            true,
-				expectedInputTokens:  2,
-				expectedOutputTokens: 66,
-				expectedToolCallID:   "toolu_01RX68weRSquLx6HUTj65iBo",
+				name:                           "streaming",
+				streaming:                      true,
+				expectedInputTokens:            2,
+				expectedOutputTokens:           66,
+				expectedCacheReadInputTokens:   13993,
+				expectedCacheWriteInputTokens:  22,
+				expectedToolCallID:             "toolu_01RX68weRSquLx6HUTj65iBo",
 			},
 			{
-				name:                 "non-streaming",
-				streaming:            false,
-				expectedInputTokens:  5,
-				expectedOutputTokens: 84,
-				expectedToolCallID:   "toolu_01AusGgY5aKFhzWrFBv9JfHq",
+				name:                           "non-streaming",
+				streaming:                      false,
+				expectedInputTokens:            5,
+				expectedOutputTokens:           84,
+				expectedCacheReadInputTokens:   23490,
+				expectedCacheWriteInputTokens:  0,
+				expectedToolCallID:             "toolu_01AusGgY5aKFhzWrFBv9JfHq",
 			},
 		}
 
@@ -104,6 +110,8 @@ func TestAnthropicMessages(t *testing.T) {
 
 				assert.EqualValues(t, tc.expectedInputTokens, bridgeServer.Recorder.TotalInputTokens(), "input tokens miscalculated")
 				assert.EqualValues(t, tc.expectedOutputTokens, bridgeServer.Recorder.TotalOutputTokens(), "output tokens miscalculated")
+				assert.EqualValues(t, tc.expectedCacheReadInputTokens, bridgeServer.Recorder.TotalCacheReadInputTokens(), "cache read input tokens miscalculated")
+				assert.EqualValues(t, tc.expectedCacheWriteInputTokens, bridgeServer.Recorder.TotalCacheWriteInputTokens(), "cache write input tokens miscalculated")
 
 				toolUsages := bridgeServer.Recorder.RecordedToolUsages()
 				require.Len(t, toolUsages, 1)

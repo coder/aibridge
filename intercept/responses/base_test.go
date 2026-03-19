@@ -297,10 +297,11 @@ func TestRecordTokenUsage(t *testing.T) {
 				},
 			},
 			expected: &recorder.TokenUsageRecord{
-				InterceptionID: id.String(),
-				MsgID:          "resp_full",
-				Input:          5, // 10 input - 5 cached
-				Output:         20,
+				InterceptionID:       id.String(),
+				MsgID:                "resp_full",
+				Input:                5, // 10 input - 5 cached
+				Output:               20,
+				CacheReadInputTokens: 5,
 				ExtraTokenTypes: map[string]int64{
 					"input_cached":     5,
 					"output_reasoning": 5,

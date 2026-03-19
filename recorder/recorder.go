@@ -240,6 +240,8 @@ func (a *AsyncRecorder) RecordTokenUsage(ctx context.Context, req *TokenUsageRec
 		if a.metrics != nil {
 			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "input", a.initiatorID, a.client).Add(float64(req.Input))
 			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "output", a.initiatorID, a.client).Add(float64(req.Output))
+			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "cache_read_input_tokens", a.initiatorID, a.client).Add(float64(req.CacheReadInputTokens))
+			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "cache_write_input_tokens", a.initiatorID, a.client).Add(float64(req.CacheWriteInputTokens))
 			for k, v := range req.ExtraTokenTypes {
 				a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, k, a.initiatorID, a.client).Add(float64(v))
 			}

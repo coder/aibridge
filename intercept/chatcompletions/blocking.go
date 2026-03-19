@@ -112,10 +112,11 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		cumulativeUsage = sumUsage(cumulativeUsage, completion.Usage)
 
 		_ = i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
-			InterceptionID: i.ID().String(),
-			MsgID:          completion.ID,
-			Input:          calculateActualInputTokenUsage(lastUsage),
-			Output:         lastUsage.CompletionTokens,
+			InterceptionID:       i.ID().String(),
+			MsgID:                completion.ID,
+			Input:                calculateActualInputTokenUsage(lastUsage),
+			Output:               lastUsage.CompletionTokens,
+			CacheReadInputTokens: lastUsage.PromptTokensDetails.CachedTokens,
 			ExtraTokenTypes: map[string]int64{
 				"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,
 				"prompt_cached":                  lastUsage.PromptTokensDetails.CachedTokens,

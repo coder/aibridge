@@ -40,8 +40,8 @@ func NewSQLiteRecorder(db *sql.DB, logger slog.Logger) (*SQLiteRecorder, error) 
 	}
 
 	r.stmtInsertTokenUsage, err = db.Prepare(`
-		INSERT INTO aibridge_token_usages (id, interception_id, provider_response_id, input_tokens, output_tokens, metadata, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?)`)
+		INSERT INTO aibridge_token_usages (id, interception_id, provider_response_id, input_tokens, output_tokens, cache_read_input_tokens, cache_write_input_tokens, metadata, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func (r *SQLiteRecorder) RecordTokenUsage(ctx context.Context, req *aibridge.Tok
 	metadata, _ := json.Marshal(merged)
 
 	_, err := r.stmtInsertTokenUsage.ExecContext(ctx,
-		uuid.NewString(), req.InterceptionID, req.MsgID, req.Input, req.Output, string(metadata), req.CreatedAt,
+		uuid.NewString(), req.InterceptionID, req.MsgID, req.Input, req.Output, req.CacheReadInputTokens, req.CacheWriteInputTokens, string(metadata), req.CreatedAt,
 	)
 	if err != nil {
 		r.logger.Warn(ctx, "failed to record token usage", slog.Error(err))

@@ -239,10 +239,11 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 	inputNonCacheTokens := usage.InputTokens - usage.InputTokensDetails.CachedTokens
 
 	if err := i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
-		InterceptionID: i.ID().String(),
-		MsgID:          response.ID,
-		Input:          inputNonCacheTokens,
-		Output:         usage.OutputTokens,
+		InterceptionID:       i.ID().String(),
+		MsgID:                response.ID,
+		Input:                inputNonCacheTokens,
+		Output:               usage.OutputTokens,
+		CacheReadInputTokens: usage.InputTokensDetails.CachedTokens,
 		ExtraTokenTypes: map[string]int64{
 			"input_cached":     usage.InputTokensDetails.CachedTokens,
 			"output_reasoning": usage.OutputTokensDetails.ReasoningTokens,
