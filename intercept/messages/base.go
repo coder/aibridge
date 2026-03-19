@@ -33,6 +33,23 @@ import (
 	"cdr.dev/slog/v3"
 )
 
+// bedrockSupportedBetaFlags is the set of Anthropic-Beta flags that AWS Bedrock
+// accepts. Flags not in this set cause a 400 "invalid beta flag" error.
+//
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
+var bedrockSupportedBetaFlags = map[string]bool{
+	"computer-use-2025-01-24":          true,
+	"token-efficient-tools-2025-02-19": true,
+	"interleaved-thinking-2025-05-14":  true,
+	"output-128k-2025-02-19":           true,
+	"dev-full-thinking-2025-05-14":     true,
+	"context-1m-2025-08-07":            true,
+	"context-management-2025-06-27":    true,
+	"effort-2025-11-24":                true,
+	"tool-search-tool-2025-10-19":      true,
+	"tool-examples-2025-10-29":         true,
+}
+
 type interceptionBase struct {
 	id         uuid.UUID
 	reqPayload MessagesRequestPayload
@@ -301,11 +318,10 @@ func (i *interceptionBase) augmentRequestForBedrock() {
 		i.reqPayload = updated
 	}
 
-	// Filter Anthropic-Beta header to only include Bedrock-supported flags,
-	// then remove model-specific flags the current model doesn't support.
+	// Filter Anthropic-Beta header to only include Bedrock-supported flags
+	// that the current model supports.
 	if i.clientHeaders != nil {
-		intercept.FilterBedrockBetaFlags(i.clientHeaders)
-		filterModelGatedBetaFlags(i.clientHeaders, model)
+		filterBedrockBetaFlags(i.clientHeaders, model)
 	}
 
 	// Strip body fields that Bedrock does not accept.
@@ -325,46 +341,41 @@ func bedrockModelSupportsAdaptiveThinking(model string) bool {
 		strings.Contains(model, "anthropic.claude-sonnet-4-6")
 }
 
-// bedrockModelGatedBetaFlags maps beta flags to a model predicate. If the model
-// does not match, the beta flag is removed from the Anthropic-Beta header so
-// that the corresponding body field is also stripped.
-//
-// https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
-var bedrockModelGatedBetaFlags = map[string]func(string) bool{
-	// output_config with effort is only supported for Opus 4.5 on Bedrock.
-	"effort-2025-11-24": func(model string) bool {
-		return strings.HasPrefix(model, "anthropic.claude-opus-4-5")
-	},
-	// context_management is only supported for Sonnet 4.5 and Haiku 4.5 on Bedrock.
-	"context-management-2025-06-27": func(model string) bool {
-		return strings.HasPrefix(model, "anthropic.claude-sonnet-4-5") ||
-			strings.HasPrefix(model, "anthropic.claude-haiku-4-5")
-	},
-}
-
-// filterModelGatedBetaFlags removes beta flags from the Anthropic-Beta header
-// when the current Bedrock model does not support the feature they gate.
-func filterModelGatedBetaFlags(headers http.Header, model string) {
+// filterBedrockBetaFlags removes unsupported beta flags from the Anthropic-Beta
+// header and also removes model-gated flags the current model doesn't support.
+func filterBedrockBetaFlags(headers http.Header, model string) {
 	raw := headers.Get("Anthropic-Beta")
 	if raw == "" {
 		return
 	}
 
 	flags := strings.Split(raw, ",")
-	kept := flags[:0]
+	var keep []string
 	for _, flag := range flags {
 		trimmed := strings.TrimSpace(flag)
-		check, gated := bedrockModelGatedBetaFlags[trimmed]
-		if gated && !check(model) {
+		if !bedrockSupportedBetaFlags[trimmed] {
 			continue
 		}
-		kept = append(kept, trimmed)
+
+		// effort is only supported for Opus 4.5 on Bedrock.
+		if trimmed == "effort-2025-11-24" && !strings.Contains(model, "anthropic.claude-opus-4-5") {
+			continue
+		}
+
+		// context_management is only supported for Sonnet 4.5 and Haiku 4.5 on Bedrock.
+		if trimmed == "context-management-2025-06-27" &&
+			!strings.Contains(model, "anthropic.claude-sonnet-4-5") &&
+			!strings.Contains(model, "anthropic.claude-haiku-4-5") {
+			continue
+		}
+
+		keep = append(keep, trimmed)
 	}
 
-	if len(kept) == 0 {
+	if len(keep) == 0 {
 		headers.Del("Anthropic-Beta")
 	} else {
-		headers.Set("Anthropic-Beta", strings.Join(kept, ","))
+		headers.Set("Anthropic-Beta", strings.Join(keep, ","))
 	}
 }
 

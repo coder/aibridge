@@ -2,7 +2,6 @@ package intercept
 
 import (
 	"net/http"
-	"strings"
 )
 
 // hopByHopHeaders are connection-level headers specific to the connection
@@ -51,46 +50,6 @@ func PrepareClientHeaders(clientHeaders http.Header) http.Header {
 		prepared.Del(h)
 	}
 	return prepared
-}
-
-// bedrockSupportedBetaFlags is the set of Anthropic-Beta flags that AWS Bedrock
-// accepts. Flags not in this set cause a 400 "invalid beta flag" error.
-//
-// https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
-var bedrockSupportedBetaFlags = map[string]bool{
-	"computer-use-2025-01-24":          true,
-	"token-efficient-tools-2025-02-19": true,
-	"interleaved-thinking-2025-05-14":  true,
-	"output-128k-2025-02-19":           true,
-	"dev-full-thinking-2025-05-14":     true,
-	"context-1m-2025-08-07":            true,
-	"context-management-2025-06-27":    true,
-	"effort-2025-11-24":                true,
-	"tool-search-tool-2025-10-19":      true,
-	"tool-examples-2025-10-29":         true,
-}
-
-// FilterBedrockBetaFlags removes unsupported beta flags from the Anthropic-Beta
-// header. The header value is a comma-separated list of flags.
-func FilterBedrockBetaFlags(headers http.Header) {
-	raw := headers.Get("Anthropic-Beta")
-	if raw == "" {
-		return
-	}
-
-	flags := strings.Split(raw, ",")
-	kept := flags[:0]
-	for _, flag := range flags {
-		if bedrockSupportedBetaFlags[strings.TrimSpace(flag)] {
-			kept = append(kept, strings.TrimSpace(flag))
-		}
-	}
-
-	if len(kept) == 0 {
-		headers.Del("Anthropic-Beta")
-	} else {
-		headers.Set("Anthropic-Beta", strings.Join(kept, ","))
-	}
 }
 
 // BuildUpstreamHeaders produces the header set for an upstream SDK request.

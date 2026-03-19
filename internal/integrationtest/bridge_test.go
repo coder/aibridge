@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -313,6 +314,136 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				require.Equal(t, interceptions[0].Model, bedrockCfg.Model)
 				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
 			})
+		}
+	})
+
+	// Tests that Bedrock-incompatible fields are stripped and adaptive thinking
+	// is handled correctly per model. Different Bedrock model names trigger
+	// different behavior for beta flag filtering and field stripping.
+	t.Run("unsupported fields removed", func(t *testing.T) {
+		t.Parallel()
+
+		// All fields in the fixture request that Bedrock may strip. Fields
+		// listed in a test case's expectKeptFields survive; all others must
+		// be absent from the forwarded body.
+		strippableFields := []string{
+			"metadata", "service_tier", "container", "inference_geo", // always stripped
+			"output_config", "context_management", // stripped unless their beta flag survives
+		}
+
+		cases := []struct {
+			name               string
+			model              string
+			smallFastModel     string
+			expectThinkingType string
+			expectBudgetTokens int64    // 0 means budget_tokens should not be present
+			expectKeptFields   []string // fields from strippableFields expected to survive
+			expectedBetaFlags  []string // values expected in the anthropic_beta array in the forwarded body
+		}{
+			// "beddel" matches no model prefix, so adaptive thinking is converted
+			// to enabled with budget, and all model-gated beta flags are stripped.
+			{
+				name:               "beddel",
+				model:              "beddel",
+				smallFastModel:     "modrock",
+				expectThinkingType: "enabled",
+				expectBudgetTokens: 16000, // 32000 * 0.5 (medium effort)
+				expectedBetaFlags:  []string{"interleaved-thinking-2025-05-14"},
+			},
+			// Opus 4.5 supports the effort beta, so output_config is kept.
+			{
+				name:               "opus-4.5",
+				model:              "anthropic.claude-opus-4-5-20250514-v1:0",
+				smallFastModel:     "anthropic.claude-haiku-4-5-20241022-v1:0",
+				expectThinkingType: "enabled",
+				expectBudgetTokens: 16000,
+				expectKeptFields:   []string{"output_config"},
+				expectedBetaFlags:  []string{"interleaved-thinking-2025-05-14", "effort-2025-11-24"},
+			},
+			// Sonnet 4.5 supports context-management beta, so context_management is kept.
+			{
+				name:               "sonnet-4.5",
+				model:              "anthropic.claude-sonnet-4-5-20241022-v2:0",
+				smallFastModel:     "anthropic.claude-haiku-4-5-20241022-v1:0",
+				expectThinkingType: "enabled",
+				expectBudgetTokens: 16000,
+				expectKeptFields:   []string{"context_management"},
+				expectedBetaFlags:  []string{"interleaved-thinking-2025-05-14", "context-management-2025-06-27"},
+			},
+			// Opus 4.6 supports adaptive thinking natively, so it is kept as-is.
+			// Neither effort nor context-management betas apply to this model.
+			{
+				name:               "opus-4.6",
+				model:              "anthropic.claude-opus-4-6-20260619-v1:0",
+				smallFastModel:     "anthropic.claude-haiku-4-5-20241022-v1:0",
+				expectThinkingType: "adaptive",
+				expectedBetaFlags:  []string{"interleaved-thinking-2025-05-14"},
+			},
+		}
+
+		for _, tc := range cases {
+			for _, streaming := range []bool{true, false} {
+				t.Run(fmt.Sprintf("%s/streaming=%v", tc.name, streaming), func(t *testing.T) {
+					t.Parallel()
+
+					ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+					t.Cleanup(cancel)
+
+					fix := fixtures.Parse(t, fixtures.AntSimpleBedrock)
+					upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+
+					bCfg := &config.AWSBedrock{
+						Region:          "us-west-2",
+						AccessKey:       "test-access-key",
+						AccessKeySecret: "test-secret-key",
+						Model:           tc.model,
+						SmallFastModel:  tc.smallFastModel,
+						BaseURL:         upstream.URL,
+					}
+
+					bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+						withCustomProvider(provider.NewAnthropic(anthropicCfg(upstream.URL, apiKey), bCfg)),
+					)
+
+					reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
+					require.NoError(t, err)
+
+					// Send with Anthropic-Beta header containing flags that should be filtered.
+					resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody, http.Header{
+						"Anthropic-Beta": {"interleaved-thinking-2025-05-14,effort-2025-11-24,context-management-2025-06-27,prompt-caching-scope-2026-01-05"},
+					})
+					require.Equal(t, http.StatusOK, resp.StatusCode)
+					_, err = io.ReadAll(resp.Body)
+					require.NoError(t, err)
+
+					received := upstream.receivedRequests()
+					require.Len(t, received, 1)
+					body := received[0].Body
+
+					// Verify strippable fields: kept only if listed in expectKeptFields.
+					for _, field := range strippableFields {
+						assert.Equal(t, slices.Contains(tc.expectKeptFields, field), gjson.GetBytes(body, field).Exists(), "field %s", field)
+					}
+
+					// Verify thinking behavior.
+					assert.Equal(t, tc.expectThinkingType, gjson.GetBytes(body, "thinking.type").String(), "thinking type mismatch")
+					if tc.expectBudgetTokens > 0 {
+						assert.Equal(t, tc.expectBudgetTokens, gjson.GetBytes(body, "thinking.budget_tokens").Int(), "budget_tokens mismatch")
+					} else {
+						assert.False(t, gjson.GetBytes(body, "thinking.budget_tokens").Exists(), "budget_tokens should not be present")
+					}
+
+					// The Bedrock SDK middleware moves Anthropic-Beta from the header
+					// into the body as "anthropic_beta". The SDK encodes the
+					// comma-separated header value as a single array element.
+					betaArr := gjson.GetBytes(body, "anthropic_beta").Array()
+					require.Len(t, betaArr, 1, "expected single anthropic_beta element")
+					gotFlags := strings.Split(betaArr[0].String(), ",")
+					assert.Equal(t, tc.expectedBetaFlags, gotFlags, "beta flags mismatch")
+
+					bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
+				})
+			}
 		}
 	})
 }

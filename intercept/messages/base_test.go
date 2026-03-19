@@ -794,3 +794,84 @@ func (m *mockServerProxier) GetTool(id string) *mcp.Tool {
 func (m *mockServerProxier) CallTool(context.Context, string, any) (*mcpgo.CallToolResult, error) {
 	return nil, nil
 }
+
+func TestFilterBedrockBetaFlags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		model  string
+		input  string
+		expect string
+	}{
+		{
+			name:   "empty header",
+			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			input:  "",
+			expect: "",
+		},
+		{
+			name:   "all supported flags kept",
+			model:  "anthropic.claude-opus-4-5-20250929-v1:0",
+			input:  "interleaved-thinking-2025-05-14,effort-2025-11-24",
+			expect: "interleaved-thinking-2025-05-14,effort-2025-11-24",
+		},
+		{
+			name:   "unsupported flags removed",
+			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			input:  "claude-code-20250219,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05",
+			expect: "interleaved-thinking-2025-05-14",
+		},
+		{
+			name:   "header removed when all flags unsupported",
+			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			input:  "claude-code-20250219,prompt-caching-scope-2026-01-05",
+			expect: "",
+		},
+		{
+			name:   "effort flag removed for non opus 4.5 model",
+			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			input:  "effort-2025-11-24,interleaved-thinking-2025-05-14",
+			expect: "interleaved-thinking-2025-05-14",
+		},
+		{
+			name:   "effort flag kept for opus 4.5 model",
+			model:  "anthropic.claude-opus-4-5-20250929-v1:0",
+			input:  "effort-2025-11-24,interleaved-thinking-2025-05-14",
+			expect: "effort-2025-11-24,interleaved-thinking-2025-05-14",
+		},
+		{
+			name:   "context management kept for sonnet 4.5",
+			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			input:  "context-management-2025-06-27",
+			expect: "context-management-2025-06-27",
+		},
+		{
+			name:   "context management kept for haiku 4.5",
+			model:  "anthropic.claude-haiku-4-5-20250929-v1:0",
+			input:  "context-management-2025-06-27",
+			expect: "context-management-2025-06-27",
+		},
+		{
+			name:   "context management removed for unsupported model",
+			model:  "anthropic.claude-opus-4-6-v1",
+			input:  "context-management-2025-06-27,interleaved-thinking-2025-05-14",
+			expect: "interleaved-thinking-2025-05-14",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			headers := http.Header{}
+			if tc.input != "" {
+				headers.Set("Anthropic-Beta", tc.input)
+			}
+
+			filterBedrockBetaFlags(headers, tc.model)
+
+			require.Equal(t, tc.expect, headers.Get("Anthropic-Beta"))
+		})
+	}
+}
