@@ -2,6 +2,7 @@ package messages
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
 	"cdr.dev/slog/v3"
@@ -596,13 +597,14 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 	tests := []struct {
 		name string
 
-		bedrockModel string
-		requestBody  string
+		bedrockModel    string
+		requestBody     string
+		clientBetaFlags string
 
-		expectThinkingType string
-		// expectBudgetTokens is the exact expected budget_tokens value.
-		// 0 means budget_tokens should not be present in the output.
-		expectBudgetTokens int64
+		expectThinkingType  string
+		expectBudgetTokens  int64 // 0 means budget_tokens should not be present
+		expectRemovedFields []string
+		expectBetaHeader    string
 	}{
 		{
 			name:               "non_4_6_model_with_adaptive_thinking_gets_converted",
@@ -615,56 +617,89 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 			name:               "non_4_6_model_with_adaptive_thinking_and_small_max_tokens_disables_thinking",
 			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
 			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":1000,"thinking":{"type":"adaptive"},"messages":[]}`,
-			expectThinkingType: "disabled", // 1000 * 0.6 = 600, below 1024 minimum
+			expectThinkingType: "disabled",
 		},
 		{
 			name:               "opus_4_6_model_with_adaptive_thinking_is_not_converted",
 			bedrockModel:       "anthropic.claude-opus-4-6-v1",
 			requestBody:        `{"model":"claude-opus-4-6","max_tokens":10000,"thinking":{"type":"adaptive"},"messages":[]}`,
 			expectThinkingType: "adaptive",
-			expectBudgetTokens: 0,
 		},
 		{
 			name:               "sonnet_4_6_model_with_adaptive_thinking_is_not_converted",
 			bedrockModel:       "anthropic.claude-sonnet-4-6",
 			requestBody:        `{"model":"claude-sonnet-4-6","max_tokens":10000,"thinking":{"type":"adaptive"},"messages":[]}`,
 			expectThinkingType: "adaptive",
-			expectBudgetTokens: 0,
 		},
 		{
-			name:               "non_4_6_model_with_no_thinking_field_is_unchanged",
-			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
-			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[]}`,
-			expectThinkingType: "",
-			expectBudgetTokens: 0,
+			name:         "non_4_6_model_with_no_thinking_field_is_unchanged",
+			bedrockModel: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:  `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[]}`,
 		},
 		{
 			name:               "non_4_6_model_with_enabled_thinking_is_unchanged",
 			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
 			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":10000,"thinking":{"type":"enabled","budget_tokens":5000},"messages":[]}`,
 			expectThinkingType: "enabled",
-			expectBudgetTokens: 5000, // already set, not recalculated
+			expectBudgetTokens: 5000,
 		},
 		{
-			name:               "non_4_6_model_with_output_config_strips_it_and_uses_effort_for_budget",
-			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
-			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":10000,"thinking":{"type":"adaptive"},"output_config":{"effort":"low"},"messages":[]}`,
-			expectThinkingType: "enabled",
-			expectBudgetTokens: 2000, // 10000 * 0.2 (low effort)
+			name:                "output_config_stripped_without_beta_flag_and_effort_used_for_budget",
+			bedrockModel:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:         `{"model":"claude-sonnet-4-5","max_tokens":10000,"thinking":{"type":"adaptive"},"output_config":{"effort":"low"},"messages":[]}`,
+			expectThinkingType:  "enabled",
+			expectBudgetTokens:  2000, // 10000 * 0.2 (low effort)
+			expectRemovedFields: []string{"output_config"},
 		},
 		{
-			name:               "4_6_model_with_output_config_strips_it",
-			bedrockModel:       "anthropic.claude-opus-4-6-v1",
-			requestBody:        `{"model":"claude-opus-4-6","max_tokens":10000,"thinking":{"type":"adaptive"},"output_config":{"effort":"high"},"messages":[]}`,
-			expectThinkingType: "adaptive",
-			expectBudgetTokens: 0,
+			name:             "output_config_kept_when_effort_beta_flag_present_on_opus_4_5",
+			bedrockModel:     "anthropic.claude-opus-4-5-20250929-v1:0",
+			clientBetaFlags:  "effort-2025-11-24,interleaved-thinking-2025-05-14",
+			requestBody:      `{"model":"claude-opus-4-5","max_tokens":10000,"messages":[],"output_config":{"effort":"high"}}`,
+			expectBetaHeader: "effort-2025-11-24,interleaved-thinking-2025-05-14",
 		},
 		{
-			name:               "all_unsupported_fields_are_stripped",
-			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
-			requestBody:        `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[],"output_config":{"effort":"high"},"metadata":{"user_id":"u123"},"service_tier":"auto","container":"ctr_abc","inference_geo":"us","context_management":{"type":"auto"}}`,
-			expectThinkingType: "",
-			expectBudgetTokens: 0,
+			name:                "output_config_stripped_for_non_opus_4_5_even_with_effort_beta_flag",
+			bedrockModel:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			clientBetaFlags:     "effort-2025-11-24,interleaved-thinking-2025-05-14",
+			requestBody:         `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[],"output_config":{"effort":"high"}}`,
+			expectRemovedFields: []string{"output_config"},
+			expectBetaHeader:    "interleaved-thinking-2025-05-14",
+		},
+		{
+			name:             "context_management_kept_when_beta_flag_present",
+			bedrockModel:     "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			clientBetaFlags:  "context-management-2025-06-27",
+			requestBody:      `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[],"context_management":{"type":"auto"}}`,
+			expectBetaHeader: "context-management-2025-06-27",
+		},
+		{
+			name:                "context_management_stripped_without_beta_flag",
+			bedrockModel:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:         `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[],"context_management":{"type":"auto"}}`,
+			expectRemovedFields: []string{"context_management"},
+		},
+		{
+			name:                "context_management_stripped_for_unsupported_model_even_with_beta_flag",
+			bedrockModel:        "anthropic.claude-opus-4-6-v1",
+			clientBetaFlags:     "context-management-2025-06-27",
+			requestBody:         `{"model":"claude-opus-4-6","max_tokens":10000,"thinking":{"type":"adaptive"},"messages":[],"context_management":{"type":"auto"}}`,
+			expectThinkingType:  "adaptive",
+			expectRemovedFields: []string{"context_management"},
+		},
+		{
+			name:             "unsupported_beta_flags_are_filtered_out",
+			bedrockModel:     "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			clientBetaFlags:  "claude-code-20250219,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05",
+			requestBody:      `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[]}`,
+			expectBetaHeader: "interleaved-thinking-2025-05-14",
+		},
+		{
+			name:                "all_unsupported_fields_stripped_and_beta_flags_filtered",
+			bedrockModel:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			clientBetaFlags:     "claude-code-20250219,prompt-caching-scope-2026-01-05",
+			requestBody:         `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[],"output_config":{"effort":"high"},"metadata":{"user_id":"u123"},"service_tier":"auto","container":"ctr_abc","inference_geo":"us","context_management":{"type":"auto"}}`,
+			expectRemovedFields: []string{"output_config", "metadata", "service_tier", "container", "inference_geo", "context_management"},
 		},
 	}
 
@@ -672,13 +707,21 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
+			var clientHeaders http.Header
+			if tc.clientBetaFlags != "" {
+				clientHeaders = http.Header{
+					"Anthropic-Beta": {tc.clientBetaFlags},
+				}
+			}
+
 			i := &interceptionBase{
 				reqPayload: mustMessagesPayload(t, tc.requestBody),
 				bedrockCfg: &config.AWSBedrock{
 					Model:          tc.bedrockModel,
 					SmallFastModel: "anthropic.claude-haiku-3-5",
 				},
-				logger: slog.Make(),
+				clientHeaders: clientHeaders,
+				logger:        slog.Make(),
 			}
 
 			i.augmentRequestForBedrock()
@@ -700,9 +743,14 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 			// Model should always be set to the bedrock model.
 			require.Equal(t, tc.bedrockModel, gjson.GetBytes(i.reqPayload, "model").String())
 
-			// Unsupported fields should always be stripped for Bedrock.
-			for _, field := range bedrockUnsupportedFields {
-				require.False(t, gjson.GetBytes(i.reqPayload, field).Exists(), "%s should be removed for Bedrock", field)
+			// Verify expected fields are removed.
+			for _, field := range tc.expectRemovedFields {
+				require.False(t, gjson.GetBytes(i.reqPayload, field).Exists(), "%s should be removed", field)
+			}
+
+			// Verify beta header filtering.
+			if clientHeaders != nil {
+				require.Equal(t, tc.expectBetaHeader, clientHeaders.Get("Anthropic-Beta"))
 			}
 		})
 	}

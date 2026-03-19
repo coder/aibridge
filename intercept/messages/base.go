@@ -301,8 +301,15 @@ func (i *interceptionBase) augmentRequestForBedrock() {
 		i.reqPayload = updated
 	}
 
-	// Strip fields that Bedrock does not accept.
-	updated, err = i.reqPayload.removeUnsupportedBedrockFields()
+	// Filter Anthropic-Beta header to only include Bedrock-supported flags,
+	// then remove model-specific flags the current model doesn't support.
+	if i.clientHeaders != nil {
+		intercept.FilterBedrockBetaFlags(i.clientHeaders)
+		filterModelGatedBetaFlags(i.clientHeaders, model)
+	}
+
+	// Strip body fields that Bedrock does not accept.
+	updated, err = i.reqPayload.removeUnsupportedBedrockFields(i.clientHeaders)
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to remove unsupported fields for Bedrock", slog.Error(err))
 		return
@@ -316,6 +323,49 @@ func (i *interceptionBase) augmentRequestForBedrock() {
 func bedrockModelSupportsAdaptiveThinking(model string) bool {
 	return strings.Contains(model, "anthropic.claude-opus-4-6") ||
 		strings.Contains(model, "anthropic.claude-sonnet-4-6")
+}
+
+// bedrockModelGatedBetaFlags maps beta flags to a model predicate. If the model
+// does not match, the beta flag is removed from the Anthropic-Beta header so
+// that the corresponding body field is also stripped.
+//
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
+var bedrockModelGatedBetaFlags = map[string]func(string) bool{
+	// output_config with effort is only supported for Opus 4.5 on Bedrock.
+	"effort-2025-11-24": func(model string) bool {
+		return strings.HasPrefix(model, "anthropic.claude-opus-4-5")
+	},
+	// context_management is only supported for Sonnet 4.5 and Haiku 4.5 on Bedrock.
+	"context-management-2025-06-27": func(model string) bool {
+		return strings.HasPrefix(model, "anthropic.claude-sonnet-4-5") ||
+			strings.HasPrefix(model, "anthropic.claude-haiku-4-5")
+	},
+}
+
+// filterModelGatedBetaFlags removes beta flags from the Anthropic-Beta header
+// when the current Bedrock model does not support the feature they gate.
+func filterModelGatedBetaFlags(headers http.Header, model string) {
+	raw := headers.Get("Anthropic-Beta")
+	if raw == "" {
+		return
+	}
+
+	flags := strings.Split(raw, ",")
+	kept := flags[:0]
+	for _, flag := range flags {
+		trimmed := strings.TrimSpace(flag)
+		check, gated := bedrockModelGatedBetaFlags[trimmed]
+		if gated && !check(model) {
+			continue
+		}
+		kept = append(kept, trimmed)
+	}
+
+	if len(kept) == 0 {
+		headers.Del("Anthropic-Beta")
+	} else {
+		headers.Set("Anthropic-Beta", strings.Join(kept, ","))
+	}
 }
 
 // writeUpstreamError marshals and writes a given error.
