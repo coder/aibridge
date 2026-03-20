@@ -110,12 +110,14 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		cfg := p.cfg
 		cfg.ExtraHeaders = extractAnthropicHeaders(r)
 
-		// In centralized mode, http.go strips Authorization and X-Api-Key
-		// (they carried the Coder token), so neither header is present
-		// here and cfg keeps the centralized key.
+		// coder/aibridged strips all headers that may carry the Coder
+		// session token before passing the request here, so this code
+		// sees only legitimate LLM credentials.
 		//
-		// In BYOK mode, http.go only strips the BYOK header and leaves
-		// the user's LLM credentials intact:
+		// In centralized mode neither Authorization nor X-Api-Key is
+		// present, so cfg keeps the centralized key unchanged.
+		//
+		// In BYOK mode the user's LLM credentials survive intact:
 		//   - Authorization: Bearer <oauth-token> → subscription (Claude
 		//     Max/Pro). Set BYOKBearerToken so the SDK uses
 		//     WithAuthToken(), and clear the centralized key.
