@@ -131,6 +131,7 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 			authHeaderName = "Authorization"
 		} else if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 			cfg.Key = apiKey
+			authHeaderName = "X-Api-Key"
 		}
 
 		var interceptor intercept.Interceptor
