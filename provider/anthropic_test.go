@@ -221,7 +221,6 @@ func TestAnthropic_InjectAuthHeader_BYOK(t *testing.T) {
 		{
 			name:              "pre-existing Authorization prevents centralized key injection",
 			presetHeaders:     map[string]string{"Authorization": "Bearer user-oauth-token"},
-			wantXApiKey:       "",
 			wantAuthorization: "Bearer user-oauth-token",
 		},
 	}
