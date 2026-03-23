@@ -86,8 +86,10 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		body := `{"model": "claude-opus-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "hello"}], "stream": false}`
 		req := httptest.NewRequest(http.MethodPost, routeMessages, bytes.NewBufferString(body))
 		req.Header.Set("Anthropic-Beta", betaHeader)
-		// Simulate BYOK: the client sends its own bearer token for upstream auth.
-		req.Header.Set("Authorization", "Bearer user-oauth-token")
+		// Simulate a client sending both Authorization and X-Api-Key headers.
+		// In this case, only the X-Api-Key header is preserved.
+		req.Header.Set("Authorization", "Bearer fake-client-bearer")
+		req.Header.Set("X-Api-Key", "personal user key")
 		w := httptest.NewRecorder()
 
 		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
@@ -104,10 +106,9 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		// Verify the full Anthropic-Beta header (all betas) was forwarded unchanged.
 		assert.Equal(t, betaHeader, receivedHeaders.Get("Anthropic-Beta"), "Anthropic-Beta header must be forwarded unchanged to upstream")
 
-		// The client sent Authorization: Bearer, so BYOK bearer mode is active.
-		// The SDK uses Authorization (not X-Api-Key) for bearer auth.
-		assert.Empty(t, receivedHeaders.Get("X-Api-Key"), "X-Api-Key must not be set in BYOK bearer mode")
-		assert.Equal(t, "Bearer user-oauth-token", receivedHeaders.Get("Authorization"), "upstream must receive the client's bearer token")
+		// Verify user's personal key was used and the authorization header was not forwarded.
+		assert.Equal(t, "personal user key", receivedHeaders.Get("X-Api-Key"), "upstream must receive personal user key")
+		assert.Empty(t, receivedHeaders.Get("Authorization"), "client Authorization header must not reach upstream")
 	})
 
 	byokTests := []struct {
