@@ -14,6 +14,7 @@ import (
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/messages"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/aibridge/utils"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -126,8 +127,8 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 			cfg.Key = apiKey
 			authHeaderName = "X-Api-Key"
-		} else if bearer := r.Header.Get("Authorization"); bearer != "" {
-			cfg.BYOKBearerToken = strings.TrimPrefix(bearer, "Bearer ")
+		} else if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
+			cfg.BYOKBearerToken = token
 			cfg.Key = ""
 			authHeaderName = "Authorization"
 		}
