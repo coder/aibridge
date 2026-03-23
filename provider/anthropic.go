@@ -117,12 +117,11 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		// present, so cfg keeps the centralized key unchanged.
 		//
 		// In BYOK mode the user's LLM credentials survive intact.
-		// Either Authorization or X-Api-Key will be present, but not
-		// both. If Authorization is present it means the user has a
-		// Claude Max/Pro subscription and authenticated via OAuth;
-		// in this case set BYOKBearerToken so the SDK uses WithAuthToken()
-		// and clear the centralized key. If X-Api-Key is present it means the user
-		// has a personal API key; overwrite the centralized key with it.
+		// If X-Api-Key is present the user has a personal API key;
+		// overwrite the centralized key with it. If Authorization is
+		// present the user authenticated via OAuth; set BYOKBearerToken
+		// and clear the centralized key. When both are present,
+		// X-Api-Key takes priority.
 		authHeaderName := p.AuthHeader()
 		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 			cfg.Key = apiKey
