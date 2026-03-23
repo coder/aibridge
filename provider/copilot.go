@@ -13,6 +13,7 @@ import (
 	"github.com/coder/aibridge/intercept/chatcompletions"
 	"github.com/coder/aibridge/intercept/responses"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/aibridge/utils"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -118,7 +119,7 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 	defer tracing.EndSpanErr(span, &outErr)
 
 	// Extract the per-user Copilot key from the Authorization header.
-	key := extractBearerToken(r.Header.Get("Authorization"))
+	key := utils.ExtractBearerToken(r.Header.Get("Authorization"))
 	if key == "" {
 		span.SetStatus(codes.Error, "missing authorization")
 		return nil, fmt.Errorf("missing Copilot authorization: Authorization header not found or invalid")
@@ -176,17 +177,6 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 
 	span.SetAttributes(interceptor.TraceAttributes(r)...)
 	return interceptor, nil
-}
-
-// extractBearerToken extracts the token from a "Bearer <token>" authorization header.
-func extractBearerToken(auth string) string {
-	if auth := strings.TrimSpace(auth); auth != "" {
-		fields := strings.Fields(auth)
-		if len(fields) == 2 && strings.EqualFold(fields[0], "Bearer") {
-			return fields[1]
-		}
-	}
-	return ""
 }
 
 // extractCopilotHeaders extracts headers required by the Copilot API from the
