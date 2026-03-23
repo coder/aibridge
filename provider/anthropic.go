@@ -124,13 +124,13 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		// and clear the centralized key. If X-Api-Key is present it means the user
 		// has a personal API key; overwrite the centralized key with it.
 		authHeaderName := p.AuthHeader()
-		if bearer := r.Header.Get("Authorization"); bearer != "" {
+		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
+			cfg.Key = apiKey
+			authHeaderName = "X-Api-Key"
+		} else if bearer := r.Header.Get("Authorization"); bearer != "" {
 			cfg.BYOKBearerToken = strings.TrimPrefix(bearer, "Bearer ")
 			cfg.Key = ""
 			authHeaderName = "Authorization"
-		} else if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
-			cfg.Key = apiKey
-			authHeaderName = "X-Api-Key"
 		}
 
 		var interceptor intercept.Interceptor

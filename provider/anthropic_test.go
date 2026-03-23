@@ -131,6 +131,14 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 			setHeaders:  map[string]string{},
 			wantXApiKey: "test-key",
 		},
+		{
+			name: "Messages_BYOK_BearerToken_And_APIKey",
+			setHeaders: map[string]string{
+				"Authorization": "Bearer user-oauth-token",
+				"X-Api-Key":     "user-api-key",
+			},
+			wantXApiKey: "user-api-key",
+		},
 	}
 
 	for _, tc := range byokTests {
