@@ -16,8 +16,8 @@ type Anthropic struct {
 	SendActorHeaders bool
 	ExtraHeaders     map[string]string
 	// BYOKBearerToken is set in BYOK mode when the user authenticates
-	// with an OAuth token (e.g. Claude Max/Pro subscription). When set,
-	// the SDK uses Authorization: Bearer instead of X-Api-Key.
+	// with an OAuth token. When set, the OAuth token is used for upstream
+	// LLM requests instead of the API key.
 	BYOKBearerToken string
 }
 
