@@ -281,8 +281,6 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 	})
 }
 
-
-
 func TestExtractCopilotHeaders(t *testing.T) {
 	t.Parallel()
 
