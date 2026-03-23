@@ -206,7 +206,7 @@ func (i *interceptionBase) isSmallFastModel() bool {
 }
 
 func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...option.RequestOption) (anthropic.MessageService, error) {
-	// BYOK with OAuth token (Claude Max/Pro) uses Authorization: Bearer.
+	// BYOK with OAuth token uses Authorization: Bearer.
 	// Otherwise use X-Api-Key (centralized or BYOK with personal API key).
 	if i.cfg.BYOKBearerToken != "" {
 		i.logger.Debug(ctx, "using byok oauth bearer auth",
