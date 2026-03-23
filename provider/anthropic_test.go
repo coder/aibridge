@@ -209,18 +209,27 @@ func TestAnthropic_InjectAuthHeader_BYOK(t *testing.T) {
 		wantAuthorization string
 	}{
 		{
-			name:          "no pre-existing auth headers injects centralized key",
+			name:          "when no auth headers are provided, inject centralized key",
 			presetHeaders: map[string]string{},
 			wantXApiKey:   "centralized-key",
 		},
 		{
-			name:          "pre-existing X-Api-Key is not overwritten",
+			name:          "when X-Api-Key header is provided, use it",
 			presetHeaders: map[string]string{"X-Api-Key": "user-api-key"},
 			wantXApiKey:   "user-api-key",
 		},
 		{
-			name:              "pre-existing Authorization prevents centralized key injection",
+			name:              "when Authorization header is provided, use it",
 			presetHeaders:     map[string]string{"Authorization": "Bearer user-oauth-token"},
+			wantAuthorization: "Bearer user-oauth-token",
+		},
+		{
+			name: "when both headers are provided, keep both",
+			presetHeaders: map[string]string{
+				"Authorization": "Bearer user-oauth-token",
+				"X-Api-Key":     "user-api-key",
+			},
+			wantXApiKey:       "user-api-key",
 			wantAuthorization: "Bearer user-oauth-token",
 		},
 	}
