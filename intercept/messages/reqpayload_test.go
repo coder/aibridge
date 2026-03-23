@@ -76,7 +76,12 @@ func TestMessagesRequestPayloadStream(t *testing.T) {
 		},
 		{
 			name:           "stream missing",
-			requestBody:    `{"model":"claude-opus-4-5"}`,
+			requestBody:    `{}`,
+			expectedStream: false,
+		},
+		{
+			name:           "stream wrong type",
+			requestBody:    `{"stream":"true"}`,
 			expectedStream: false,
 		},
 	}
@@ -87,6 +92,41 @@ func TestMessagesRequestPayloadStream(t *testing.T) {
 
 			payload := mustMessagesPayload(t, testCase.requestBody)
 			require.Equal(t, testCase.expectedStream, payload.Stream())
+		})
+	}
+}
+
+func TestMessagesRequestPayloadModel(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name          string
+		requestBody   string
+		expectedModel string
+	}{
+		{
+			name:          "model present",
+			requestBody:   `{"model":"claude-opus-4-5"}`,
+			expectedModel: "claude-opus-4-5",
+		},
+		{
+			name:          "model missing",
+			requestBody:   `{}`,
+			expectedModel: "",
+		},
+		{
+			name:          "model wrong type",
+			requestBody:   `{"model":123}`,
+			expectedModel: "",
+		},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+
+			payload := mustMessagesPayload(t, testCase.requestBody)
+			require.Equal(t, testCase.expectedModel, payload.model())
 		})
 	}
 }
@@ -254,12 +294,10 @@ func TestMessagesRequestPayloadDisableParallelToolCalls(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
-		name string
-
-		requestBody string
-
-		expectedType string
-
+		name                    string
+		requestBody             string
+		expectError             string
+		expectedType            string
 		expectedDisableParallel *bool
 	}{
 		{
@@ -292,6 +330,27 @@ func TestMessagesRequestPayloadDisableParallelToolCalls(t *testing.T) {
 			expectedType:            string(constant.ValueOf[constant.None]()),
 			expectedDisableParallel: nil,
 		},
+		{
+			name:                    "empty type defaults to auto",
+			requestBody:             `{"tool_choice":{}}`,
+			expectedType:            string(constant.ValueOf[constant.Auto]()),
+			expectedDisableParallel: utils.PtrTo(true),
+		},
+		{
+			name:        "non-object tool_choice returns error",
+			requestBody: `{"tool_choice":"auto"}`,
+			expectError: "unsupported tool_choice type",
+		},
+		{
+			name:        "non-string tool_choice type returns error",
+			requestBody: `{"tool_choice":{"type":123}}`,
+			expectError: "unsupported tool_choice.type type",
+		},
+		{
+			name:        "unsupported tool_choice type returns error",
+			requestBody: `{"tool_choice":{"type":"unknown"}}`,
+			expectError: "unsupported tool_choice.type value",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -300,6 +359,10 @@ func TestMessagesRequestPayloadDisableParallelToolCalls(t *testing.T) {
 
 			payload := mustMessagesPayload(t, testCase.requestBody)
 			updatedPayload, err := payload.disableParallelToolCalls()
+			if testCase.expectError != "" {
+				require.ErrorContains(t, err, testCase.expectError)
+				return
+			}
 			require.NoError(t, err)
 
 			toolChoice := gjson.GetBytes(updatedPayload, "tool_choice")

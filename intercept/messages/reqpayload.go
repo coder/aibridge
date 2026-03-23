@@ -56,11 +56,15 @@ func NewMessagesRequestPayload(raw []byte) (MessagesRequestPayload, error) {
 }
 
 func (p MessagesRequestPayload) Stream() bool {
-	return gjson.GetBytes(p, messagesReqPathStream).Bool()
+	v := gjson.GetBytes(p, messagesReqPathStream)
+	if !v.IsBool() {
+		return false
+	}
+	return v.Bool()
 }
 
 func (p MessagesRequestPayload) model() string {
-	return gjson.GetBytes(p, messagesReqPathModel).String()
+	return gjson.GetBytes(p, messagesReqPathModel).Str
 }
 
 func (p MessagesRequestPayload) correlatingToolCallID() *string {
@@ -155,15 +159,20 @@ func (p MessagesRequestPayload) injectTools(injected []anthropic.ToolUnionParam)
 
 	existing, err := p.tools()
 	if err != nil {
-		return p, err
+		return p, fmt.Errorf("get existing tools: %w", err)
 	}
 
+	// Using []any to merge differently-typed slices ([]anthropic.ToolUnionParam
+	// and []any containing json.RawMessage) keeps JSON re-marshalings to a minimum:
+	// sjson.SetBytes marshals each element exactly once, and json.RawMessage
+	// elements are passed through without re-serialization.
 	allTools := make([]any, 0, len(injected)+len(existing))
 	for _, tool := range injected {
 		allTools = append(allTools, tool)
 	}
-	for _, tool := range existing {
-		allTools = append(allTools, tool)
+
+	for _, e := range existing {
+		allTools = append(allTools, e)
 	}
 
 	return p.set(messagesReqPathTools, allTools)
@@ -177,7 +186,7 @@ func (p MessagesRequestPayload) disableParallelToolCalls() (MessagesRequestPaylo
 	if !toolChoice.Exists() || toolChoice.Type == gjson.Null {
 		updated, err := p.set(messagesReqPathToolChoiceType, constAuto)
 		if err != nil {
-			return p, err
+			return p, fmt.Errorf("set tool choice type: %w", err)
 		}
 		return updated.set(messagesReqPathToolChoiceDisableParallel, true)
 	}
@@ -194,7 +203,7 @@ func (p MessagesRequestPayload) disableParallelToolCalls() (MessagesRequestPaylo
 	case "":
 		updated, err := p.set(messagesReqPathToolChoiceType, constAuto)
 		if err != nil {
-			return p, err
+			return p, fmt.Errorf("set tool_choice.type: %w", err)
 		}
 		return updated.set(messagesReqPathToolChoiceDisableParallel, true)
 	case constAuto, constAny, constTool:
@@ -206,20 +215,28 @@ func (p MessagesRequestPayload) disableParallelToolCalls() (MessagesRequestPaylo
 	}
 }
 
-func (p MessagesRequestPayload) appendedMessages(messages []anthropic.MessageParam) (MessagesRequestPayload, error) {
-	if len(messages) == 0 {
+func (p MessagesRequestPayload) appendedMessages(newMessages []anthropic.MessageParam) (MessagesRequestPayload, error) {
+	if len(newMessages) == 0 {
 		return p, nil
 	}
 
 	existing, err := p.messages()
 	if err != nil {
-		return p, err
+		return p, fmt.Errorf("get existing messages: %w", err)
 	}
 
-	allMessages := make([]any, 0, len(existing)+len(messages))
-	allMessages = append(allMessages, existing...)
-	for _, message := range messages {
-		allMessages = append(allMessages, message)
+	// Using []any to merge differently-typed slices ([]any containing
+	// json.RawMessage and []anthropic.MessageParam) keeps JSON re-marshalings
+	// to a minimum: sjson.SetBytes marshals each element exactly once, and
+	// json.RawMessage elements are passed through without re-serialization.
+	allMessages := make([]any, 0, len(existing)+len(newMessages))
+
+	for _, e := range existing {
+		allMessages = append(allMessages, e)
+	}
+
+	for _, new := range newMessages {
+		allMessages = append(allMessages, new)
 	}
 
 	return p.set(messagesReqPathMessages, allMessages)
@@ -229,22 +246,16 @@ func (p MessagesRequestPayload) withModel(model string) (MessagesRequestPayload,
 	return p.set(messagesReqPathModel, model)
 }
 
-func (p MessagesRequestPayload) messages() ([]any, error) {
+func (p MessagesRequestPayload) messages() ([]json.RawMessage, error) {
 	messages := gjson.GetBytes(p, messagesReqPathMessages)
 	if !messages.Exists() || messages.Type == gjson.Null {
-		return []any{}, nil
+		return nil, nil
 	}
 	if !messages.IsArray() {
 		return nil, fmt.Errorf("unsupported messages type: %s", messages.Type)
 	}
 
-	messageItems := messages.Array()
-	existing := make([]any, 0, len(messageItems))
-	for _, item := range messageItems {
-		existing = append(existing, json.RawMessage(item.Raw))
-	}
-
-	return existing, nil
+	return p.resultToRawMessage(messages.Array()), nil
 }
 
 func (p MessagesRequestPayload) tools() ([]json.RawMessage, error) {
@@ -256,16 +267,24 @@ func (p MessagesRequestPayload) tools() ([]json.RawMessage, error) {
 		return nil, fmt.Errorf("unsupported tools type: %s", tools.Type)
 	}
 
-	toolItems := tools.Array()
-	existing := make([]json.RawMessage, 0, len(toolItems))
-	for _, item := range toolItems {
-		existing = append(existing, json.RawMessage(item.Raw))
-	}
+	return p.resultToRawMessage(tools.Array()), nil
+}
 
-	return existing, nil
+func (p MessagesRequestPayload) resultToRawMessage(items []gjson.Result) []json.RawMessage {
+	// gjson.Result conversion to json.RawMessage is needed because
+	// gjson.Result does not implement json.Marshaler — placing it in []any
+	// would serialize its struct fields instead of the raw JSON it represents.
+	rawMessages := make([]json.RawMessage, 0, len(items))
+	for _, item := range items {
+		rawMessages = append(rawMessages, json.RawMessage(item.Raw))
+	}
+	return rawMessages
 }
 
 func (p MessagesRequestPayload) set(path string, value any) (MessagesRequestPayload, error) {
 	out, err := sjson.SetBytes(p, path, value)
-	return MessagesRequestPayload(out), err
+	if err != nil {
+		return p, fmt.Errorf("set %s: %w", path, err)
+	}
+	return MessagesRequestPayload(out), nil
 }
