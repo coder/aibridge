@@ -38,16 +38,28 @@ import (
 //
 // https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
 var bedrockSupportedBetaFlags = map[string]bool{
-	"computer-use-2025-01-24":          true,
+	// Supported on Claude 3.7 Sonnet.
+	"computer-use-2025-01-24": true,
+	// Supported on Claude 3.7 Sonnet and Claude 4+.
 	"token-efficient-tools-2025-02-19": true,
-	"interleaved-thinking-2025-05-14":  true,
-	"output-128k-2025-02-19":           true,
-	"dev-full-thinking-2025-05-14":     true,
-	"context-1m-2025-08-07":            true,
-	"context-management-2025-06-27":    true,
-	"effort-2025-11-24":                true,
-	"tool-search-tool-2025-10-19":      true,
-	"tool-examples-2025-10-29":         true,
+	// Supported on Claude 4+ models.
+	"interleaved-thinking-2025-05-14": true,
+	// Supported on Claude 3.7 Sonnet.
+	"output-128k-2025-02-19": true,
+	// Supported on Claude 4+ models. Requires account team access.
+	"dev-full-thinking-2025-05-14": true,
+	// Supported on Claude Sonnet 4.
+	"context-1m-2025-08-07": true,
+	// Supported on Claude Sonnet 4.5 and Claude Haiku 4.5.
+	// Enables context_management body field for thinking block clearing.
+	"context-management-2025-06-27": true,
+	// Supported on Claude Opus 4.5.
+	// Enables output_config body field for effort control.
+	"effort-2025-11-24": true,
+	// Supported on Claude Opus 4.5.
+	"tool-search-tool-2025-10-19": true,
+	// Supported on Claude Opus 4.5.
+	"tool-examples-2025-10-29": true,
 }
 
 type interceptionBase struct {
@@ -343,13 +355,23 @@ func bedrockModelSupportsAdaptiveThinking(model string) bool {
 
 // filterBedrockBetaFlags removes unsupported beta flags from the Anthropic-Beta
 // header and also removes model-gated flags the current model doesn't support.
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
 func filterBedrockBetaFlags(headers http.Header, model string) {
-	raw := headers.Get("Anthropic-Beta")
-	if raw == "" {
+	// Collect all flags regardless of whether the client sent them as a single
+	// comma-separated value (eg. Claude Code sends them in that format)
+	// or as multiple separate header lines.
+	// https://httpwg.org/specs/rfc9110.html#rfc.section.5.3
+	var flags []string
+	for _, v := range headers.Values("Anthropic-Beta") {
+		for _, flag := range strings.Split(v, ",") {
+			flags = append(flags, flag)
+		}
+	}
+
+	if len(flags) == 0 {
 		return
 	}
 
-	flags := strings.Split(raw, ",")
 	var keep []string
 	for _, flag := range flags {
 		trimmed := strings.TrimSpace(flag)
@@ -357,12 +379,12 @@ func filterBedrockBetaFlags(headers http.Header, model string) {
 			continue
 		}
 
-		// effort is only supported for Opus 4.5 on Bedrock.
+		// effort is only supported in Opus 4.5 on Bedrock.
 		if trimmed == "effort-2025-11-24" && !strings.Contains(model, "anthropic.claude-opus-4-5") {
 			continue
 		}
 
-		// context_management is only supported for Sonnet 4.5 and Haiku 4.5 on Bedrock.
+		// context_management is only supported in Sonnet 4.5 and Haiku 4.5 models on Bedrock.
 		if trimmed == "context-management-2025-06-27" &&
 			!strings.Contains(model, "anthropic.claude-sonnet-4-5") &&
 			!strings.Contains(model, "anthropic.claude-haiku-4-5") {
@@ -372,10 +394,9 @@ func filterBedrockBetaFlags(headers http.Header, model string) {
 		keep = append(keep, trimmed)
 	}
 
-	if len(keep) == 0 {
-		headers.Del("Anthropic-Beta")
-	} else {
-		headers.Set("Anthropic-Beta", strings.Join(keep, ","))
+	headers.Del("Anthropic-Beta")
+	for _, flag := range keep {
+		headers.Add("Anthropic-Beta", flag)
 	}
 }
 

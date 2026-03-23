@@ -434,11 +434,12 @@ func TestAWSBedrockIntegration(t *testing.T) {
 					}
 
 					// The Bedrock SDK middleware moves Anthropic-Beta from the header
-					// into the body as "anthropic_beta". The SDK encodes the
-					// comma-separated header value as a single array element.
+					// into the body as "anthropic_beta".
 					betaArr := gjson.GetBytes(body, "anthropic_beta").Array()
-					require.Len(t, betaArr, 1, "expected single anthropic_beta element")
-					gotFlags := strings.Split(betaArr[0].String(), ",")
+					var gotFlags []string
+					for _, v := range betaArr {
+						gotFlags = append(gotFlags, v.String())
+					}
 					assert.Equal(t, tc.expectedBetaFlags, gotFlags, "beta flags mismatch")
 
 					bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)

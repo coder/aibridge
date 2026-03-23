@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"strings"
+	"slices"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
@@ -73,9 +73,11 @@ var (
 	// bedrockBetaGatedFields maps body fields to the beta flag that enables them.
 	// If the beta flag is present in the (already-filtered) Anthropic-Beta header,
 	// the field is kept; otherwise it is stripped. Model-specific beta flags must
-	// be removed from the header before this check (see filterModelGatedBetaFlags).
+	// be removed from the header before this check (see filterBedrockBetaFlags).
 	bedrockBetaGatedFields = map[string]string{
-		messagesReqPathOutputConfig:      "effort-2025-11-24",
+		// output_config requires the effort beta (Opus 4.5 only).
+		messagesReqPathOutputConfig: "effort-2025-11-24",
+		// context_management requires the context-management beta (Sonnet 4.5, Haiku 4.5).
 		messagesReqPathContextManagement: "context-management-2025-06-27",
 	}
 )
@@ -374,7 +376,7 @@ func (p MessagesRequestPayload) convertAdaptiveThinkingForBedrock() (MessagesReq
 // support from the payload. Fields that are gated behind a beta flag are only
 // removed when the corresponding flag is absent from the Anthropic-Beta header.
 // Model-specific beta flags must already be filtered from the header before
-// calling this method (see filterModelGatedBetaFlags).
+// calling this method (see filterBedrockBetaFlags).
 func (p MessagesRequestPayload) removeUnsupportedBedrockFields(headers http.Header) (MessagesRequestPayload, error) {
 	var payloadMap map[string]any
 	if err := json.Unmarshal(p, &payloadMap); err != nil {
@@ -387,9 +389,9 @@ func (p MessagesRequestPayload) removeUnsupportedBedrockFields(headers http.Head
 	}
 
 	// Strip beta-gated fields only when their beta flag is missing.
-	betaHeader := headers.Get("Anthropic-Beta")
+	betaValues := headers.Values("Anthropic-Beta")
 	for field, requiredFlag := range bedrockBetaGatedFields {
-		if !strings.Contains(betaHeader, requiredFlag) {
+		if !slices.Contains(betaValues, requiredFlag) {
 			delete(payloadMap, field)
 		}
 	}

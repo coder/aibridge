@@ -604,7 +604,7 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 		expectThinkingType  string
 		expectBudgetTokens  int64 // 0 means budget_tokens should not be present
 		expectRemovedFields []string
-		expectBetaHeader    string
+		expectBetaValues    []string // expected separate Anthropic-Beta header values
 	}{
 		{
 			name:               "non_4_6_model_with_adaptive_thinking_gets_converted",
@@ -656,7 +656,7 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 			bedrockModel:     "anthropic.claude-opus-4-5-20250929-v1:0",
 			clientBetaFlags:  "effort-2025-11-24,interleaved-thinking-2025-05-14",
 			requestBody:      `{"model":"claude-opus-4-5","max_tokens":10000,"messages":[],"output_config":{"effort":"high"}}`,
-			expectBetaHeader: "effort-2025-11-24,interleaved-thinking-2025-05-14",
+			expectBetaValues: []string{"effort-2025-11-24", "interleaved-thinking-2025-05-14"},
 		},
 		{
 			name:                "output_config_stripped_for_non_opus_4_5_even_with_effort_beta_flag",
@@ -664,14 +664,14 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 			clientBetaFlags:     "effort-2025-11-24,interleaved-thinking-2025-05-14",
 			requestBody:         `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[],"output_config":{"effort":"high"}}`,
 			expectRemovedFields: []string{"output_config"},
-			expectBetaHeader:    "interleaved-thinking-2025-05-14",
+			expectBetaValues:    []string{"interleaved-thinking-2025-05-14"},
 		},
 		{
 			name:             "context_management_kept_when_beta_flag_present",
 			bedrockModel:     "anthropic.claude-sonnet-4-5-20250929-v1:0",
 			clientBetaFlags:  "context-management-2025-06-27",
 			requestBody:      `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[],"context_management":{"type":"auto"}}`,
-			expectBetaHeader: "context-management-2025-06-27",
+			expectBetaValues: []string{"context-management-2025-06-27"},
 		},
 		{
 			name:                "context_management_stripped_without_beta_flag",
@@ -692,7 +692,7 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 			bedrockModel:     "anthropic.claude-sonnet-4-5-20250929-v1:0",
 			clientBetaFlags:  "claude-code-20250219,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05",
 			requestBody:      `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[]}`,
-			expectBetaHeader: "interleaved-thinking-2025-05-14",
+			expectBetaValues: []string{"interleaved-thinking-2025-05-14"},
 		},
 		{
 			name:                "all_unsupported_fields_stripped_and_beta_flags_filtered",
@@ -748,10 +748,8 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 				require.False(t, gjson.GetBytes(i.reqPayload, field).Exists(), "%s should be removed", field)
 			}
 
-			// Verify beta header filtering.
-			if clientHeaders != nil {
-				require.Equal(t, tc.expectBetaHeader, clientHeaders.Get("Anthropic-Beta"))
-			}
+			got := clientHeaders.Values("Anthropic-Beta")
+			require.Equal(t, tc.expectBetaValues, got)
 		})
 	}
 }
@@ -799,64 +797,76 @@ func TestFilterBedrockBetaFlags(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name   string
-		model  string
-		input  string
-		expect string
+		name         string
+		model        string
+		inputValues  []string // header values to set (each element is a separate header value)
+		expectValues []string // expected separate header values after filtering
 	}{
 		{
-			name:   "empty header",
-			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
-			input:  "",
-			expect: "",
+			name:         "empty header",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  nil,
+			expectValues: nil,
 		},
 		{
-			name:   "all supported flags kept",
-			model:  "anthropic.claude-opus-4-5-20250929-v1:0",
-			input:  "interleaved-thinking-2025-05-14,effort-2025-11-24",
-			expect: "interleaved-thinking-2025-05-14,effort-2025-11-24",
+			name:         "all supported flags kept",
+			model:        "anthropic.claude-opus-4-5-20250929-v1:0",
+			inputValues:  []string{"interleaved-thinking-2025-05-14,effort-2025-11-24"},
+			expectValues: []string{"interleaved-thinking-2025-05-14", "effort-2025-11-24"},
 		},
 		{
-			name:   "unsupported flags removed",
-			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
-			input:  "claude-code-20250219,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05",
-			expect: "interleaved-thinking-2025-05-14",
+			name:         "unsupported flags removed",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"claude-code-20250219,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05"},
+			expectValues: []string{"interleaved-thinking-2025-05-14"},
 		},
 		{
-			name:   "header removed when all flags unsupported",
-			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
-			input:  "claude-code-20250219,prompt-caching-scope-2026-01-05",
-			expect: "",
+			name:         "header removed when all flags unsupported",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"claude-code-20250219,prompt-caching-scope-2026-01-05"},
+			expectValues: nil,
 		},
 		{
-			name:   "effort flag removed for non opus 4.5 model",
-			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
-			input:  "effort-2025-11-24,interleaved-thinking-2025-05-14",
-			expect: "interleaved-thinking-2025-05-14",
+			name:         "effort flag removed for non opus 4.5 model",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"effort-2025-11-24,interleaved-thinking-2025-05-14"},
+			expectValues: []string{"interleaved-thinking-2025-05-14"},
 		},
 		{
-			name:   "effort flag kept for opus 4.5 model",
-			model:  "anthropic.claude-opus-4-5-20250929-v1:0",
-			input:  "effort-2025-11-24,interleaved-thinking-2025-05-14",
-			expect: "effort-2025-11-24,interleaved-thinking-2025-05-14",
+			name:         "effort flag kept for opus 4.5 model",
+			model:        "anthropic.claude-opus-4-5-20250929-v1:0",
+			inputValues:  []string{"effort-2025-11-24,interleaved-thinking-2025-05-14"},
+			expectValues: []string{"effort-2025-11-24", "interleaved-thinking-2025-05-14"},
 		},
 		{
-			name:   "context management kept for sonnet 4.5",
-			model:  "anthropic.claude-sonnet-4-5-20250929-v1:0",
-			input:  "context-management-2025-06-27",
-			expect: "context-management-2025-06-27",
+			name:         "context management kept for sonnet 4.5",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"context-management-2025-06-27"},
+			expectValues: []string{"context-management-2025-06-27"},
 		},
 		{
-			name:   "context management kept for haiku 4.5",
-			model:  "anthropic.claude-haiku-4-5-20250929-v1:0",
-			input:  "context-management-2025-06-27",
-			expect: "context-management-2025-06-27",
+			name:         "context management kept for haiku 4.5",
+			model:        "anthropic.claude-haiku-4-5-20250929-v1:0",
+			inputValues:  []string{"context-management-2025-06-27"},
+			expectValues: []string{"context-management-2025-06-27"},
 		},
 		{
-			name:   "context management removed for unsupported model",
-			model:  "anthropic.claude-opus-4-6-v1",
-			input:  "context-management-2025-06-27,interleaved-thinking-2025-05-14",
-			expect: "interleaved-thinking-2025-05-14",
+			name:         "context management removed for unsupported model",
+			model:        "anthropic.claude-opus-4-6-v1",
+			inputValues:  []string{"context-management-2025-06-27,interleaved-thinking-2025-05-14"},
+			expectValues: []string{"interleaved-thinking-2025-05-14"},
+		},
+		{
+			name:         "separate header values are handled correctly",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"interleaved-thinking-2025-05-14", "context-management-2025-06-27"},
+			expectValues: []string{"interleaved-thinking-2025-05-14", "context-management-2025-06-27"},
+		},
+		{
+			name:         "mixed comma-joined and separate header values",
+			model:        "anthropic.claude-opus-4-5-20250929-v1:0",
+			inputValues:  []string{"interleaved-thinking-2025-05-14,effort-2025-11-24", "token-efficient-tools-2025-02-19"},
+			expectValues: []string{"interleaved-thinking-2025-05-14", "effort-2025-11-24", "token-efficient-tools-2025-02-19"},
 		},
 	}
 
@@ -865,13 +875,15 @@ func TestFilterBedrockBetaFlags(t *testing.T) {
 			t.Parallel()
 
 			headers := http.Header{}
-			if tc.input != "" {
-				headers.Set("Anthropic-Beta", tc.input)
+			for _, v := range tc.inputValues {
+				headers.Add("Anthropic-Beta", v)
 			}
 
 			filterBedrockBetaFlags(headers, tc.model)
 
-			require.Equal(t, tc.expect, headers.Get("Anthropic-Beta"))
+			// Each kept flag should be a separate header value.
+			got := headers.Values("Anthropic-Beta")
+			require.Equal(t, tc.expectValues, got)
 		})
 	}
 }
