@@ -198,7 +198,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 	})
 }
 
-func TestAnthropic_InjectAuthHeader_BYOK(t *testing.T) {
+func TestAnthropic_InjectAuthHeader(t *testing.T) {
 	t.Parallel()
 
 	provider := NewAnthropic(config.Anthropic{Key: "centralized-key"}, nil)
