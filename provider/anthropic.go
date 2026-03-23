@@ -110,9 +110,8 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		cfg := p.cfg
 		cfg.ExtraHeaders = extractAnthropicHeaders(r)
 
-		// coder/aibridged strips all headers that may carry the Coder
-		// session token before passing the request here, so this code
-		// sees only legitimate LLM credentials.
+		// At this point the request contains only LLM provider headers.
+		// Any Coder-specific authentication has already been stripped.
 		//
 		// In centralized mode neither Authorization nor X-Api-Key is
 		// present, so cfg keeps the centralized key unchanged.
