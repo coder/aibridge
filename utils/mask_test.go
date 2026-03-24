@@ -11,18 +11,20 @@ func TestMaskSecret(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
+		name     string
 		input    string
 		expected string
 	}{
-		{"", ""},
-		{"short", "short"},
-		{"exactly8", "exactly8"},
-		{"sk-ant-api03-abcdefgh", "sk-a...efgh"},
-		{"sk-ant-oat01-abcdefghijklmnop", "sk-a...mnop"},
+		{"empty", "", ""},
+		{"short", "short", "*****"},
+		{"short_9_chars", "veryshort", "*********"},
+		{"medium_15_chars", "thisisquitelong", "th***********ng"},
+		{"long_api_key", "sk-ant-api03-abcdefgh", "sk-a*************efgh"},
+		{"unicode", "hélloworld🌍!", "hé********🌍!"},
 	}
 
 	for _, tc := range tests {
-		t.Run(tc.input, func(t *testing.T) {
+		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			assert.Equal(t, tc.expected, utils.MaskSecret(tc.input))
 		})
