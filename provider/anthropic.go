@@ -122,7 +122,8 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		// overwrite the centralized key with it. If Authorization is
 		// present the user authenticated directly with provider;
 		// set BYOKBearerToken and clear the centralized key.
-		// When both are present, X-Api-Key takes priority.
+		// When both are present, X-Api-Key takes priority to match
+		// claude-code behavior.
 		authHeaderName := p.AuthHeader()
 		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 			cfg.Key = apiKey
