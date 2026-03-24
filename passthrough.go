@@ -12,7 +12,6 @@ import (
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
-	"github.com/coder/aibridge/utils"
 	"github.com/coder/quartz"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -97,16 +96,6 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 
 				// Inject provider auth.
 				provider.InjectAuthHeader(&req.Header)
-
-				if apiKey := req.Header.Get("X-Api-Key"); apiKey != "" {
-					logger.Debug(ctx, "passthrough using api key auth",
-						slog.F("api_key_hint", utils.MaskSecret(apiKey)),
-					)
-				} else if token := utils.ExtractBearerToken(req.Header.Get("Authorization")); token != "" {
-					logger.Debug(ctx, "passthrough using oauth bearer auth",
-						slog.F("bearer_hint", utils.MaskSecret(token)),
-					)
-				}
 			},
 			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, e error) {
 				logger.Warn(req.Context(), "reverse proxy error", slog.Error(e), slog.F("path", req.URL.Path))
