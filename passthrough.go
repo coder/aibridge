@@ -98,13 +98,13 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 				// Inject provider auth.
 				provider.InjectAuthHeader(&req.Header)
 
-				if authz := req.Header.Get("Authorization"); authz != "" {
-					logger.Debug(ctx, "passthrough using oauth bearer auth",
-						slog.F("bearer_hint", utils.MaskSecret(authz)),
-					)
-				} else {
+				if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 					logger.Debug(ctx, "passthrough using api key auth",
 						slog.F("api_key_hint", utils.MaskSecret(req.Header.Get("X-Api-Key"))),
+					)
+				} else if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
+					logger.Debug(ctx, "passthrough using oauth bearer auth",
+						slog.F("bearer_hint", utils.MaskSecret(token)),
 					)
 				}
 			},
