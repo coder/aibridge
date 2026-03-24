@@ -25,6 +25,7 @@ import (
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/aibridge/utils"
 	"github.com/coder/quartz"
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 
 	"github.com/google/uuid"
@@ -323,8 +324,29 @@ func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibco
 	return out, nil
 }
 
+const (
+	// defaultAdaptiveFallbackBudgetTokens is the default budget_tokens value used when
+	// converting adaptive thinking to enabled thinking for Bedrock models that don't
+	// support adaptive thinking, and the request does not contain a max_tokens value.
+	defaultAdaptiveFallbackBudgetTokens = 10000
+
+	// minBedrockBudgetTokens is the minimum budget_tokens value that Bedrock accepts.
+	minBedrockBudgetTokens = 1024
+)
+
+// bedrockModelSupportsAdaptiveThinking returns true if the given Bedrock model
+// supports the adaptive thinking type. Only Claude Opus 4.6 and Sonnet 4.6 support it.
+func bedrockModelSupportsAdaptiveThinking(model string) bool {
+	model = strings.ToLower(model)
+	return strings.Contains(model, "opus-4-6") ||
+		strings.Contains(model, "sonnet-4-6") ||
+		strings.Contains(model, "opus-4.6") ||
+		strings.Contains(model, "sonnet-4.6")
+}
+
 // augmentRequestForBedrock will change the model used for the request since AWS Bedrock doesn't support
-// Anthropics' model names.
+// Anthropics' model names. It also converts adaptive thinking to enabled thinking for Bedrock models
+// that don't support the adaptive thinking type.
 func (i *interceptionBase) augmentRequestForBedrock() {
 	if i.bedrockCfg == nil {
 		return
@@ -337,6 +359,79 @@ func (i *interceptionBase) augmentRequestForBedrock() {
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to set model in request payload for Bedrock", slog.Error(err))
 	}
+
+	i.convertAdaptiveThinkingForBedrock()
+}
+
+// convertAdaptiveThinkingForBedrock converts "thinking": {"type": "adaptive"} to
+// "thinking": {"type": "enabled", "budget_tokens": N} when the target Bedrock model
+// does not support adaptive thinking.
+//
+// The budget_tokens value is derived from the request's max_tokens to satisfy the
+// API constraint that budget_tokens < max_tokens. If max_tokens is not set or too
+// small, a safe default is used.
+func (i *interceptionBase) convertAdaptiveThinkingForBedrock() {
+	thinkingType := gjson.GetBytes(i.payload, "thinking.type").Str
+	if thinkingType != "adaptive" {
+		return
+	}
+
+	if bedrockModelSupportsAdaptiveThinking(i.Model()) {
+		return
+	}
+
+	budgetTokens, ok := adaptiveFallbackBudgetTokens(i.payload)
+
+	if !ok {
+		// max_tokens is too small to accommodate the Bedrock minimum budget.
+		// Leave the payload unchanged and let the request fail with a clear
+		// upstream error rather than sending a known-bad budget_tokens value.
+		i.logger.Warn(context.Background(),
+			"cannot convert adaptive thinking for Bedrock: max_tokens is too small to fit minimum budget_tokens",
+			slog.F("model", i.Model()),
+			slog.F("min_budget_tokens", minBedrockBudgetTokens),
+		)
+		return
+	}
+
+	i.logger.Info(context.Background(), "converting adaptive thinking to enabled for Bedrock model",
+		slog.F("model", i.Model()),
+		slog.F("budget_tokens", budgetTokens),
+	)
+
+	var err error
+	i.payload, err = sjson.SetBytes(i.payload, "thinking", map[string]any{
+		"type":          "enabled",
+		"budget_tokens": budgetTokens,
+	})
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to convert adaptive thinking for Bedrock", slog.Error(err))
+	}
+}
+
+// adaptiveFallbackBudgetTokens computes a safe budget_tokens value from the
+// request payload. The Anthropic API requires budget_tokens < max_tokens and
+// Bedrock enforces a minimum of 1024.
+//
+// Returns (budget, true) on success, or (0, false) when max_tokens is present
+// but too small to accommodate the minimum — the caller should skip conversion
+// in that case rather than write an invalid value.
+func adaptiveFallbackBudgetTokens(payload []byte) (int64, bool) {
+	maxTokens := gjson.GetBytes(payload, "max_tokens").Int()
+	if maxTokens <= 0 {
+		return defaultAdaptiveFallbackBudgetTokens, true
+	}
+
+	// budget_tokens must be strictly less than max_tokens.
+	budget := maxTokens * 80 / 100 // 80% of max_tokens
+	if budget < minBedrockBudgetTokens {
+		budget = minBedrockBudgetTokens
+	}
+	if budget >= maxTokens {
+		// max_tokens is too small to fit even the minimum budget; can't convert.
+		return 0, false
+	}
+	return budget, true
 }
 
 // writeUpstreamError marshals and writes a given error.
