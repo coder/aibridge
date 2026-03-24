@@ -120,9 +120,9 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		// In BYOK mode the user's LLM credentials survive intact.
 		// If X-Api-Key is present the user has a personal API key;
 		// overwrite the centralized key with it. If Authorization is
-		// present the user authenticated via OAuth; set BYOKBearerToken
-		// and clear the centralized key. When both are present,
-		// X-Api-Key takes priority.
+		// present the user authenticated directly with provider;
+		// set BYOKBearerToken and clear the centralized key.
+		// When both are present, X-Api-Key takes priority.
 		authHeaderName := p.AuthHeader()
 		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 			cfg.Key = apiKey

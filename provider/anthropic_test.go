@@ -119,8 +119,8 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 	}{
 		{
 			name:              "Messages_BYOK_BearerToken",
-			setHeaders:        map[string]string{"Authorization": "Bearer user-oauth-token"},
-			wantAuthorization: "Bearer user-oauth-token",
+			setHeaders:        map[string]string{"Authorization": "Bearer user-access-token"},
+			wantAuthorization: "Bearer user-access-token",
 		},
 		{
 			name:        "Messages_BYOK_APIKey",
@@ -135,7 +135,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		{
 			name: "Messages_BYOK_BearerToken_And_APIKey",
 			setHeaders: map[string]string{
-				"Authorization": "Bearer user-oauth-token",
+				"Authorization": "Bearer user-access-token",
 				"X-Api-Key":     "user-api-key",
 			},
 			wantXApiKey: "user-api-key",
@@ -221,17 +221,17 @@ func TestAnthropic_InjectAuthHeader(t *testing.T) {
 		},
 		{
 			name:              "when Authorization header is provided, use it",
-			presetHeaders:     map[string]string{"Authorization": "Bearer user-oauth-token"},
-			wantAuthorization: "Bearer user-oauth-token",
+			presetHeaders:     map[string]string{"Authorization": "Bearer user-access-token"},
+			wantAuthorization: "Bearer user-access-token",
 		},
 		{
 			name: "when both headers are provided, keep both",
 			presetHeaders: map[string]string{
-				"Authorization": "Bearer user-oauth-token",
+				"Authorization": "Bearer user-access-token",
 				"X-Api-Key":     "user-api-key",
 			},
 			wantXApiKey:       "user-api-key",
-			wantAuthorization: "Bearer user-oauth-token",
+			wantAuthorization: "Bearer user-access-token",
 		},
 	}
 
