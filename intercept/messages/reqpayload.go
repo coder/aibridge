@@ -314,6 +314,7 @@ func (p MessagesRequestPayload) resultToRawMessage(items []gjson.Result) []json.
 }
 
 // convertAdaptiveThinkingForBedrock converts thinking.type "adaptive" to "enabled" with a calculated budget_tokens
+// conversion is needed for Bedrock models that does not support the "adaptive" thinking.type
 func (p MessagesRequestPayload) convertAdaptiveThinkingForBedrock() (MessagesRequestPayload, error) {
 	thinkingType := gjson.GetBytes(p, messagesReqPathThinkingType)
 	if thinkingType.String() != constAdaptive {
@@ -328,6 +329,8 @@ func (p MessagesRequestPayload) convertAdaptiveThinkingForBedrock() (MessagesReq
 
 	effort := gjson.GetBytes(p, messagesReqPathOutputConfigEffort).String()
 
+	// Enabled thinking type requires budget_tokens set.
+	// Heuristically calculate value based on the effort level.
 	// Effort-to-ratio mapping adapted from OpenRouter:
 	// https://openrouter.ai/docs/guides/best-practices/reasoning-tokens#reasoning-effort-level
 	var ratio float64
@@ -361,15 +364,18 @@ func (p MessagesRequestPayload) convertAdaptiveThinkingForBedrock() (MessagesReq
 // removeUnsupportedBedrockFields strips all top-level fields that Bedrock does
 // not support from the payload.
 func (p MessagesRequestPayload) removeUnsupportedBedrockFields() (MessagesRequestPayload, error) {
-	result := p
-	for _, field := range bedrockUnsupportedFields {
-		var err error
-		result, err = result.delete(field)
-		if err != nil {
-			return p, fmt.Errorf("removing %q: %w", field, err)
-		}
+	var payloadMap map[string]any
+	if err := json.Unmarshal(p, &payloadMap); err != nil {
+		return p, fmt.Errorf("failed to unmarshal request payload when removing unsupported Bedrock fields: %w", err)
 	}
-	return result, nil
+	for _, field := range bedrockUnsupportedFields {
+		delete(payloadMap, field)
+	}
+	result, err := json.Marshal(payloadMap)
+	if err != nil {
+		return p, fmt.Errorf("failed to marshal request payload when removing unsupported Bedrock fields: %w", err)
+	}
+	return MessagesRequestPayload(result), nil
 }
 
 func (p MessagesRequestPayload) set(path string, value any) (MessagesRequestPayload, error) {
@@ -378,9 +384,4 @@ func (p MessagesRequestPayload) set(path string, value any) (MessagesRequestPayl
 		return p, fmt.Errorf("set %s: %w", path, err)
 	}
 	return MessagesRequestPayload(out), nil
-}
-
-func (p MessagesRequestPayload) delete(path string) (MessagesRequestPayload, error) {
-	out, err := sjson.DeleteBytes(p, path)
-	return MessagesRequestPayload(out), err
 }
