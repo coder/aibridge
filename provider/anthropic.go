@@ -14,6 +14,7 @@ import (
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/messages"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/aibridge/utils"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -110,11 +111,34 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		cfg := p.cfg
 		cfg.ExtraHeaders = extractAnthropicHeaders(r)
 
+		// At this point the request contains only LLM provider headers.
+		// Any Coder-specific authentication has already been stripped.
+		//
+		// In centralized mode neither Authorization nor X-Api-Key is
+		// present, so cfg keeps the centralized key unchanged.
+		//
+		// In BYOK mode the user's LLM credentials survive intact.
+		// If X-Api-Key is present the user has a personal API key;
+		// overwrite the centralized key with it. If Authorization is
+		// present the user authenticated directly with provider;
+		// set BYOKBearerToken and clear the centralized key.
+		// When both are present, X-Api-Key takes priority to match
+		// claude-code behavior.
+		authHeaderName := p.AuthHeader()
+		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
+			cfg.Key = apiKey
+			authHeaderName = "X-Api-Key"
+		} else if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
+			cfg.BYOKBearerToken = token
+			cfg.Key = ""
+			authHeaderName = "Authorization"
+		}
+
 		var interceptor intercept.Interceptor
 		if req.Stream {
-			interceptor = messages.NewStreamingInterceptor(id, &req, payload, cfg, p.bedrockCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = messages.NewStreamingInterceptor(id, &req, payload, cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
 		} else {
-			interceptor = messages.NewBlockingInterceptor(id, &req, payload, cfg, p.bedrockCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = messages.NewBlockingInterceptor(id, &req, payload, cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
 		}
 		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
@@ -135,6 +159,12 @@ func (p *Anthropic) AuthHeader() string {
 func (p *Anthropic) InjectAuthHeader(headers *http.Header) {
 	if headers == nil {
 		headers = &http.Header{}
+	}
+
+	// BYOK: if the request already carries user-supplied credentials,
+	// do not overwrite them with the centralized key.
+	if headers.Get("X-Api-Key") != "" || headers.Get("Authorization") != "" {
+		return
 	}
 
 	headers.Set(p.AuthHeader(), p.cfg.Key)

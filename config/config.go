@@ -15,6 +15,10 @@ type Anthropic struct {
 	CircuitBreaker   *CircuitBreaker
 	SendActorHeaders bool
 	ExtraHeaders     map[string]string
+	// BYOKBearerToken is set in BYOK mode when the user authenticates
+	// with a access token. When set, the access token is used for upstream
+	// LLM requests instead of the API key.
+	BYOKBearerToken string
 }
 
 type AWSBedrock struct {
