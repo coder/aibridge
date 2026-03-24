@@ -16,7 +16,7 @@ type Anthropic struct {
 	SendActorHeaders bool
 	ExtraHeaders     map[string]string
 	// BYOKBearerToken is set in BYOK mode when the user authenticates
-	// with an OAuth token. When set, the OAuth token is used for upstream
+	// with a provider token. When set, the provider token is used for upstream
 	// LLM requests instead of the API key.
 	BYOKBearerToken string
 }
