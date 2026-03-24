@@ -21,6 +21,7 @@ func TestMaskSecret(t *testing.T) {
 		{"medium_15_chars", "thisisquitelong", "th***********ng"},
 		{"long_api_key", "sk-ant-api03-abcdefgh", "sk-a*************efgh"},
 		{"unicode", "hélloworld🌍!", "hé********🌍!"},
+		{"github_token", "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh", "ghp_******************************efgh"},
 	}
 
 	for _, tc := range tests {
