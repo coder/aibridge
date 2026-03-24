@@ -122,6 +122,11 @@ func (r *SQLiteRecorder) RecordPromptUsage(ctx context.Context, req *aibridge.Pr
 	return err
 }
 
+func (r *SQLiteRecorder) RecordModelThought(ctx context.Context, req *aibridge.ModelThoughtRecord) error {
+	r.logger.Debug(ctx, "model thought recorded (not persisted in SQLite example)")
+	return nil
+}
+
 func (r *SQLiteRecorder) RecordToolUsage(ctx context.Context, req *aibridge.ToolUsageRecord) error {
 	metadata, _ := json.Marshal(req.Metadata)
 	input, _ := json.Marshal(req.Args)
