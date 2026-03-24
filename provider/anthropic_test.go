@@ -111,7 +111,24 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		assert.Empty(t, receivedHeaders.Get("Authorization"), "client Authorization header must not reach upstream")
 	})
 
-	byokTests := []struct {
+	t.Run("UnknownRoute", func(t *testing.T) {
+		t.Parallel()
+
+		body := `{"model": "claude-opus-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "hello"}]}`
+		req := httptest.NewRequest(http.MethodPost, "/anthropic/unknown/route", bytes.NewBufferString(body))
+		w := httptest.NewRecorder()
+
+		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
+
+		require.ErrorIs(t, err, UnknownRoute)
+		require.Nil(t, interceptor)
+	})
+}
+
+func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
 		name              string
 		setHeaders        map[string]string
 		wantXApiKey       string
@@ -142,7 +159,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		},
 	}
 
-	for _, tc := range byokTests {
+	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
@@ -183,19 +200,6 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 			assert.Equal(t, tc.wantAuthorization, receivedHeaders.Get("Authorization"))
 		})
 	}
-
-	t.Run("UnknownRoute", func(t *testing.T) {
-		t.Parallel()
-
-		body := `{"model": "claude-opus-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "hello"}]}`
-		req := httptest.NewRequest(http.MethodPost, "/anthropic/unknown/route", bytes.NewBufferString(body))
-		w := httptest.NewRecorder()
-
-		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
-
-		require.ErrorIs(t, err, UnknownRoute)
-		require.Nil(t, interceptor)
-	})
 }
 
 func TestAnthropic_InjectAuthHeader(t *testing.T) {
