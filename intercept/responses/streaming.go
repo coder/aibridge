@@ -34,10 +34,8 @@ type StreamingResponsesInterceptor struct {
 
 func NewStreamingInterceptor(
 	id uuid.UUID,
-	req *ResponsesNewParamsWrapper,
-	reqPayload []byte,
+	reqPayload ResponsesRequestPayload,
 	cfg config.OpenAI,
-	model string,
 	clientHeaders http.Header,
 	authHeaderName string,
 	tracer trace.Tracer,
@@ -45,10 +43,8 @@ func NewStreamingInterceptor(
 	return &StreamingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
 			id:             id,
-			req:            req,
 			reqPayload:     reqPayload,
 			cfg:            cfg,
-			model:          model,
 			clientHeaders:  clientHeaders,
 			authHeaderName: authHeaderName,
 			tracer:         tracer,
@@ -96,7 +92,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 	var innerLoopErr error
 	var streamErr error
 
-	prompt, promptFound, err := i.lastUserPrompt(ctx)
+	prompt, promptFound, err := i.reqPayload.lastUserPrompt(ctx, i.logger)
 	if err != nil {
 		i.logger.Warn(ctx, "failed to get user prompt", slog.Error(err))
 	}
@@ -214,5 +210,6 @@ func (i *StreamingResponsesInterceptor) newStream(ctx context.Context, srv respo
 	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
-	return srv.NewStreaming(ctx, i.req.ResponseNewParams, opts...)
+	// The body is overridden by option.WithRequestBody(reqPayload) in requestOptions
+	return srv.NewStreaming(ctx, responses.ResponseNewParams{}, opts...)
 }

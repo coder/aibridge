@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +19,6 @@ import (
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/mcp"
-	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/quartz"
@@ -38,21 +36,18 @@ const (
 )
 
 type responsesInterceptionBase struct {
-	id         uuid.UUID
-	req        *ResponsesNewParamsWrapper
-	reqPayload []byte
-	cfg        config.OpenAI
-	model      string
-
+	id uuid.UUID
 	// clientHeaders are the original HTTP headers from the client request.
 	clientHeaders  http.Header
 	authHeaderName string
+	reqPayload     ResponsesRequestPayload
 
+	cfg      config.OpenAI
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
-	logger   slog.Logger
-	metrics  metrics.Metrics
-	tracer   trace.Tracer
+
+	logger slog.Logger
+	tracer trace.Tracer
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -88,26 +83,17 @@ func (i *responsesInterceptionBase) ID() uuid.UUID {
 }
 
 func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	i.logger = logger.With(slog.F("model", i.model))
+	i.logger = logger.With(slog.F("model", i.Model()))
 	i.recorder = recorder
 	i.mcpProxy = mcpProxy
 }
 
 func (i *responsesInterceptionBase) Model() string {
-	return i.model
+	return i.reqPayload.model()
 }
 
 func (i *responsesInterceptionBase) CorrelatingToolCallID() *string {
-	if len(i.req.Input.OfInputItemList) == 0 {
-		return nil
-	}
-
-	// The tool result should be the last input message.
-	item := i.req.Input.OfInputItemList[len(i.req.Input.OfInputItemList)-1]
-	if item.OfFunctionCallOutput == nil {
-		return nil
-	}
-	return &item.OfFunctionCallOutput.CallID
+	return i.reqPayload.correlatingToolCallID()
 }
 
 func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
@@ -122,13 +108,7 @@ func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streami
 }
 
 func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.ResponseWriter) error {
-	if i.req == nil {
-		err := errors.New("developer error: req is nil")
-		i.sendCustomErr(ctx, w, http.StatusInternalServerError, err)
-		return err
-	}
-
-	if i.req.Background.Value {
+	if i.reqPayload.background() {
 		err := fmt.Errorf("background requests are currently not supported by AI Bridge")
 		i.sendCustomErr(ctx, w, http.StatusNotImplemented, err)
 		return err
@@ -161,7 +141,7 @@ func (i *responsesInterceptionBase) requestOptions(respCopy *responseCopier) []o
 		// eg. Codex CLI produces requests without ID set in reasoning items: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-item-reasoning-id
 		// when re-encoded, ID field is set to empty string which results
 		// in bad request while not sending ID field at all somehow works.
-		option.WithRequestBody("application/json", i.reqPayload),
+		option.WithRequestBody("application/json", []byte(i.reqPayload)),
 
 		// copyMiddleware copies body of original response body to the buffer in responseCopier,
 		// also reference to headers and status code is kept responseCopier.
@@ -169,90 +149,10 @@ func (i *responsesInterceptionBase) requestOptions(respCopy *responseCopier) []o
 		// eliminating any possibility of JSON re-encoding issues.
 		option.WithMiddleware(respCopy.copyMiddleware),
 	}
-	if !i.req.Stream {
+	if !i.reqPayload.Stream() {
 		opts = append(opts, option.WithRequestTimeout(requestTimeout))
 	}
 	return opts
-}
-
-// lastUserPrompt returns input text with "user" role from last input item
-// or string input value if it is present + bool indicating if input was found or not.
-// If no such input was found empty string + false is returned.
-func (i *responsesInterceptionBase) lastUserPrompt(ctx context.Context) (string, bool, error) {
-	if i == nil {
-		return "", false, errors.New("cannot get last user prompt: nil struct")
-	}
-	if i.req == nil {
-		return "", false, errors.New("cannot get last user prompt: nil request struct")
-	}
-
-	// 'input' field can be a string or array of objects:
-	// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input
-
-	// Check string variant
-	if i.req.Input.OfString.Valid() {
-		return i.req.Input.OfString.Value, true, nil
-	}
-
-	// Fallback to parsing original bytes since golang SDK doesn't properly decode 'Input' field.
-	// If 'type' field of input item is not set it will be omitted from 'Input.OfInputItemList'
-	// It is an optional field according to API: https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message
-	// example: fixtures/openai/responses/blocking/builtin_tool.txtar
-	inputItems := gjson.GetBytes(i.reqPayload, "input")
-
-	if !inputItems.IsArray() {
-		if inputItems.Type == gjson.Null {
-			return "", false, nil
-		}
-		return "", false, fmt.Errorf("unexpected input type: %v", inputItems.Type.String())
-	}
-
-	inputItemsArr := inputItems.Array()
-	if len(inputItemsArr) == 0 {
-		return "", false, nil
-	}
-	lastItem := inputItemsArr[len(inputItemsArr)-1]
-
-	// Request was likely not human-initiated.
-	if lastItem.Get("role").Str != string(constant.ValueOf[constant.User]()) {
-		return "", false, nil
-	}
-
-	// content can be a string or array of objects:
-	// https://platform.openai.com/docs/api-reference/responses/create#responses_create-input-input_item_list-input_message-content
-	content := lastItem.Get(string(constant.ValueOf[constant.Content]()))
-
-	// non array case, should be string
-	if !content.IsArray() {
-		if content.Type == gjson.String {
-			return content.Str, true, nil
-		}
-		return "", false, fmt.Errorf("unexpected input content type: %v", content.Type.String())
-	}
-
-	var sb strings.Builder
-	promptExists := false
-	for _, c := range content.Array() {
-		// ignore inputs of not `input_text` type
-		if c.Get(string(constant.ValueOf[constant.Type]())).Str != string(constant.ValueOf[constant.InputText]()) {
-			continue
-		}
-
-		text := c.Get(string(constant.ValueOf[constant.Text]()))
-		if text.Type == gjson.String {
-			promptExists = true
-			sb.WriteString(text.Str + "\n")
-		} else {
-			i.logger.Warn(ctx, fmt.Sprintf("unexpected input content array element text type: %v", text.Type))
-		}
-	}
-
-	if !promptExists {
-		return "", false, nil
-	}
-
-	prompt := strings.TrimSuffix(sb.String(), "\n")
-	return prompt, true, nil
 }
 
 func (i *responsesInterceptionBase) recordUserPrompt(ctx context.Context, responseID string, prompt string) {
