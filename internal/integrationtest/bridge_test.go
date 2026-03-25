@@ -44,31 +44,31 @@ func TestAnthropicMessages(t *testing.T) {
 		t.Parallel()
 
 		cases := []struct {
-			name                           string
-			streaming                      bool
-			expectedInputTokens            int
-			expectedOutputTokens           int
-			expectedCacheReadInputTokens   int
-			expectedCacheWriteInputTokens  int
-			expectedToolCallID             string
+			name                          string
+			streaming                     bool
+			expectedInputTokens           int
+			expectedOutputTokens          int
+			expectedCacheReadInputTokens  int
+			expectedCacheWriteInputTokens int
+			expectedToolCallID            string
 		}{
 			{
-				name:                           "streaming",
-				streaming:                      true,
-				expectedInputTokens:            2,
-				expectedOutputTokens:           66,
-				expectedCacheReadInputTokens:   13993,
-				expectedCacheWriteInputTokens:  22,
-				expectedToolCallID:             "toolu_01RX68weRSquLx6HUTj65iBo",
+				name:                          "streaming",
+				streaming:                     true,
+				expectedInputTokens:           2,
+				expectedOutputTokens:          66,
+				expectedCacheReadInputTokens:  13993,
+				expectedCacheWriteInputTokens: 22,
+				expectedToolCallID:            "toolu_01RX68weRSquLx6HUTj65iBo",
 			},
 			{
-				name:                           "non-streaming",
-				streaming:                      false,
-				expectedInputTokens:            5,
-				expectedOutputTokens:           84,
-				expectedCacheReadInputTokens:   23490,
-				expectedCacheWriteInputTokens:  0,
-				expectedToolCallID:             "toolu_01AusGgY5aKFhzWrFBv9JfHq",
+				name:                          "non-streaming",
+				streaming:                     false,
+				expectedInputTokens:           5,
+				expectedOutputTokens:          84,
+				expectedCacheReadInputTokens:  23490,
+				expectedCacheWriteInputTokens: 0,
+				expectedToolCallID:            "toolu_01AusGgY5aKFhzWrFBv9JfHq",
 			},
 		}
 

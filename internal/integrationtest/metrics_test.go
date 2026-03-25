@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
 )
 
 func TestMetrics_Interception(t *testing.T) {
@@ -274,9 +275,9 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 		name           string
 		fixture        []byte
 		reqPath        string
+		streaming      bool
 		expectProvider string
 		expectModel    string
-		requestBody    func(t *testing.T, fix fixtures.Fixture) []byte
 		expectedLabels map[string]float64
 	}{
 		{
@@ -290,7 +291,6 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 				"output":                   44,
 				"cache_read_input_tokens":  11904,
 				"cache_write_input_tokens": 0,
-				"input_cached":             11904,
 				"output_reasoning":         0,
 				"total_tokens":             12077,
 			},
@@ -299,6 +299,7 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 			name:           "anthropic_messages_streaming",
 			fixture:        fixtures.AntSingleBuiltinTool,
 			reqPath:        pathAnthropicMessages,
+			streaming:      true,
 			expectProvider: config.ProviderAnthropic,
 			expectModel:    "claude-sonnet-4-20250514",
 			expectedLabels: map[string]float64{
@@ -306,8 +307,6 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 				"output":                   66,
 				"cache_read_input_tokens":  13993,
 				"cache_write_input_tokens": 22,
-				"cache_read_input":         13993,
-				"cache_creation_input":     22,
 			},
 		},
 		{
@@ -321,7 +320,6 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 				"output":                         200,
 				"cache_read_input_tokens":        0,
 				"cache_write_input_tokens":       0,
-				"prompt_cached":                  0,
 				"completion_reasoning":           0,
 				"completion_accepted_prediction": 0,
 				"completion_rejected_prediction": 0,
@@ -344,7 +342,13 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 				withMetrics(m),
 			)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.reqPath, tc.requestBody(t, fix), nil)
+			reqBody := fix.Request()
+			if tc.streaming {
+				var err error
+				reqBody, err = sjson.SetBytes(reqBody, "stream", true)
+				require.NoError(t, err)
+			}
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.reqPath, reqBody, nil)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			_, _ = io.ReadAll(resp.Body)
 

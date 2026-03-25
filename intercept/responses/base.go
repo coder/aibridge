@@ -245,7 +245,6 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 		Output:               usage.OutputTokens,
 		CacheReadInputTokens: usage.InputTokensDetails.CachedTokens,
 		ExtraTokenTypes: map[string]int64{
-			"input_cached":     usage.InputTokensDetails.CachedTokens,
 			"output_reasoning": usage.OutputTokensDetails.ReasoningTokens,
 			"total_tokens":     usage.TotalTokens,
 		},

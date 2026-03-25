@@ -128,16 +128,14 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		}
 
 		_ = i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
-			InterceptionID:         i.ID().String(),
-			MsgID:                  resp.ID,
-			Input:                  resp.Usage.InputTokens,
-			Output:                 resp.Usage.OutputTokens,
-			CacheReadInputTokens:   resp.Usage.CacheReadInputTokens,
+			InterceptionID:        i.ID().String(),
+			MsgID:                 resp.ID,
+			Input:                 resp.Usage.InputTokens,
+			Output:                resp.Usage.OutputTokens,
+			CacheReadInputTokens:  resp.Usage.CacheReadInputTokens,
 			CacheWriteInputTokens: resp.Usage.CacheCreationInputTokens,
 			ExtraTokenTypes: map[string]int64{
 				"web_search_requests":      resp.Usage.ServerToolUse.WebSearchRequests,
-				"cache_creation_input":     resp.Usage.CacheCreationInputTokens,
-				"cache_read_input":         resp.Usage.CacheReadInputTokens,
 				"cache_ephemeral_1h_input": resp.Usage.CacheCreation.Ephemeral1hInputTokens,
 				"cache_ephemeral_5m_input": resp.Usage.CacheCreation.Ephemeral5mInputTokens,
 			},
