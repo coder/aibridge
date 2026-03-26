@@ -290,6 +290,76 @@ func TestMessagesRequestPayloadInjectTools(t *testing.T) {
 	require.Equal(t, "ephemeral", toolItems[1].Get("cache_control.type").String())
 }
 
+func TestMessagesRequestPayloadConvertAdaptiveThinkingForBedrock(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name string
+
+		requestBody string
+
+		expectedThinkingType string
+		expectedBudgetTokens int64
+		expectError          bool
+	}{
+		{
+			name:                 "no_thinking_field_is_no_op",
+			requestBody:          `{"model":"claude-sonnet-4-5","max_tokens":10000,"messages":[]}`,
+			expectedThinkingType: "",
+		},
+		{
+			name:                 "non_adaptive_thinking_type_is_no_op",
+			requestBody:          `{"model":"claude-sonnet-4-5","max_tokens":10000,"thinking":{"type":"enabled","budget_tokens":5000},"messages":[]}`,
+			expectedThinkingType: "enabled",
+			expectedBudgetTokens: 5000,
+		},
+		{
+			name:                 "adaptive_with_no_effort_defaults_to_80%",
+			requestBody:          `{"model":"claude-sonnet-4-5","max_tokens":10000,"thinking":{"type":"adaptive"},"messages":[]}`,
+			expectedThinkingType: "enabled",
+			expectedBudgetTokens: 8000, // 10000 * 0.8 (default/high effort)
+		},
+		{
+			name:                 "adaptive_with_explicit_effort_uses_correct_percentage",
+			requestBody:          `{"model":"claude-sonnet-4-5","max_tokens":10000,"thinking":{"type":"adaptive"},"output_config":{"effort":"low"},"messages":[]}`,
+			expectedThinkingType: "enabled",
+			expectedBudgetTokens: 2000, // 10000 * 0.2
+		},
+		{
+			name:                 "adaptive_disables_thinking_when_budget_below_minimum",
+			requestBody:          `{"model":"claude-sonnet-4-5","max_tokens":512,"thinking":{"type":"adaptive"},"messages":[]}`,
+			expectedThinkingType: "disabled", // 512 * 0.8 = 409, below 1024 minimum
+		},
+		{
+			name:        "adaptive_without_max_tokens_returns_error",
+			requestBody: `{"model":"claude-sonnet-4-5","thinking":{"type":"adaptive"},"messages":[]}`,
+			expectError: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			payload := mustMessagesPayload(t, tc.requestBody)
+			updatedPayload, err := payload.convertAdaptiveThinkingForBedrock()
+			if tc.expectError {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+
+			thinking := gjson.GetBytes(updatedPayload, messagesReqPathThinking)
+			require.NotEqual(t, tc.expectedThinkingType == "", thinking.Exists(), "thinking should not be set")
+			require.Equal(t, tc.expectedThinkingType, gjson.GetBytes(updatedPayload, messagesReqPathThinkingType).String()) // non existing field returns zero value
+
+			budgetTokens := gjson.GetBytes(updatedPayload, messagesReqPathThinkingBudgetTokens)
+			require.NotEqual(t, tc.expectedBudgetTokens == 0, budgetTokens.Exists(), "budget_tokens should not be set")
+			require.Equal(t, tc.expectedBudgetTokens, budgetTokens.Int()) // non existing field returns zero value
+		})
+	}
+}
+
 func TestMessagesRequestPayloadDisableParallelToolCalls(t *testing.T) {
 	t.Parallel()
 
