@@ -106,13 +106,13 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		err         error
 	)
 
+	prompt, promptFound, err = i.reqPayload.lastUserPrompt()
+	if err != nil {
+		logger.Warn(ctx, "failed to determine last user prompt", slog.Error(err))
+	}
+
 	// Claude Code uses a "small/fast model" for certain tasks.
 	if !i.isSmallFastModel() {
-		prompt, promptFound, err = i.reqPayload.lastUserPrompt()
-		if err != nil {
-			logger.Warn(ctx, "failed to determine last user prompt", slog.Error(err))
-		}
-
 		// Only inject tools into "actual" request.
 		i.injectTools()
 	}
