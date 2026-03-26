@@ -22,6 +22,8 @@ import (
 const (
 	routeChatCompletions = "/chat/completions" // https://platform.openai.com/docs/api-reference/chat
 	routeResponses       = "/responses"        // https://platform.openai.com/docs/api-reference/responses
+
+	chatGPTBaseURL = "https://chatgpt.com/backend-api/codex"
 )
 
 var openAIOpenErrorResponse = func() []byte {
@@ -105,7 +107,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	// centralized key unchanged.
 	//
 	// In BYOK mode the user's credential is in Authorization. Replace
-	// the centralized key with it so the SDK forwards it upstream.
+	// the centralized key with it so it is forwarded upstream.
 	if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
 		cfg.Key = token
 	}
@@ -115,7 +117,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	// when authenticating via a ChatGPT subscription, indicating that requests
 	// must be routed to the subscription-specific backend.
 	if r.Header.Get("Chatgpt-Account-Id") != "" {
-		cfg.BaseURL = "https://chatgpt.com/backend-api/codex"
+		cfg.BaseURL = chatGPTBaseURL
 	}
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
