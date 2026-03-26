@@ -104,7 +104,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	// In centralized mode Authorization is absent, so cfg keeps the
 	// centralized key unchanged.
 	//
-	// In BYOK mode the user's bearer token is in Authorization. Replace
+	// In BYOK mode the user's credential is in Authorization. Replace
 	// the centralized key with it so the SDK forwards it upstream.
 	if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
 		cfg.Key = token
