@@ -30,8 +30,7 @@ type BlockingInterception struct {
 
 func NewBlockingInterceptor(
 	id uuid.UUID,
-	req *MessageNewParamsWrapper,
-	payload []byte,
+	reqPayload MessagesRequestPayload,
 	cfg config.Anthropic,
 	bedrockCfg *config.AWSBedrock,
 	clientHeaders http.Header,
@@ -40,8 +39,7 @@ func NewBlockingInterceptor(
 ) *BlockingInterception {
 	return &BlockingInterception{interceptionBase: interceptionBase{
 		id:             id,
-		req:            req,
-		payload:        payload,
+		reqPayload:     reqPayload,
 		cfg:            cfg,
 		bedrockCfg:     bedrockCfg,
 		clientHeaders:  clientHeaders,
@@ -63,8 +61,8 @@ func (s *BlockingInterception) Streaming() bool {
 }
 
 func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
-	if i.req == nil {
-		return fmt.Errorf("developer error: req is nil")
+	if len(i.reqPayload) == 0 {
+		return fmt.Errorf("developer error: request payload is empty")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -72,22 +70,19 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	i.injectTools()
 
-	var (
-		prompt *string
-		err    error
-	)
-	// Track user prompt if not a small/fast model
+	var prompt *string
 	if !i.isSmallFastModel() {
-		prompt, err = i.req.lastUserPrompt()
-		if err != nil {
-			i.logger.Warn(ctx, "failed to retrieve last user prompt", slog.Error(err))
+		promptText, promptFound, promptErr := i.reqPayload.lastUserPrompt()
+		if promptErr != nil {
+			i.logger.Warn(ctx, "failed to retrieve last user prompt", slog.Error(promptErr))
+		} else if promptFound {
+			prompt = &promptText
 		}
 	}
 
-	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 600)}
-
 	// TODO(ssncferreira): inject actor headers directly in the client-header
 	//   middleware instead of using SDK options.
+	opts := []option.RequestOption{option.WithRequestTimeout(time.Second * 600)}
 	if actor := aibcontext.ActorFromContext(r.Context()); actor != nil && i.cfg.SendActorHeaders {
 		opts = append(opts, intercept.ActorHeadersAsAnthropicOpts(actor)...)
 	}
@@ -99,8 +94,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		return err
 	}
 
-	messages := i.req.MessageNewParams
-	logger := i.logger.With(slog.F("model", i.req.Model))
+	logger := i.logger.With(slog.F("model", i.Model()))
 
 	var resp *anthropic.Message
 	// Accumulate usage across the entire streaming interaction (including tool reinvocations).
@@ -108,7 +102,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	for {
 		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
-		resp, err = i.newMessage(ctx, svc, messages)
+		resp, err = i.newMessage(ctx, svc)
 		if err != nil {
 			if eventstream.IsConnError(err) {
 				// Can't write a response, just error out.
@@ -187,9 +181,8 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			break
 		}
 
-		// Append the assistant's message (which contains the tool_use block)
-		// to the messages for the next API call.
-		messages.Messages = append(messages.Messages, resp.ToParam())
+		var loopMessages []anthropic.MessageParam
+		loopMessages = append(loopMessages, resp.ToParam())
 
 		// Process each pending tool call.
 		for _, tc := range pendingToolCalls {
@@ -201,7 +194,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			if tool == nil {
 				logger.Warn(ctx, "tool not found in manager", slog.F("tool", tc.Name))
 				// Continue to next tool call, but still append an error tool_result
-				messages.Messages = append(messages.Messages,
+				loopMessages = append(loopMessages,
 					anthropic.NewUserMessage(anthropic.NewToolResultBlock(tc.ID, fmt.Sprintf("Error: tool %s not found", tc.Name), true)),
 				)
 				continue
@@ -222,7 +215,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 			if err != nil {
 				// Always provide a tool_result even if the tool call failed
-				messages.Messages = append(messages.Messages,
+				loopMessages = append(loopMessages,
 					anthropic.NewUserMessage(anthropic.NewToolResultBlock(tc.ID, fmt.Sprintf("Error: calling tool: %v", err), true)),
 				)
 				continue
@@ -301,16 +294,16 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 			}
 
 			if len(toolResult.OfToolResult.Content) > 0 {
-				messages.Messages = append(messages.Messages, anthropic.NewUserMessage(toolResult))
+				loopMessages = append(loopMessages, anthropic.NewUserMessage(toolResult))
 			}
 		}
 
-		// Sync the raw payload with updated messages so that withBody()
-		// sends the updated payload on the next iteration.
-		if err := i.syncPayloadMessages(messages.Messages); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return fmt.Errorf("sync payload for agentic loop: %w", err)
+		updatedPayload, rewriteErr := i.reqPayload.appendedMessages(loopMessages)
+		if rewriteErr != nil {
+			http.Error(w, rewriteErr.Error(), http.StatusInternalServerError)
+			return fmt.Errorf("rewrite payload for agentic loop: %w", rewriteErr)
 		}
+		i.reqPayload = updatedPayload
 	}
 
 	if resp == nil {
@@ -336,9 +329,9 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	return nil
 }
 
-func (i *BlockingInterception) newMessage(ctx context.Context, svc anthropic.MessageService, msgParams anthropic.MessageNewParams) (_ *anthropic.Message, outErr error) {
+func (i *BlockingInterception) newMessage(ctx context.Context, svc anthropic.MessageService) (_ *anthropic.Message, outErr error) {
 	ctx, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer tracing.EndSpanErr(span, &outErr)
 
-	return svc.New(ctx, msgParams, i.withBody())
+	return svc.New(ctx, anthropic.MessageNewParams{}, i.withBody())
 }
