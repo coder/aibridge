@@ -1,6 +1,8 @@
 package intercept
 
-import "net/http"
+import (
+	"net/http"
+)
 
 // hopByHopHeaders are connection-level headers specific to the connection
 // between client and AI Bridge, not meant for the upstream.
