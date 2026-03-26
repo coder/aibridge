@@ -205,11 +205,11 @@ func (p MessagesRequestPayload) injectTools(injected []anthropic.ToolUnionParam)
 		return p, fmt.Errorf("get existing tools: %w", err)
 	}
 
-	// Using []any to merge differently-typed slices ([]anthropic.ToolUnionParam
-	// and []any containing json.RawMessage) keeps JSON re-marshalings to a minimum:
+	// Using []json.Marshaler to merge differently-typed slices ([]anthropic.ToolUnionParam
+	// and []json.Marshaler containing json.RawMessage) keeps JSON re-marshalings to a minimum:
 	// sjson.SetBytes marshals each element exactly once, and json.RawMessage
 	// elements are passed through without re-serialization.
-	allTools := make([]any, 0, len(injected)+len(existing))
+	allTools := make([]json.Marshaler, 0, len(injected)+len(existing))
 	for _, tool := range injected {
 		allTools = append(allTools, tool)
 	}
@@ -268,11 +268,11 @@ func (p MessagesRequestPayload) appendedMessages(newMessages []anthropic.Message
 		return p, fmt.Errorf("get existing messages: %w", err)
 	}
 
-	// Using []any to merge differently-typed slices ([]any containing
+	// Using []json.Marshaler to merge differently-typed slices ([]json.Marshaler containing
 	// json.RawMessage and []anthropic.MessageParam) keeps JSON re-marshalings
 	// to a minimum: sjson.SetBytes marshals each element exactly once, and
 	// json.RawMessage elements are passed through without re-serialization.
-	allMessages := make([]any, 0, len(existing)+len(newMessages))
+	allMessages := make([]json.Marshaler, 0, len(existing)+len(newMessages))
 
 	for _, e := range existing {
 		allMessages = append(allMessages, e)
@@ -315,8 +315,8 @@ func (p MessagesRequestPayload) tools() ([]json.RawMessage, error) {
 
 func (p MessagesRequestPayload) resultToRawMessage(items []gjson.Result) []json.RawMessage {
 	// gjson.Result conversion to json.RawMessage is needed because
-	// gjson.Result does not implement json.Marshaler — placing it in []any
-	// would serialize its struct fields instead of the raw JSON it represents.
+	// gjson.Result does not implement json.Marshaler — would
+	// serialize its struct fields instead of the raw JSON it represents.
 	rawMessages := make([]json.RawMessage, 0, len(items))
 	for _, item := range items {
 		rawMessages = append(rawMessages, json.RawMessage(item.Raw))
