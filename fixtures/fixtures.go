@@ -35,6 +35,9 @@ var (
 
 	//go:embed anthropic/simple_bedrock.txtar
 	AntSimpleBedrock []byte
+
+	//go:embed anthropic/haiku_simple.txtar
+	AntHaikuSimple []byte
 )
 
 var (
