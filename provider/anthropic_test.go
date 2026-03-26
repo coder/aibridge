@@ -127,27 +127,27 @@ func TestExtractAnthropicHeaders(t *testing.T) {
 	tests := []struct {
 		name     string
 		headers  map[string]string
-		expected map[string]string
+		expected http.Header
 	}{
 		{
 			name:     "no headers",
 			headers:  map[string]string{},
-			expected: map[string]string{},
+			expected: http.Header{},
 		},
 		{
 			name:     "single beta",
 			headers:  map[string]string{"Anthropic-Beta": "claude-code-20250219"},
-			expected: map[string]string{"Anthropic-Beta": "claude-code-20250219"},
+			expected: http.Header{"Anthropic-Beta": {"claude-code-20250219"}},
 		},
 		{
 			name:     "multiple betas in single header",
 			headers:  map[string]string{"Anthropic-Beta": "claude-code-20250219,adaptive-thinking-2026-01-28,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24"},
-			expected: map[string]string{"Anthropic-Beta": "claude-code-20250219,adaptive-thinking-2026-01-28,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24"},
+			expected: http.Header{"Anthropic-Beta": {"claude-code-20250219,adaptive-thinking-2026-01-28,context-management-2025-06-27,prompt-caching-scope-2026-01-05,effort-2025-11-24"}},
 		},
 		{
 			name:     "ignores other headers",
 			headers:  map[string]string{"Anthropic-Beta": "claude-code-20250219,context-management-2025-06-27", "X-Api-Key": "secret"},
-			expected: map[string]string{"Anthropic-Beta": "claude-code-20250219,context-management-2025-06-27"},
+			expected: http.Header{"Anthropic-Beta": {"claude-code-20250219,context-management-2025-06-27"}},
 		},
 	}
 

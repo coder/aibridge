@@ -1,6 +1,9 @@
 package config
 
-import "time"
+import (
+	"net/http"
+	"time"
+)
 
 const (
 	ProviderAnthropic = "anthropic"
@@ -14,7 +17,7 @@ type Anthropic struct {
 	APIDumpDir       string
 	CircuitBreaker   *CircuitBreaker
 	SendActorHeaders bool
-	ExtraHeaders     map[string]string
+	ExtraHeaders     http.Header
 }
 
 type AWSBedrock struct {
@@ -33,7 +36,7 @@ type OpenAI struct {
 	APIDumpDir       string
 	CircuitBreaker   *CircuitBreaker
 	SendActorHeaders bool
-	ExtraHeaders     map[string]string
+	ExtraHeaders     http.Header
 }
 
 // CircuitBreaker holds configuration for circuit breakers.

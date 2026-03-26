@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"slices"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
@@ -62,12 +64,21 @@ var (
 	// Anthropic API fields: https://platform.claude.com/docs/en/api/messages/create
 	// Bedrock request body: https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
 	bedrockUnsupportedFields = []string{
-		messagesReqPathOutputConfig, // requires beta header 'effort-2025-11-24'
 		messagesReqPathMetadata,
 		messagesReqPathServiceTier,
 		messagesReqPathContainer,
 		messagesReqPathInferenceGeo,
-		messagesReqPathContextManagement,
+	}
+
+	// bedrockBetaGatedFields maps body fields to the beta flag that enables them.
+	// If the beta flag is present in the (already-filtered) Anthropic-Beta header,
+	// the field is kept; otherwise it is stripped. Model-specific beta flags must
+	// be removed from the header before this check (see filterBedrockBetaFlags).
+	bedrockBetaGatedFields = map[string]string{
+		// output_config requires the effort beta (Opus 4.5 only).
+		messagesReqPathOutputConfig: "effort-2025-11-24",
+		// context_management requires the context-management beta (Sonnet 4.5, Haiku 4.5).
+		messagesReqPathContextManagement: "context-management-2025-06-27",
 	}
 )
 
@@ -194,11 +205,11 @@ func (p MessagesRequestPayload) injectTools(injected []anthropic.ToolUnionParam)
 		return p, fmt.Errorf("get existing tools: %w", err)
 	}
 
-	// Using []any to merge differently-typed slices ([]anthropic.ToolUnionParam
-	// and []any containing json.RawMessage) keeps JSON re-marshalings to a minimum:
+	// Using []json.Marshaler to merge differently-typed slices ([]anthropic.ToolUnionParam
+	// and []json.Marshaler containing json.RawMessage) keeps JSON re-marshalings to a minimum:
 	// sjson.SetBytes marshals each element exactly once, and json.RawMessage
 	// elements are passed through without re-serialization.
-	allTools := make([]any, 0, len(injected)+len(existing))
+	allTools := make([]json.Marshaler, 0, len(injected)+len(existing))
 	for _, tool := range injected {
 		allTools = append(allTools, tool)
 	}
@@ -257,11 +268,11 @@ func (p MessagesRequestPayload) appendedMessages(newMessages []anthropic.Message
 		return p, fmt.Errorf("get existing messages: %w", err)
 	}
 
-	// Using []any to merge differently-typed slices ([]any containing
+	// Using []json.Marshaler to merge differently-typed slices ([]json.Marshaler containing
 	// json.RawMessage and []anthropic.MessageParam) keeps JSON re-marshalings
 	// to a minimum: sjson.SetBytes marshals each element exactly once, and
 	// json.RawMessage elements are passed through without re-serialization.
-	allMessages := make([]any, 0, len(existing)+len(newMessages))
+	allMessages := make([]json.Marshaler, 0, len(existing)+len(newMessages))
 
 	for _, e := range existing {
 		allMessages = append(allMessages, e)
@@ -304,8 +315,8 @@ func (p MessagesRequestPayload) tools() ([]json.RawMessage, error) {
 
 func (p MessagesRequestPayload) resultToRawMessage(items []gjson.Result) []json.RawMessage {
 	// gjson.Result conversion to json.RawMessage is needed because
-	// gjson.Result does not implement json.Marshaler — placing it in []any
-	// would serialize its struct fields instead of the raw JSON it represents.
+	// gjson.Result does not implement json.Marshaler — would
+	// serialize its struct fields instead of the raw JSON it represents.
 	rawMessages := make([]json.RawMessage, 0, len(items))
 	for _, item := range items {
 		rawMessages = append(rawMessages, json.RawMessage(item.Raw))
@@ -361,16 +372,30 @@ func (p MessagesRequestPayload) convertAdaptiveThinkingForBedrock() (MessagesReq
 	})
 }
 
-// removeUnsupportedBedrockFields strips all top-level fields that Bedrock does
-// not support from the payload.
-func (p MessagesRequestPayload) removeUnsupportedBedrockFields() (MessagesRequestPayload, error) {
+// removeUnsupportedBedrockFields strips top-level fields that Bedrock does not
+// support from the payload. Fields that are gated behind a beta flag are only
+// removed when the corresponding flag is absent from the Anthropic-Beta header.
+// Model-specific beta flags must already be filtered from the header before
+// calling this method (see filterBedrockBetaFlags).
+func (p MessagesRequestPayload) removeUnsupportedBedrockFields(headers http.Header) (MessagesRequestPayload, error) {
 	var payloadMap map[string]any
 	if err := json.Unmarshal(p, &payloadMap); err != nil {
 		return p, fmt.Errorf("failed to unmarshal request payload when removing unsupported Bedrock fields: %w", err)
 	}
+
+	// Always strip unconditionally unsupported fields.
 	for _, field := range bedrockUnsupportedFields {
 		delete(payloadMap, field)
 	}
+
+	// Strip beta-gated fields only when their beta flag is missing.
+	betaValues := headers.Values("Anthropic-Beta")
+	for field, requiredFlag := range bedrockBetaGatedFields {
+		if !slices.Contains(betaValues, requiredFlag) {
+			delete(payloadMap, field)
+		}
+	}
+
 	result, err := json.Marshal(payloadMap)
 	if err != nil {
 		return p, fmt.Errorf("failed to marshal request payload when removing unsupported Bedrock fields: %w", err)

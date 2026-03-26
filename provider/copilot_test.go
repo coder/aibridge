@@ -354,27 +354,27 @@ func TestExtractCopilotHeaders(t *testing.T) {
 	tests := []struct {
 		name     string
 		headers  map[string]string
-		expected map[string]string
+		expected http.Header
 	}{
 		{
 			name:     "all headers present",
 			headers:  map[string]string{"Editor-Version": "vscode/1.85.0", "Copilot-Integration-Id": "some-id"},
-			expected: map[string]string{"Editor-Version": "vscode/1.85.0", "Copilot-Integration-Id": "some-id"},
+			expected: http.Header{"Editor-Version": {"vscode/1.85.0"}, "Copilot-Integration-Id": {"some-id"}},
 		},
 		{
 			name:     "some headers present",
 			headers:  map[string]string{"Editor-Version": "vscode/1.85.0"},
-			expected: map[string]string{"Editor-Version": "vscode/1.85.0"},
+			expected: http.Header{"Editor-Version": {"vscode/1.85.0"}},
 		},
 		{
 			name:     "no headers",
 			headers:  map[string]string{},
-			expected: map[string]string{},
+			expected: http.Header{},
 		},
 		{
 			name:     "ignores other headers",
 			headers:  map[string]string{"Editor-Version": "vscode/1.85.0", "Authorization": "Bearer token"},
-			expected: map[string]string{"Editor-Version": "vscode/1.85.0"},
+			expected: http.Header{"Editor-Version": {"vscode/1.85.0"}},
 		},
 	}
 

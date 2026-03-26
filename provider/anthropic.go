@@ -146,11 +146,11 @@ func (p *Anthropic) CircuitBreakerConfig() *config.CircuitBreaker {
 // extractAnthropicHeaders extracts headers required by the Anthropic API from
 // the incoming request.
 // TODO(ssncferreira): remove as part of https://github.com/coder/aibridge/issues/192
-func extractAnthropicHeaders(r *http.Request) map[string]string {
-	headers := make(map[string]string, len(anthropicForwardHeaders))
+func extractAnthropicHeaders(r *http.Request) http.Header {
+	headers := make(http.Header, len(anthropicForwardHeaders))
 	for _, h := range anthropicForwardHeaders {
-		if v := r.Header.Get(h); v != "" {
-			headers[h] = v
+		if values := r.Header.Values(h); len(values) > 0 {
+			headers[h] = values
 		}
 	}
 	return headers

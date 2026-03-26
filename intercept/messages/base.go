@@ -31,6 +31,35 @@ import (
 	"cdr.dev/slog/v3"
 )
 
+// bedrockSupportedBetaFlags is the set of Anthropic-Beta flags that AWS Bedrock
+// accepts. Flags not in this set cause a 400 "invalid beta flag" error.
+//
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
+var bedrockSupportedBetaFlags = map[string]bool{
+	// Supported on Claude 3.7 Sonnet.
+	"computer-use-2025-01-24": true,
+	// Supported on Claude 3.7 Sonnet and Claude 4+.
+	"token-efficient-tools-2025-02-19": true,
+	// Supported on Claude 4+ models.
+	"interleaved-thinking-2025-05-14": true,
+	// Supported on Claude 3.7 Sonnet.
+	"output-128k-2025-02-19": true,
+	// Supported on Claude 4+ models. Requires account team access.
+	"dev-full-thinking-2025-05-14": true,
+	// Supported on Claude Sonnet 4.
+	"context-1m-2025-08-07": true,
+	// Supported on Claude Sonnet 4.5 and Claude Haiku 4.5.
+	// Enables context_management body field for thinking block clearing.
+	"context-management-2025-06-27": true,
+	// Supported on Claude Opus 4.5.
+	// Enables output_config body field for effort control.
+	"effort-2025-11-24": true,
+	// Supported on Claude Opus 4.5.
+	"tool-search-tool-2025-10-19": true,
+	// Supported on Claude Opus 4.5.
+	"tool-examples-2025-10-29": true,
+}
+
 type interceptionBase struct {
 	id         uuid.UUID
 	reqPayload MessagesRequestPayload
@@ -142,12 +171,6 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
 
-	// Add extra headers if configured.
-	// Some providers require additional headers that are not added by the SDK.
-	for key, value := range i.cfg.ExtraHeaders {
-		opts = append(opts, option.WithHeader(key, value))
-	}
-
 	// Add API dump middleware if configured
 	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, aibconfig.ProviderAnthropic, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))
@@ -162,6 +185,14 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 		}
 		opts = append(opts, bedrockOpts...)
 		i.augmentRequestForBedrock()
+	}
+
+	// Add extra headers after augmentRequestForBedrock() so that any
+	// Bedrock-specific header filtering (e.g. Anthropic-Beta) is applied first.
+	for key, values := range i.cfg.ExtraHeaders {
+		for _, v := range values {
+			opts = append(opts, option.WithHeaderAdd(key, v))
+		}
 	}
 
 	return anthropic.NewMessageService(opts...), nil
@@ -247,8 +278,12 @@ func (i *interceptionBase) augmentRequestForBedrock() {
 		i.reqPayload = updated
 	}
 
-	// Strip fields that Bedrock does not accept.
-	updated, err = i.reqPayload.removeUnsupportedBedrockFields()
+	// Filter Anthropic-Beta header to only include Bedrock-supported flags
+	// that the current model supports.
+	filterBedrockBetaFlags(i.cfg.ExtraHeaders, model)
+
+	// Strip body fields that Bedrock does not accept.
+	updated, err = i.reqPayload.removeUnsupportedBedrockFields(i.cfg.ExtraHeaders)
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to remove unsupported fields for Bedrock", slog.Error(err))
 		return
@@ -262,6 +297,53 @@ func (i *interceptionBase) augmentRequestForBedrock() {
 func bedrockModelSupportsAdaptiveThinking(model string) bool {
 	return strings.Contains(model, "anthropic.claude-opus-4-6") ||
 		strings.Contains(model, "anthropic.claude-sonnet-4-6")
+}
+
+// filterBedrockBetaFlags removes unsupported beta flags from the Anthropic-Beta
+// header and also removes model-gated flags the current model doesn't support.
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
+func filterBedrockBetaFlags(headers http.Header, model string) {
+	// Collect all flags regardless of whether the client sent them as a single
+	// comma-separated value (eg. Claude Code sends them in that format)
+	// or as multiple separate header lines.
+	// https://httpwg.org/specs/rfc9110.html#rfc.section.5.3
+	var flags []string
+	for _, v := range headers.Values("Anthropic-Beta") {
+		for _, flag := range strings.Split(v, ",") {
+			flags = append(flags, flag)
+		}
+	}
+
+	if len(flags) == 0 {
+		return
+	}
+
+	var keep []string
+	for _, flag := range flags {
+		trimmed := strings.TrimSpace(flag)
+		if !bedrockSupportedBetaFlags[trimmed] {
+			continue
+		}
+
+		// effort is only supported in Opus 4.5 on Bedrock.
+		if trimmed == "effort-2025-11-24" && !strings.Contains(model, "anthropic.claude-opus-4-5") {
+			continue
+		}
+
+		// context_management is only supported in Sonnet 4.5 and Haiku 4.5 models on Bedrock.
+		if trimmed == "context-management-2025-06-27" &&
+			!strings.Contains(model, "anthropic.claude-sonnet-4-5") &&
+			!strings.Contains(model, "anthropic.claude-haiku-4-5") {
+			continue
+		}
+
+		keep = append(keep, trimmed)
+	}
+
+	headers.Del("Anthropic-Beta")
+	for _, flag := range keep {
+		headers.Add("Anthropic-Beta", flag)
+	}
 }
 
 // writeUpstreamError marshals and writes a given error.
