@@ -159,7 +159,7 @@ func generateResponsesPayload(payloadSize int, inputCount int, stream bool) []by
 	return bodyBytes
 }
 
-func TestOpenAI_CreateInterceptor_BYOK(t *testing.T) {
+func TestOpenAI_CreateInterceptor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
