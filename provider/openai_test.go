@@ -202,6 +202,30 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			setHeaders:        map[string]string{},
 			wantAuthorization: "Bearer centralized-key",
 		},
+		// X-Api-Key should not appear in production since clients use Authorization,
+		// but ensure it is stripped if it does arrive.
+		{
+			name:         "ChatCompletions_BYOK_XApiKeyStripped",
+			route:        routeChatCompletions,
+			requestBody:  `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
+			responseBody: chatCompletionResponse,
+			setHeaders: map[string]string{
+				"Authorization": "Bearer user-token",
+				"X-Api-Key":     "some-key",
+			},
+			wantAuthorization: "Bearer user-token",
+		},
+		{
+			name:         "Responses_BYOK_XApiKeyStripped",
+			route:        routeResponses,
+			requestBody:  `{"model": "gpt-5", "input": "hello", "stream": false}`,
+			responseBody: responsesAPIResponse,
+			setHeaders: map[string]string{
+				"Authorization": "Bearer user-token",
+				"X-Api-Key":     "some-key",
+			},
+			wantAuthorization: "Bearer user-token",
+		},
 	}
 
 	for _, tc := range tests {
