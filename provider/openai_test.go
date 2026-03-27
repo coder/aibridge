@@ -184,7 +184,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			requestBody:       `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
 			responseBody:      chatCompletionResponse,
 			setHeaders:        map[string]string{},
-			wantAuthorization: "Bearer test-key",
+			wantAuthorization: "Bearer centralized-key",
 		},
 		{
 			name:              "Responses_BYOK_BearerToken",
@@ -200,7 +200,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			requestBody:       `{"model": "gpt-5", "input": "hello", "stream": false}`,
 			responseBody:      responsesAPIResponse,
 			setHeaders:        map[string]string{},
-			wantAuthorization: "Bearer test-key",
+			wantAuthorization: "Bearer centralized-key",
 		},
 	}
 
@@ -221,7 +221,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 
 			provider := NewOpenAI(config.OpenAI{
 				BaseURL: mockUpstream.URL,
-				Key:     "test-key",
+				Key:     "centralized-key",
 			})
 
 			req := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+tc.route, bytes.NewBufferString(tc.requestBody))
