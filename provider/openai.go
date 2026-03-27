@@ -13,6 +13,7 @@ import (
 	"github.com/coder/aibridge/intercept/chatcompletions"
 	"github.com/coder/aibridge/intercept/responses"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/aibridge/utils"
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
@@ -96,6 +97,19 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 
 	var interceptor intercept.Interceptor
 
+	cfg := p.cfg
+	// At this point the request contains only LLM provider headers. Any
+	// Coder-specific authentication has already been stripped.
+	//
+	// In centralized mode Authorization is absent, so cfg keeps the
+	// centralized key unchanged.
+	//
+	// In BYOK mode the user's credential is in Authorization. Replace
+	// the centralized key with it so it is forwarded upstream.
+	if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
+		cfg.Key = token
+	}
+
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
 	switch path {
 	case routeChatCompletions:
@@ -105,9 +119,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, cfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, cfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	case routeResponses:
@@ -120,9 +134,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 		if reqPayload.Stream() {
-			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, cfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, cfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	default:
@@ -144,6 +158,12 @@ func (p *OpenAI) AuthHeader() string {
 func (p *OpenAI) InjectAuthHeader(headers *http.Header) {
 	if headers == nil {
 		headers = &http.Header{}
+	}
+
+	// BYOK: if the request already carries user-supplied credentials,
+	// do not overwrite them with the centralized key.
+	if headers.Get("Authorization") != "" {
+		return
 	}
 
 	headers.Set(p.AuthHeader(), "Bearer "+p.cfg.Key)

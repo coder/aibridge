@@ -163,22 +163,68 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name         string
-		route        string
-		requestBody  string
-		responseBody string
+		name              string
+		route             string
+		requestBody       string
+		responseBody      string
+		setHeaders        map[string]string
+		wantAuthorization string
 	}{
 		{
-			name:         "ChatCompletions_ClientHeaders",
+			name:              "ChatCompletions_BYOK",
+			route:             routeChatCompletions,
+			requestBody:       `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
+			responseBody:      chatCompletionResponse,
+			setHeaders:        map[string]string{"Authorization": "Bearer user-token"},
+			wantAuthorization: "Bearer user-token",
+		},
+		{
+			name:              "ChatCompletions_Centralized",
+			route:             routeChatCompletions,
+			requestBody:       `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
+			responseBody:      chatCompletionResponse,
+			setHeaders:        map[string]string{},
+			wantAuthorization: "Bearer centralized-key",
+		},
+		{
+			name:              "Responses_BYOK",
+			route:             routeResponses,
+			requestBody:       `{"model": "gpt-5", "input": "hello", "stream": false}`,
+			responseBody:      responsesAPIResponse,
+			setHeaders:        map[string]string{"Authorization": "Bearer user-token"},
+			wantAuthorization: "Bearer user-token",
+		},
+		{
+			name:              "Responses_Centralized",
+			route:             routeResponses,
+			requestBody:       `{"model": "gpt-5", "input": "hello", "stream": false}`,
+			responseBody:      responsesAPIResponse,
+			setHeaders:        map[string]string{},
+			wantAuthorization: "Bearer centralized-key",
+		},
+		// X-Api-Key should not appear in production since clients use Authorization,
+		// but ensure it is stripped if it does arrive.
+		{
+			name:         "ChatCompletions_BYOK_XApiKeyStripped",
 			route:        routeChatCompletions,
 			requestBody:  `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
 			responseBody: chatCompletionResponse,
+			setHeaders: map[string]string{
+				"Authorization": "Bearer user-token",
+				"X-Api-Key":     "some-key",
+			},
+			wantAuthorization: "Bearer user-token",
 		},
 		{
-			name:         "Responses_ClientHeaders",
+			name:         "Responses_BYOK_XApiKeyStripped",
 			route:        routeResponses,
 			requestBody:  `{"model": "gpt-5", "input": "hello", "stream": false}`,
 			responseBody: responsesAPIResponse,
+			setHeaders: map[string]string{
+				"Authorization": "Bearer user-token",
+				"X-Api-Key":     "some-key",
+			},
+			wantAuthorization: "Bearer user-token",
 		},
 	}
 
@@ -199,13 +245,13 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 
 			provider := NewOpenAI(config.OpenAI{
 				BaseURL: mockUpstream.URL,
-				Key:     "test-key",
+				Key:     "centralized-key",
 			})
 
 			req := httptest.NewRequest(http.MethodPost, provider.RoutePrefix()+tc.route, bytes.NewBufferString(tc.requestBody))
-			// Simulate a client sending its own auth credential, which must be replaced
-			// by aibridge with the configured provider key.
-			req.Header.Set("Authorization", "Bearer fake-client-bearer")
+			for k, v := range tc.setHeaders {
+				req.Header.Set(k, v)
+			}
 			w := httptest.NewRecorder()
 
 			interceptor, err := provider.CreateInterceptor(w, req, testTracer)
@@ -219,9 +265,46 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			err = interceptor.ProcessRequest(w, processReq)
 			require.NoError(t, err)
 
-			// Verify aibridge's configured key was used and the client's auth credential was not forwarded.
-			assert.Equal(t, "Bearer test-key", receivedHeaders.Get("Authorization"), "upstream must receive configured provider key")
+			assert.Equal(t, tc.wantAuthorization, receivedHeaders.Get("Authorization"))
 			assert.Empty(t, receivedHeaders.Get("X-Api-Key"), "X-Api-Key must not be set upstream")
+		})
+	}
+}
+
+func TestOpenAI_InjectAuthHeader(t *testing.T) {
+	t.Parallel()
+
+	provider := NewOpenAI(config.OpenAI{Key: "centralized-key"})
+
+	tests := []struct {
+		name              string
+		presetHeaders     map[string]string
+		wantAuthorization string
+	}{
+		{
+			name:              "when no Authorization header is provided, inject centralized key",
+			presetHeaders:     map[string]string{},
+			wantAuthorization: "Bearer centralized-key",
+		},
+		{
+			name:              "when Authorization header is provided, do not overwrite it",
+			presetHeaders:     map[string]string{"Authorization": "Bearer user-token"},
+			wantAuthorization: "Bearer user-token",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			headers := http.Header{}
+			for k, v := range tc.presetHeaders {
+				headers.Set(k, v)
+			}
+
+			provider.InjectAuthHeader(&headers)
+
+			assert.Equal(t, tc.wantAuthorization, headers.Get("Authorization"))
 		})
 	}
 }
