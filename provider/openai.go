@@ -22,8 +22,6 @@ import (
 const (
 	routeChatCompletions = "/chat/completions" // https://platform.openai.com/docs/api-reference/chat
 	routeResponses       = "/responses"        // https://platform.openai.com/docs/api-reference/responses
-
-	chatGPTBaseURL = "https://chatgpt.com/backend-api/codex"
 )
 
 var openAIOpenErrorResponse = func() []byte {
@@ -110,14 +108,6 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	// the centralized key with it so it is forwarded upstream.
 	if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
 		cfg.Key = token
-	}
-
-	// ChatGPT subscription OAuth tokens (Plus/Pro) use a different backend
-	// than platform API keys. The Chatgpt-Account-Id header is set by Codex
-	// when authenticating via a ChatGPT subscription, indicating that requests
-	// must be routed to the subscription-specific backend.
-	if r.Header.Get("Chatgpt-Account-Id") != "" {
-		cfg.BaseURL = chatGPTBaseURL
 	}
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
