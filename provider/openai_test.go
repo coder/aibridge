@@ -171,7 +171,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 		wantAuthorization string
 	}{
 		{
-			name:              "ChatCompletions_BYOK_BearerToken",
+			name:              "ChatCompletions_BYOK",
 			route:             routeChatCompletions,
 			requestBody:       `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
 			responseBody:      chatCompletionResponse,
@@ -179,7 +179,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			wantAuthorization: "Bearer user-token",
 		},
 		{
-			name:              "ChatCompletions_Centralized_UsesCentralizedKey",
+			name:              "ChatCompletions_Centralized",
 			route:             routeChatCompletions,
 			requestBody:       `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
 			responseBody:      chatCompletionResponse,
@@ -187,7 +187,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			wantAuthorization: "Bearer centralized-key",
 		},
 		{
-			name:              "Responses_BYOK_BearerToken",
+			name:              "Responses_BYOK",
 			route:             routeResponses,
 			requestBody:       `{"model": "gpt-5", "input": "hello", "stream": false}`,
 			responseBody:      responsesAPIResponse,
@@ -195,7 +195,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			wantAuthorization: "Bearer user-token",
 		},
 		{
-			name:              "Responses_Centralized_UsesCentralizedKey",
+			name:              "Responses_Centralized",
 			route:             routeResponses,
 			requestBody:       `{"model": "gpt-5", "input": "hello", "stream": false}`,
 			responseBody:      responsesAPIResponse,
