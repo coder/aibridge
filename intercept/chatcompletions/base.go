@@ -26,12 +26,11 @@ import (
 )
 
 type interceptionBase struct {
-	id           uuid.UUID
-	providerName string
-	baseURL      string
-	apiDumpDir   string
-	req          *ChatCompletionNewParamsWrapper
-	cfg          config.OpenAIInterceptor
+	id         uuid.UUID
+	upstream   intercept.ResolvedUpstream
+	apiDumpDir string
+	req        *ChatCompletionNewParamsWrapper
+	cfg        config.OpenAIInterceptor
 
 	// clientHeaders are the original HTTP headers from the client request.
 	clientHeaders  http.Header
@@ -45,7 +44,7 @@ type interceptionBase struct {
 }
 
 func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService {
-	opts := []option.RequestOption{option.WithAPIKey(i.cfg.Key), option.WithBaseURL(i.baseURL)}
+	opts := []option.RequestOption{option.WithAPIKey(i.cfg.Key), option.WithBaseURL(i.upstream.URL)}
 
 	// Add extra headers if configured.
 	// Some providers require additional headers that are not added by the SDK.
@@ -77,7 +76,7 @@ func (i *interceptionBase) ID() uuid.UUID {
 }
 
 func (i *interceptionBase) ProviderName() string {
-	return i.providerName
+	return i.upstream.Name
 }
 
 func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {

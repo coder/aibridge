@@ -36,8 +36,7 @@ type StreamingInterception struct {
 func NewStreamingInterceptor(
 	id uuid.UUID,
 	req *ChatCompletionNewParamsWrapper,
-	providerName string,
-	baseURL string,
+	upstream intercept.ResolvedUpstream,
 	apiDumpDir string,
 	cfg config.OpenAIInterceptor,
 	clientHeaders http.Header,
@@ -46,8 +45,7 @@ func NewStreamingInterceptor(
 ) *StreamingInterception {
 	return &StreamingInterception{interceptionBase: interceptionBase{
 		id:             id,
-		providerName:   providerName,
-		baseURL:        baseURL,
+		upstream:       upstream,
 		apiDumpDir:     apiDumpDir,
 		req:            req,
 		cfg:            cfg,

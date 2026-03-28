@@ -24,7 +24,7 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
-	}, func(providerName, endpoint, model string, from, to gobreaker.State) {}, nil)
+	}, func(upstreamName, endpoint, model string, from, to gobreaker.State) {}, nil)
 
 	endpoint := "/v1/messages"
 	sonnetModel := "claude-sonnet-4-20250514"
@@ -73,7 +73,7 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
-	}, func(providerName, endpoint, model string, from, to gobreaker.State) {}, nil)
+	}, func(upstreamName, endpoint, model string, from, to gobreaker.State) {}, nil)
 
 	model := "test-model"
 
@@ -123,7 +123,7 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 		IsFailure: func(statusCode int) bool {
 			return statusCode == http.StatusBadGateway
 		},
-	}, func(providerName, endpoint, model string, from, to gobreaker.State) {}, nil)
+	}, func(upstreamName, endpoint, model string, from, to gobreaker.State) {}, nil)
 
 	// First request returns 502, trips circuit
 	w := httptest.NewRecorder()
@@ -151,7 +151,7 @@ func TestExecute_OnStateChange(t *testing.T) {
 	t.Parallel()
 
 	var stateChanges []struct {
-		providerName string
+		upstreamName string
 		endpoint     string
 		model        string
 		from         gobreaker.State
@@ -163,14 +163,14 @@ func TestExecute_OnStateChange(t *testing.T) {
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
-	}, func(providerName, endpoint, model string, from, to gobreaker.State) {
+	}, func(upstreamName, endpoint, model string, from, to gobreaker.State) {
 		stateChanges = append(stateChanges, struct {
-			providerName string
+			upstreamName string
 			endpoint     string
 			model        string
 			from         gobreaker.State
 			to           gobreaker.State
-		}{providerName, endpoint, model, from, to})
+		}{upstreamName, endpoint, model, from, to})
 	}, nil)
 
 	endpoint := "/v1/messages"
@@ -185,7 +185,7 @@ func TestExecute_OnStateChange(t *testing.T) {
 
 	// Verify state change callback was called with correct parameters
 	assert.Len(t, stateChanges, 1)
-	assert.Equal(t, config.ProviderAnthropic, stateChanges[0].providerName)
+	assert.Equal(t, config.ProviderAnthropic, stateChanges[0].upstreamName)
 	assert.Equal(t, endpoint, stateChanges[0].endpoint)
 	assert.Equal(t, model, stateChanges[0].model)
 	assert.Equal(t, gobreaker.StateClosed, stateChanges[0].from)

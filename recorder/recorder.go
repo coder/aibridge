@@ -150,6 +150,7 @@ type AsyncRecorder struct {
 	metrics *metrics.Metrics
 
 	provider    string
+	upstream    string
 	model       string
 	initiatorID string
 	client      string
@@ -169,6 +170,10 @@ func (a *AsyncRecorder) WithMetrics(m any) {
 
 func (a *AsyncRecorder) WithProvider(provider string) {
 	a.provider = provider
+}
+
+func (a *AsyncRecorder) WithUpstream(upstream string) {
+	a.upstream = upstream
 }
 
 func (a *AsyncRecorder) WithModel(model string) {
@@ -218,7 +223,7 @@ func (a *AsyncRecorder) RecordPromptUsage(ctx context.Context, req *PromptUsageR
 		}
 
 		if a.metrics != nil && req.Prompt != "" { // TODO: will be irrelevant once https://github.com/coder/aibridge/issues/55 is fixed.
-			a.metrics.PromptCount.WithLabelValues(a.provider, a.model, a.initiatorID, a.client).Add(1)
+			a.metrics.PromptCount.WithLabelValues(a.provider, a.upstream, a.model, a.initiatorID, a.client).Add(1)
 		}
 	}()
 
@@ -238,10 +243,10 @@ func (a *AsyncRecorder) RecordTokenUsage(ctx context.Context, req *TokenUsageRec
 		}
 
 		if a.metrics != nil {
-			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "input", a.initiatorID, a.client).Add(float64(req.Input))
-			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, "output", a.initiatorID, a.client).Add(float64(req.Output))
+			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.upstream, a.model, "input", a.initiatorID, a.client).Add(float64(req.Input))
+			a.metrics.TokenUseCount.WithLabelValues(a.provider, a.upstream, a.model, "output", a.initiatorID, a.client).Add(float64(req.Output))
 			for k, v := range req.ExtraTokenTypes {
-				a.metrics.TokenUseCount.WithLabelValues(a.provider, a.model, k, a.initiatorID, a.client).Add(float64(v))
+				a.metrics.TokenUseCount.WithLabelValues(a.provider, a.upstream, a.model, k, a.initiatorID, a.client).Add(float64(v))
 			}
 		}
 	}()
@@ -267,9 +272,9 @@ func (a *AsyncRecorder) RecordToolUsage(ctx context.Context, req *ToolUsageRecor
 				if req.ServerURL != nil {
 					srvURL = *req.ServerURL
 				}
-				a.metrics.InjectedToolUseCount.WithLabelValues(a.provider, a.model, srvURL, req.Tool).Add(1)
+				a.metrics.InjectedToolUseCount.WithLabelValues(a.provider, a.upstream, a.model, srvURL, req.Tool).Add(1)
 			} else {
-				a.metrics.NonInjectedToolUseCount.WithLabelValues(a.provider, a.model, req.Tool).Add(1)
+				a.metrics.NonInjectedToolUseCount.WithLabelValues(a.provider, a.upstream, a.model, req.Tool).Add(1)
 			}
 		}
 	}()

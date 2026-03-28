@@ -158,7 +158,7 @@ func TestMetrics_Interception(t *testing.T) {
 			require.NoError(t, err)
 
 			count := promtest.ToFloat64(m.InterceptionCount.WithLabelValues(
-				tc.expectProvider, tc.expectModel, tc.expectStatus, tc.expectRoute, "POST", defaultActorID, string(tc.expectClient)))
+				tc.expectProvider, tc.expectProvider, tc.expectModel, tc.expectStatus, tc.expectRoute, "POST", defaultActorID, string(tc.expectClient)))
 			require.Equal(t, 1.0, count)
 			require.Equal(t, 1, promtest.CollectAndCount(m.InterceptionDuration))
 			require.Equal(t, 1, promtest.CollectAndCount(m.InterceptionCount))
@@ -204,7 +204,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	// Wait until request is detected as inflight.
 	require.Eventually(t, func() bool {
 		return promtest.ToFloat64(
-			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
+			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 1
 	}, time.Second*10, time.Millisecond*50)
 
@@ -219,7 +219,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	// Metric is not updated immediately after request completes, so wait until it is.
 	require.Eventually(t, func() bool {
 		return promtest.ToFloat64(
-			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
+			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 0
 	}, time.Second*10, time.Millisecond*50)
 }
@@ -263,7 +263,7 @@ func TestMetrics_PromptCount(t *testing.T) {
 	require.NoError(t, err)
 
 	prompts := promtest.ToFloat64(m.PromptCount.WithLabelValues(
-		config.ProviderOpenAI, "gpt-4.1", defaultActorID, string(aibridge.ClientClaudeCode)))
+		config.ProviderOpenAI, config.ProviderOpenAI, "gpt-4.1", defaultActorID, string(aibridge.ClientClaudeCode)))
 	require.Equal(t, 1.0, prompts)
 }
 
@@ -290,16 +290,16 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 	// Token metrics are recorded asynchronously; wait for them to appear.
 	require.Eventually(t, func() bool {
 		return promtest.ToFloat64(m.TokenUseCount.WithLabelValues(
-			config.ProviderOpenAI, "gpt-4.1", "input", defaultActorID, clientLabel)) > 0
+			config.ProviderOpenAI, config.ProviderOpenAI, "gpt-4.1", "input", defaultActorID, clientLabel)) > 0
 	}, time.Second*10, time.Millisecond*50)
 
-	require.Equal(t, 129.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "input", defaultActorID, clientLabel))) // 12033 - 11904 (cached)
-	require.Equal(t, 44.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "output", defaultActorID, clientLabel)))
+	require.Equal(t, 129.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, config.ProviderOpenAI, "gpt-4.1", "input", defaultActorID, clientLabel))) // 12033 - 11904 (cached)
+	require.Equal(t, 44.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, config.ProviderOpenAI, "gpt-4.1", "output", defaultActorID, clientLabel)))
 
 	// ExtraTokenTypes
-	require.Equal(t, 11904.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "input_cached", defaultActorID, clientLabel)))
-	require.Equal(t, 0.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "output_reasoning", defaultActorID, clientLabel)))
-	require.Equal(t, 12077.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "total_tokens", defaultActorID, clientLabel)))
+	require.Equal(t, 11904.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, config.ProviderOpenAI, "gpt-4.1", "input_cached", defaultActorID, clientLabel)))
+	require.Equal(t, 0.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, config.ProviderOpenAI, "gpt-4.1", "output_reasoning", defaultActorID, clientLabel)))
+	require.Equal(t, 12077.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, config.ProviderOpenAI, "gpt-4.1", "total_tokens", defaultActorID, clientLabel)))
 }
 
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
@@ -322,7 +322,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	require.NoError(t, err)
 
 	count := promtest.ToFloat64(m.NonInjectedToolUseCount.WithLabelValues(
-		config.ProviderOpenAI, "gpt-4.1", "read_file"))
+		config.ProviderOpenAI, config.ProviderOpenAI, "gpt-4.1", "read_file"))
 	require.Equal(t, 1.0, count)
 }
 
@@ -363,6 +363,6 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	actualServerURL := *recorder.ToolUsages()[0].ServerURL
 
 	count := promtest.ToFloat64(m.InjectedToolUseCount.WithLabelValues(
-		config.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName))
+		config.ProviderAnthropic, config.ProviderAnthropic, "claude-sonnet-4-20250514", actualServerURL, mockToolName))
 	require.Equal(t, 1.0, count)
 }

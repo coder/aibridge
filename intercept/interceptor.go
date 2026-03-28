@@ -37,3 +37,13 @@ type Interceptor interface {
 	// parent interception.
 	CorrelatingToolCallID() *string
 }
+
+// ResolvedUpstream represents the resolved upstream destination for a request.
+// Providers resolve this per-request, allowing a single provider to route to
+// different upstreams based on request context.
+type ResolvedUpstream struct {
+	// Name identifies the upstream provider domain.
+	Name string
+	// URL is the URL of the upstream provider.
+	URL string
+}

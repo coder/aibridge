@@ -9,6 +9,7 @@ import (
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
@@ -85,7 +86,7 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 			httpReq := httptest.NewRequest(http.MethodPost, "/chat/completions", nil)
 
 			tracer := otel.Tracer("test")
-			interceptor := NewStreamingInterceptor(uuid.New(), req, config.ProviderOpenAI, mockServer.URL, "", cfg, httpReq.Header, "Authorization", tracer)
+			interceptor := NewStreamingInterceptor(uuid.New(), req, intercept.ResolvedUpstream{Name: config.ProviderOpenAI, URL: mockServer.URL}, "", cfg, httpReq.Header, "Authorization", tracer)
 
 			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)

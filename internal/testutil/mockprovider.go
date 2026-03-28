@@ -17,9 +17,12 @@ type MockProvider struct {
 	InterceptorFunc func(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (intercept.Interceptor, error)
 }
 
-func (m *MockProvider) Name() string                                 { return m.Name_ }
-func (m *MockProvider) BaseURL() string                              { return m.URL }
-func (m *MockProvider) RoutePrefix() string                          { return fmt.Sprintf("/%s", m.Name_) }
+func (m *MockProvider) Name() string    { return m.Name_ }
+func (m *MockProvider) BaseURL() string { return m.URL }
+func (m *MockProvider) ResolveUpstream(_ *http.Request) intercept.ResolvedUpstream {
+	return intercept.ResolvedUpstream{Name: m.Name_, URL: m.URL}
+}
+func (m *MockProvider) RoutePrefix() string { return fmt.Sprintf("/%s", m.Name_) }
 func (m *MockProvider) BridgedRoutes() []string                      { return m.Bridged }
 func (m *MockProvider) PassthroughRoutes() []string                  { return m.Passthrough }
 func (m *MockProvider) AuthHeader() string                           { return "Authorization" }

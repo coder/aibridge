@@ -75,6 +75,10 @@ func (p *Copilot) BaseURL() string {
 	return p.cfg.BaseURL
 }
 
+func (p *Copilot) ResolveUpstream(_ *http.Request) intercept.ResolvedUpstream {
+	return intercept.ResolvedUpstream{Name: p.Name(), URL: p.cfg.BaseURL}
+}
+
 func (p *Copilot) RoutePrefix() string {
 	return fmt.Sprintf("/%s", p.Name())
 }
@@ -134,6 +138,8 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		ExtraHeaders: extractCopilotHeaders(r),
 	}
 
+	upstream := p.ResolveUpstream(r)
+
 	var interceptor intercept.Interceptor
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
@@ -145,9 +151,9 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, upstream, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, upstream, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	case routeCopilotResponses:
@@ -161,9 +167,9 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		}
 
 		if reqPayload.Stream() {
-			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, upstream, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, upstream, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	default:

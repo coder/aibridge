@@ -5,7 +5,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var baseLabels []string = []string{"provider", "model"}
+var baseLabels []string = []string{"provider", "upstream", "model"}
 
 const (
 	InterceptionCountStatusFailed    = "failed"
@@ -115,18 +115,18 @@ func NewMetrics(reg prometheus.Registerer) *Metrics {
 			Subsystem: "circuit_breaker",
 			Name:      "state",
 			Help:      "Current state of the circuit breaker (0=closed, 0.5=half-open, 1=open).",
-		}, []string{"provider", "endpoint", "model"}),
+		}, []string{"provider", "upstream", "endpoint", "model"}),
 		// Pessimistic cardinality: 3 providers, 2 endpoints, 5 models = up to 30.
 		CircuitBreakerTrips: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "circuit_breaker",
 			Name:      "trips_total",
 			Help:      "Total number of times the circuit breaker transitioned to open state.",
-		}, []string{"provider", "endpoint", "model"}),
+		}, []string{"provider", "upstream", "endpoint", "model"}),
 		// Pessimistic cardinality: 3 providers, 2 endpoints, 5 models = up to 30.
 		CircuitBreakerRejects: promauto.With(reg).NewCounterVec(prometheus.CounterOpts{
 			Subsystem: "circuit_breaker",
 			Name:      "rejects_total",
 			Help:      "Total number of requests rejected due to open circuit breaker.",
-		}, []string{"provider", "endpoint", "model"}),
+		}, []string{"provider", "upstream", "endpoint", "model"}),
 	}
 }

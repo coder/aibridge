@@ -33,6 +33,7 @@ type InterceptionRecord struct {
 	Metadata              Metadata
 	Model                 string
 	Provider              string
+	Upstream              string
 	StartedAt             time.Time
 	ClientSessionID       *string
 	Client                string

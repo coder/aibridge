@@ -135,11 +135,13 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 
 		// TODO(ssncferreira): when Bedrock is added as a separate provider, pass the
 		//   resolved provider name instead of p.Name() here.
+		upstream := p.ResolveUpstream(r)
+
 		var interceptor intercept.Interceptor
 		if reqPayload.Stream() {
-			interceptor = messages.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
+			interceptor = messages.NewStreamingInterceptor(id, reqPayload, upstream, cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
 		} else {
-			interceptor = messages.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
+			interceptor = messages.NewBlockingInterceptor(id, reqPayload, upstream, cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
 		}
 		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
@@ -151,6 +153,10 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 
 func (p *Anthropic) BaseURL() string {
 	return p.cfg.BaseURL
+}
+
+func (p *Anthropic) ResolveUpstream(_ *http.Request) intercept.ResolvedUpstream {
+	return intercept.ResolvedUpstream{Name: p.Name(), URL: p.cfg.BaseURL}
 }
 
 func (p *Anthropic) AuthHeader() string {

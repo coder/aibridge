@@ -63,9 +63,9 @@ var bedrockSupportedBetaFlags = map[string]bool{
 }
 
 type interceptionBase struct {
-	id           uuid.UUID
-	providerName string
-	reqPayload   MessagesRequestPayload
+	id         uuid.UUID
+	upstream   intercept.ResolvedUpstream
+	reqPayload MessagesRequestPayload
 
 	cfg        aibconfig.Anthropic
 	bedrockCfg *aibconfig.AWSBedrock
@@ -86,7 +86,7 @@ func (i *interceptionBase) ID() uuid.UUID {
 }
 
 func (i *interceptionBase) ProviderName() string {
-	return i.providerName
+	return i.upstream.Name
 }
 
 func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {

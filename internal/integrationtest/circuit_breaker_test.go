@@ -157,13 +157,13 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, int32(cbConfig.FailureThreshold), upstreamCalls.Load(), "No new upstream call when circuit is open")
 
 			// Verify metrics show circuit is open
-			trips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			trips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, trips, "CircuitBreakerTrips should be 1")
 
-			state := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			state := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, state, "CircuitBreakerState should be 1 (open)")
 
-			rejects := promtest.ToFloat64(m.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			rejects := promtest.ToFloat64(m.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, rejects, "CircuitBreakerRejects should be 1")
 
 			// Phase 3: Wait for timeout to transition to half-open
@@ -179,7 +179,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should reach upstream in half-open state")
 
 			// Verify circuit is now closed
-			state = promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			state = promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 0.0, state, "CircuitBreakerState should be 0 (closed) after recovery")
 
 			// Phase 5: Verify circuit is fully functional again
@@ -193,7 +193,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+4, upstreamCalls.Load(), "All requests should reach upstream after circuit closes")
 
 			// Rejects count should not have increased
-			rejects = promtest.ToFloat64(m.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			rejects = promtest.ToFloat64(m.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, rejects, "CircuitBreakerRejects should still be 1 (no new rejects)")
 		})
 	}
@@ -305,7 +305,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			resp := doRequest()
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
 
-			trips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			trips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, trips, "CircuitBreakerTrips should be 1")
 
 			// Phase 2: Wait for half-open state
@@ -323,10 +323,10 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should NOT reach upstream when circuit re-opens")
 
 			// Verify metrics: trips should be 2 now (tripped twice)
-			trips = promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			trips = promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 2.0, trips, "CircuitBreakerTrips should be 2 after half-open failure")
 
-			state := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			state := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(tc.expectProvider, tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, state, "CircuitBreakerState should be 1 (open) after half-open failure")
 		})
 	}
@@ -495,7 +495,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				"%d requests should be rejected (ErrTooManyRequests)", totalRequests-maxRequests)
 
 			// Verify rejects metric increased
-			rejects := promtest.ToFloat64(m.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
+			rejects := promtest.ToFloat64(m.CircuitBreakerRejects.WithLabelValues(tc.expectProvider, tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, float64(1+totalRequests-maxRequests), rejects,
 				"CircuitBreakerRejects should include half-open rejections")
 		})
@@ -577,10 +577,10 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	assert.Equal(t, int32(cbConfig.FailureThreshold), sonnetCalls.Load(), "No new sonnet calls when circuit is open")
 
 	// Verify sonnet metrics show circuit is open
-	sonnetTrips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))
+	sonnetTrips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(config.ProviderAnthropic, config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))
 	assert.Equal(t, 1.0, sonnetTrips, "Sonnet CircuitBreakerTrips should be 1")
 
-	sonnetState := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))
+	sonnetState := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))
 	assert.Equal(t, 1.0, sonnetState, "Sonnet CircuitBreakerState should be 1 (open)")
 
 	// Phase 2: Haiku model should still work (independent circuit)
@@ -596,10 +596,10 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	assert.Equal(t, int32(4), haikuCalls.Load(), "All haiku calls should reach upstream")
 
 	// Verify haiku circuit is still closed (no trips)
-	haikuTrips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-3-5-haiku-20241022"))
+	haikuTrips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(config.ProviderAnthropic, config.ProviderAnthropic, "/v1/messages", "claude-3-5-haiku-20241022"))
 	assert.Equal(t, 0.0, haikuTrips, "Haiku CircuitBreakerTrips should be 0")
 
-	haikuState := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-3-5-haiku-20241022"))
+	haikuState := promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, config.ProviderAnthropic, "/v1/messages", "claude-3-5-haiku-20241022"))
 	assert.Equal(t, 0.0, haikuState, "Haiku CircuitBreakerState should be 0 (closed)")
 
 	// Phase 3: Sonnet recovers after timeout
@@ -610,6 +610,6 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "Sonnet should recover after timeout")
 
 	// Verify sonnet circuit is now closed
-	sonnetState = promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))
+	sonnetState = promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))
 	assert.Equal(t, 0.0, sonnetState, "Sonnet CircuitBreakerState should be 0 (closed) after recovery")
 }

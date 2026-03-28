@@ -115,6 +115,8 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		SendActorHeaders: p.cfg.SendActorHeaders,
 	}
 
+	upstream := p.ResolveUpstream(r)
+
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
 	switch path {
 	case routeChatCompletions:
@@ -124,9 +126,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, upstream, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, upstream, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	case routeResponses:
@@ -139,9 +141,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 		if reqPayload.Stream() {
-			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, upstream, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, upstream, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	default:
@@ -154,6 +156,10 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 
 func (p *OpenAI) BaseURL() string {
 	return p.cfg.BaseURL
+}
+
+func (p *OpenAI) ResolveUpstream(_ *http.Request) intercept.ResolvedUpstream {
+	return intercept.ResolvedUpstream{Name: p.Name(), URL: p.cfg.BaseURL}
 }
 
 func (p *OpenAI) AuthHeader() string {

@@ -36,10 +36,9 @@ const (
 )
 
 type responsesInterceptionBase struct {
-	id           uuid.UUID
-	providerName string
-	baseURL      string
-	apiDumpDir   string
+	id         uuid.UUID
+	upstream   intercept.ResolvedUpstream
+	apiDumpDir string
 	// clientHeaders are the original HTTP headers from the client request.
 	clientHeaders  http.Header
 	authHeaderName string
@@ -54,7 +53,7 @@ type responsesInterceptionBase struct {
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
-	opts := []option.RequestOption{option.WithBaseURL(i.baseURL), option.WithAPIKey(i.cfg.Key)}
+	opts := []option.RequestOption{option.WithBaseURL(i.upstream.URL), option.WithAPIKey(i.cfg.Key)}
 
 	// Add extra headers if configured.
 	// Some providers require additional headers that are not added by the SDK.
@@ -86,7 +85,7 @@ func (i *responsesInterceptionBase) ID() uuid.UUID {
 }
 
 func (i *responsesInterceptionBase) ProviderName() string {
-	return i.providerName
+	return i.upstream.Name
 }
 
 func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {

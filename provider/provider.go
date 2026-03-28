@@ -48,6 +48,10 @@ type Provider interface {
 	Name() string
 	// BaseURL defines the base URL endpoint for this provider's API.
 	BaseURL() string
+	// ResolveUpstream returns the resolved upstream for the given request.
+	// Providers that support multiple upstreams can inspect the request to
+	// determine the correct destination.
+	ResolveUpstream(*http.Request) intercept.ResolvedUpstream
 
 	// CreateInterceptor starts a new [Interceptor] which is responsible for intercepting requests,
 	// communicating with the upstream provider and formulating a response to be sent to the requesting client.

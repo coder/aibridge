@@ -32,7 +32,8 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 		))
 		defer span.End()
 
-		upURL, err := url.Parse(provider.BaseURL())
+		upstream := provider.ResolveUpstream(r)
+		upURL, err := url.Parse(upstream.URL)
 		if err != nil {
 			logger.Warn(ctx, "failed to parse provider base URL", slog.Error(err))
 			http.Error(w, "request error", http.StatusBadGateway)
