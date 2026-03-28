@@ -31,11 +31,19 @@ type AWSBedrock struct {
 	BaseURL string
 }
 
+// OpenAI contains provider-level configuration for the OpenAI provider.
 type OpenAI struct {
 	BaseURL          string
 	Key              string
 	APIDumpDir       string
 	CircuitBreaker   *CircuitBreaker
+	SendActorHeaders bool
+}
+
+// OpenAIInterceptor contains configuration for interceptors that speak the
+// OpenAI wire format. Used by any provider that uses OpenAI-compatible APIs.
+type OpenAIInterceptor struct {
+	Key              string
 	SendActorHeaders bool
 	ExtraHeaders     map[string]string
 }

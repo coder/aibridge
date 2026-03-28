@@ -38,12 +38,14 @@ const (
 type responsesInterceptionBase struct {
 	id           uuid.UUID
 	providerName string
+	baseURL      string
+	apiDumpDir   string
 	// clientHeaders are the original HTTP headers from the client request.
 	clientHeaders  http.Header
 	authHeaderName string
 	reqPayload     ResponsesRequestPayload
 
-	cfg      config.OpenAI
+	cfg      config.OpenAIInterceptor
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
 
@@ -52,7 +54,7 @@ type responsesInterceptionBase struct {
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
-	opts := []option.RequestOption{option.WithBaseURL(i.cfg.BaseURL), option.WithAPIKey(i.cfg.Key)}
+	opts := []option.RequestOption{option.WithBaseURL(i.baseURL), option.WithAPIKey(i.cfg.Key)}
 
 	// Add extra headers if configured.
 	// Some providers require additional headers that are not added by the SDK.
@@ -72,7 +74,7 @@ func (i *responsesInterceptionBase) newResponsesService() responses.ResponseServ
 	}
 
 	// Add API dump middleware if configured
-	if mw := apidump.NewBridgeMiddleware(i.cfg.APIDumpDir, i.ProviderName(), i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
+	if mw := apidump.NewBridgeMiddleware(i.apiDumpDir, i.ProviderName(), i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))
 	}
 

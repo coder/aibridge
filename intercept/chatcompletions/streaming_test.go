@@ -66,9 +66,8 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 			t.Cleanup(mockServer.Close)
 
 			// Create interceptor with mock server URL
-			cfg := config.OpenAI{
-				BaseURL: mockServer.URL,
-				Key:     "test-key",
+			cfg := config.OpenAIInterceptor{
+				Key: "test-key",
 			}
 
 			req := &ChatCompletionNewParamsWrapper{
@@ -86,7 +85,7 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 			httpReq := httptest.NewRequest(http.MethodPost, "/chat/completions", nil)
 
 			tracer := otel.Tracer("test")
-			interceptor := NewStreamingInterceptor(uuid.New(), req, config.ProviderOpenAI, cfg, httpReq.Header, "Authorization", tracer)
+			interceptor := NewStreamingInterceptor(uuid.New(), req, config.ProviderOpenAI, mockServer.URL, "", cfg, httpReq.Header, "Authorization", tracer)
 
 			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)

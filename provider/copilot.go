@@ -127,15 +127,11 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 
 	id := uuid.New()
 
-	// Build config for the interceptor using the per-request key.
-	// Copilot's API is OpenAI-compatible, so it uses the OpenAI interceptors
-	// that require a config.OpenAI.
-	cfg := config.OpenAI{
-		BaseURL:        p.cfg.BaseURL,
-		Key:            key,
-		APIDumpDir:     p.cfg.APIDumpDir,
-		CircuitBreaker: p.cfg.CircuitBreaker,
-		ExtraHeaders:   extractCopilotHeaders(r),
+	// Build interceptor config using the per-request key.
+	// Copilot's API is OpenAI-compatible, so it uses the OpenAI interceptors.
+	interceptorCfg := config.OpenAIInterceptor{
+		Key:          key,
+		ExtraHeaders: extractCopilotHeaders(r),
 	}
 
 	var interceptor intercept.Interceptor
@@ -149,9 +145,9 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	case routeCopilotResponses:
@@ -165,9 +161,9 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		}
 
 		if reqPayload.Stream() {
-			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	default:

@@ -97,7 +97,6 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 
 	var interceptor intercept.Interceptor
 
-	cfg := p.cfg
 	// At this point the request contains only LLM provider headers. Any
 	// Coder-specific authentication has already been stripped.
 	//
@@ -106,8 +105,14 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	//
 	// In BYOK mode the user's credential is in Authorization. Replace
 	// the centralized key with it so it is forwarded upstream.
+	key := p.cfg.Key
 	if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
-		cfg.Key = token
+		key = token
+	}
+
+	interceptorCfg := config.OpenAIInterceptor{
+		Key:              key,
+		SendActorHeaders: p.cfg.SendActorHeaders,
 	}
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
@@ -119,9 +124,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	case routeResponses:
@@ -134,9 +139,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 		if reqPayload.Stream() {
-			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), p.cfg.BaseURL, p.cfg.APIDumpDir, interceptorCfg, r.Header, p.AuthHeader(), tracer)
 		}
 
 	default:
