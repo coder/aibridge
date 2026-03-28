@@ -6,6 +6,7 @@ const (
 	ProviderAnthropic = "anthropic"
 	ProviderOpenAI    = "openai"
 	ProviderCopilot   = "copilot"
+	ProviderChatGPT   = "chatgpt"
 )
 
 type Anthropic struct {
@@ -40,6 +41,23 @@ type OpenAI struct {
 	ExtraHeaders     map[string]string
 }
 
+type Copilot struct {
+	BaseURL        string
+	APIDumpDir     string
+	CircuitBreaker *CircuitBreaker
+}
+
+// ChatGPT is similar to OpenAI but targets the ChatGPT backend.
+// Since it authenticates exclusively via per-user credentials, it does not
+// require a centralized API key.
+type ChatGPT struct {
+	BaseURL          string
+	APIDumpDir       string
+	CircuitBreaker   *CircuitBreaker
+	SendActorHeaders bool
+	ExtraHeaders     map[string]string
+}
+
 // CircuitBreaker holds configuration for circuit breakers.
 type CircuitBreaker struct {
 	// MaxRequests is the maximum number of requests allowed in half-open state.
@@ -66,10 +84,4 @@ func DefaultCircuitBreaker() CircuitBreaker {
 		Timeout:          30 * time.Second,
 		MaxRequests:      3,
 	}
-}
-
-type Copilot struct {
-	BaseURL        string
-	APIDumpDir     string
-	CircuitBreaker *CircuitBreaker
 }
