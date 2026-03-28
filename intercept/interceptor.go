@@ -25,6 +25,8 @@ type Interceptor interface {
 	Streaming() bool
 	// TraceAttributes returns tracing attributes for this [Interceptor]
 	TraceAttributes(*http.Request) []attribute.KeyValue
+	// ProviderName returns the provider name for this interception.
+	ProviderName() string
 	// CorrelatingToolCallID returns the ID of a tool call result submitted
 	// in the request, if present. This is used to correlate the current
 	// interception back to the previous interception that issued those tool

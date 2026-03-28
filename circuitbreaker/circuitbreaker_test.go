@@ -24,7 +24,7 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
-	}, func(endpoint, model string, from, to gobreaker.State) {}, nil)
+	}, func(providerName, endpoint, model string, from, to gobreaker.State) {}, nil)
 
 	endpoint := "/v1/messages"
 	sonnetModel := "claude-sonnet-4-20250514"
@@ -32,7 +32,7 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 
 	// Trip circuit on sonnet model (returns 429)
 	w := httptest.NewRecorder()
-	err := cbs.Execute(endpoint, sonnetModel, w, func(rw http.ResponseWriter) error {
+	err := cbs.Execute(config.ProviderAnthropic, endpoint, sonnetModel, w, func(rw http.ResponseWriter) error {
 		sonnetCalls.Add(1)
 		rw.WriteHeader(http.StatusTooManyRequests)
 		return nil
@@ -42,7 +42,7 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 
 	// Second sonnet request should be blocked by circuit breaker
 	w = httptest.NewRecorder()
-	err = cbs.Execute(endpoint, sonnetModel, w, func(rw http.ResponseWriter) error {
+	err = cbs.Execute(config.ProviderAnthropic, endpoint, sonnetModel, w, func(rw http.ResponseWriter) error {
 		sonnetCalls.Add(1)
 		rw.WriteHeader(http.StatusOK)
 		return nil
@@ -53,7 +53,7 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 
 	// Haiku model on same endpoint should still work (independent circuit)
 	w = httptest.NewRecorder()
-	err = cbs.Execute(endpoint, haikuModel, w, func(rw http.ResponseWriter) error {
+	err = cbs.Execute(config.ProviderAnthropic, endpoint, haikuModel, w, func(rw http.ResponseWriter) error {
 		haikuCalls.Add(1)
 		rw.WriteHeader(http.StatusOK)
 		return nil
@@ -73,13 +73,13 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
-	}, func(endpoint, model string, from, to gobreaker.State) {}, nil)
+	}, func(providerName, endpoint, model string, from, to gobreaker.State) {}, nil)
 
 	model := "test-model"
 
 	// Trip circuit on /v1/messages endpoint (returns 429)
 	w := httptest.NewRecorder()
-	err := cbs.Execute("/v1/messages", model, w, func(rw http.ResponseWriter) error {
+	err := cbs.Execute(config.ProviderAnthropic, "/v1/messages", model, w, func(rw http.ResponseWriter) error {
 		messagesCalls.Add(1)
 		rw.WriteHeader(http.StatusTooManyRequests)
 		return nil
@@ -89,7 +89,7 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 
 	// Second /v1/messages request should be blocked
 	w = httptest.NewRecorder()
-	err = cbs.Execute("/v1/messages", model, w, func(rw http.ResponseWriter) error {
+	err = cbs.Execute(config.ProviderAnthropic, "/v1/messages", model, w, func(rw http.ResponseWriter) error {
 		messagesCalls.Add(1)
 		rw.WriteHeader(http.StatusOK)
 		return nil
@@ -100,7 +100,7 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 
 	// /v1/chat/completions on same model should still work (different endpoint)
 	w = httptest.NewRecorder()
-	err = cbs.Execute("/v1/chat/completions", model, w, func(rw http.ResponseWriter) error {
+	err = cbs.Execute(config.ProviderOpenAI, "/v1/chat/completions", model, w, func(rw http.ResponseWriter) error {
 		completionsCalls.Add(1)
 		rw.WriteHeader(http.StatusOK)
 		return nil
@@ -123,11 +123,11 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 		IsFailure: func(statusCode int) bool {
 			return statusCode == http.StatusBadGateway
 		},
-	}, func(endpoint, model string, from, to gobreaker.State) {}, nil)
+	}, func(providerName, endpoint, model string, from, to gobreaker.State) {}, nil)
 
 	// First request returns 502, trips circuit
 	w := httptest.NewRecorder()
-	err := cbs.Execute("/v1/messages", "test-model", w, func(rw http.ResponseWriter) error {
+	err := cbs.Execute(config.ProviderAnthropic, "/v1/messages", "test-model", w, func(rw http.ResponseWriter) error {
 		calls.Add(1)
 		rw.WriteHeader(http.StatusBadGateway)
 		return nil
@@ -137,7 +137,7 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 
 	// Second request should be blocked
 	w = httptest.NewRecorder()
-	err = cbs.Execute("/v1/messages", "test-model", w, func(rw http.ResponseWriter) error {
+	err = cbs.Execute(config.ProviderAnthropic, "/v1/messages", "test-model", w, func(rw http.ResponseWriter) error {
 		calls.Add(1)
 		rw.WriteHeader(http.StatusOK)
 		return nil
@@ -151,10 +151,11 @@ func TestExecute_OnStateChange(t *testing.T) {
 	t.Parallel()
 
 	var stateChanges []struct {
-		endpoint string
-		model    string
-		from     gobreaker.State
-		to       gobreaker.State
+		providerName string
+		endpoint     string
+		model        string
+		from         gobreaker.State
+		to           gobreaker.State
 	}
 
 	cbs := NewProviderCircuitBreakers("test", &config.CircuitBreaker{
@@ -162,13 +163,14 @@ func TestExecute_OnStateChange(t *testing.T) {
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
 		MaxRequests:      1,
-	}, func(endpoint, model string, from, to gobreaker.State) {
+	}, func(providerName, endpoint, model string, from, to gobreaker.State) {
 		stateChanges = append(stateChanges, struct {
-			endpoint string
-			model    string
-			from     gobreaker.State
-			to       gobreaker.State
-		}{endpoint, model, from, to})
+			providerName string
+			endpoint     string
+			model        string
+			from         gobreaker.State
+			to           gobreaker.State
+		}{providerName, endpoint, model, from, to})
 	}, nil)
 
 	endpoint := "/v1/messages"
@@ -176,13 +178,14 @@ func TestExecute_OnStateChange(t *testing.T) {
 
 	// Trip circuit
 	w := httptest.NewRecorder()
-	cbs.Execute(endpoint, model, w, func(rw http.ResponseWriter) error {
+	cbs.Execute(config.ProviderAnthropic, endpoint, model, w, func(rw http.ResponseWriter) error {
 		rw.WriteHeader(http.StatusTooManyRequests)
 		return nil
 	})
 
 	// Verify state change callback was called with correct parameters
 	assert.Len(t, stateChanges, 1)
+	assert.Equal(t, config.ProviderAnthropic, stateChanges[0].providerName)
 	assert.Equal(t, endpoint, stateChanges[0].endpoint)
 	assert.Equal(t, model, stateChanges[0].model)
 	assert.Equal(t, gobreaker.StateClosed, stateChanges[0].from)

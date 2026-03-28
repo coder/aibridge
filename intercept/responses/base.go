@@ -36,7 +36,8 @@ const (
 )
 
 type responsesInterceptionBase struct {
-	id uuid.UUID
+	id           uuid.UUID
+	providerName string
 	// clientHeaders are the original HTTP headers from the client request.
 	clientHeaders  http.Header
 	authHeaderName string
@@ -71,7 +72,7 @@ func (i *responsesInterceptionBase) newResponsesService() responses.ResponseServ
 	}
 
 	// Add API dump middleware if configured
-	if mw := apidump.NewBridgeMiddleware(i.cfg.APIDumpDir, config.ProviderOpenAI, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
+	if mw := apidump.NewBridgeMiddleware(i.cfg.APIDumpDir, i.ProviderName(), i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))
 	}
 
@@ -80,6 +81,10 @@ func (i *responsesInterceptionBase) newResponsesService() responses.ResponseServ
 
 func (i *responsesInterceptionBase) ID() uuid.UUID {
 	return i.id
+}
+
+func (i *responsesInterceptionBase) ProviderName() string {
+	return i.providerName
 }
 
 func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
@@ -101,7 +106,7 @@ func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streami
 		attribute.String(tracing.RequestPath, r.URL.Path),
 		attribute.String(tracing.InterceptionID, i.id.String()),
 		attribute.String(tracing.InitiatorID, aibcontext.ActorIDFromContext(r.Context())),
-		attribute.String(tracing.Provider, config.ProviderOpenAI),
+		attribute.String(tracing.Provider, i.ProviderName()),
 		attribute.String(tracing.Model, i.Model()),
 		attribute.Bool(tracing.Streaming, streaming),
 	}

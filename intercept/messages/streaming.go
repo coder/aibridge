@@ -37,6 +37,7 @@ type StreamingInterception struct {
 func NewStreamingInterceptor(
 	id uuid.UUID,
 	reqPayload MessagesRequestPayload,
+	providerName string,
 	cfg config.Anthropic,
 	bedrockCfg *config.AWSBedrock,
 	clientHeaders http.Header,
@@ -45,6 +46,7 @@ func NewStreamingInterceptor(
 ) *StreamingInterception {
 	return &StreamingInterception{interceptionBase: interceptionBase{
 		id:             id,
+		providerName:   providerName,
 		reqPayload:     reqPayload,
 		cfg:            cfg,
 		bedrockCfg:     bedrockCfg,

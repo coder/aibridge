@@ -73,7 +73,7 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 		// Create per-provider circuit breaker if configured
 		cfg := prov.CircuitBreakerConfig()
 		providerName := prov.Name()
-		onChange := func(endpoint, model string, from, to gobreaker.State) {
+		onChange := func(providerName, endpoint, model string, from, to gobreaker.State) {
 			logger.Info(context.Background(), "circuit breaker state change",
 				slog.F("provider", providerName),
 				slog.F("endpoint", endpoint),
@@ -165,10 +165,12 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			return
 		}
 
+		providerName := interceptor.ProviderName()
+
 		if m != nil {
 			start := time.Now()
 			defer func() {
-				m.InterceptionDuration.WithLabelValues(p.Name(), interceptor.Model()).Observe(time.Since(start).Seconds())
+				m.InterceptionDuration.WithLabelValues(providerName, interceptor.Model()).Observe(time.Since(start).Seconds())
 			}()
 		}
 
@@ -187,7 +189,7 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		// Record usage in the background to not block request flow.
 		asyncRecorder := recorder.NewAsyncRecorder(logger, rec, recordingTimeout)
 		asyncRecorder.WithMetrics(m)
-		asyncRecorder.WithProvider(p.Name())
+		asyncRecorder.WithProvider(providerName)
 		asyncRecorder.WithModel(interceptor.Model())
 		asyncRecorder.WithInitiatorID(actor.ID)
 		asyncRecorder.WithClient(string(client))
@@ -198,7 +200,7 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			InitiatorID:           actor.ID,
 			Metadata:              actor.Metadata,
 			Model:                 interceptor.Model(),
-			Provider:              p.Name(),
+			Provider:              providerName,
 			UserAgent:             r.UserAgent(),
 			Client:                string(client),
 			ClientSessionID:       sessionID,
@@ -213,7 +215,7 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		route := strings.TrimPrefix(r.URL.Path, fmt.Sprintf("/%s", p.Name()))
 		log := logger.With(
 			slog.F("route", route),
-			slog.F("provider", p.Name()),
+			slog.F("provider", providerName),
 			slog.F("interception_id", interceptor.ID()),
 			slog.F("user_agent", r.UserAgent()),
 			slog.F("streaming", interceptor.Streaming()),
@@ -221,24 +223,24 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 
 		log.Debug(ctx, "interception started")
 		if m != nil {
-			m.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Add(1)
+			m.InterceptionsInflight.WithLabelValues(providerName, interceptor.Model(), route).Add(1)
 			defer func() {
-				m.InterceptionsInflight.WithLabelValues(p.Name(), interceptor.Model(), route).Sub(1)
+				m.InterceptionsInflight.WithLabelValues(providerName, interceptor.Model(), route).Sub(1)
 			}()
 		}
 
 		// Process request with circuit breaker protection if configured
-		if err := cbs.Execute(route, interceptor.Model(), w, func(rw http.ResponseWriter) error {
+		if err := cbs.Execute(providerName, route, interceptor.Model(), w, func(rw http.ResponseWriter) error {
 			return interceptor.ProcessRequest(rw, r)
 		}); err != nil {
 			if m != nil {
-				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID, string(client)).Add(1)
+				m.InterceptionCount.WithLabelValues(providerName, interceptor.Model(), metrics.InterceptionCountStatusFailed, route, r.Method, actor.ID, string(client)).Add(1)
 			}
 			span.SetStatus(codes.Error, fmt.Sprintf("interception failed: %v", err))
 			log.Warn(ctx, "interception failed", slog.Error(err))
 		} else {
 			if m != nil {
-				m.InterceptionCount.WithLabelValues(p.Name(), interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID, string(client)).Add(1)
+				m.InterceptionCount.WithLabelValues(providerName, interceptor.Model(), metrics.InterceptionCountStatusCompleted, route, r.Method, actor.ID, string(client)).Add(1)
 			}
 			log.Debug(ctx, "interception ended")
 		}

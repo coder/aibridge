@@ -31,6 +31,7 @@ type BlockingInterception struct {
 func NewBlockingInterceptor(
 	id uuid.UUID,
 	req *ChatCompletionNewParamsWrapper,
+	providerName string,
 	cfg config.OpenAI,
 	clientHeaders http.Header,
 	authHeaderName string,
@@ -38,6 +39,7 @@ func NewBlockingInterceptor(
 ) *BlockingInterception {
 	return &BlockingInterception{interceptionBase: interceptionBase{
 		id:             id,
+		providerName:   providerName,
 		req:            req,
 		cfg:            cfg,
 		clientHeaders:  clientHeaders,
