@@ -26,9 +26,11 @@ import (
 )
 
 const (
-	pathAnthropicMessages     = "/anthropic/v1/messages"
-	pathOpenAIChatCompletions = "/openai/v1/chat/completions"
-	pathOpenAIResponses       = "/openai/v1/responses"
+	pathAnthropicMessages      = "/anthropic/v1/messages"
+	pathOpenAIChatCompletions  = "/openai/v1/chat/completions"
+	pathOpenAIResponses        = "/openai/v1/responses"
+	pathCopilotChatCompletions = "/copilot/chat/completions"
+	pathCopilotResponses       = "/copilot/responses"
 
 	// providerBedrock identifies a Bedrock provider in [withProvider].
 	// other providers use config.Provider* constants.

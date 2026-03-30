@@ -63,8 +63,9 @@ var bedrockSupportedBetaFlags = map[string]bool{
 }
 
 type interceptionBase struct {
-	id         uuid.UUID
-	reqPayload MessagesRequestPayload
+	id           uuid.UUID
+	providerName string
+	reqPayload   MessagesRequestPayload
 
 	cfg        aibconfig.Anthropic
 	bedrockCfg *aibconfig.AWSBedrock
@@ -115,7 +116,7 @@ func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) 
 		attribute.String(tracing.RequestPath, r.URL.Path),
 		attribute.String(tracing.InterceptionID, s.id.String()),
 		attribute.String(tracing.InitiatorID, aibcontext.ActorIDFromContext(r.Context())),
-		attribute.String(tracing.Provider, aibconfig.ProviderAnthropic),
+		attribute.String(tracing.Provider, s.providerName),
 		attribute.String(tracing.Model, s.Model()),
 		attribute.Bool(tracing.Streaming, streaming),
 		attribute.Bool(tracing.IsBedrock, s.bedrockCfg != nil),
@@ -232,7 +233,7 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 	}
 
 	// Add API dump middleware if configured
-	if mw := apidump.NewBridgeMiddleware(i.cfg.APIDumpDir, aibconfig.ProviderAnthropic, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
+	if mw := apidump.NewBridgeMiddleware(i.cfg.APIDumpDir, i.providerName, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
 		opts = append(opts, option.WithMiddleware(mw))
 	}
 

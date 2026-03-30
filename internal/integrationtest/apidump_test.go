@@ -25,10 +25,12 @@ func TestAPIDump(t *testing.T) {
 	t.Parallel()
 
 	cases := []struct {
-		name         string
-		fixture      []byte
-		providerFunc func(addr, dumpDir string) aibridge.Provider
-		path         string
+		name              string
+		fixture           []byte
+		providerFunc      func(addr, dumpDir string) aibridge.Provider
+		path              string
+		headers           http.Header
+		expectProviderDir string
 	}{
 		{
 			name:    "anthropic",
@@ -36,7 +38,8 @@ func TestAPIDump(t *testing.T) {
 			providerFunc: func(addr, dumpDir string) aibridge.Provider {
 				return provider.NewAnthropic(anthropicCfgWithAPIDump(addr, apiKey, dumpDir), nil)
 			},
-			path: pathAnthropicMessages,
+			path:              pathAnthropicMessages,
+			expectProviderDir: config.ProviderAnthropic,
 		},
 		{
 			name:    "openai_chat_completions",
@@ -44,7 +47,8 @@ func TestAPIDump(t *testing.T) {
 			providerFunc: func(addr, dumpDir string) aibridge.Provider {
 				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
-			path: pathOpenAIChatCompletions,
+			path:              pathOpenAIChatCompletions,
+			expectProviderDir: config.ProviderOpenAI,
 		},
 		{
 			name:    "openai_responses",
@@ -52,7 +56,28 @@ func TestAPIDump(t *testing.T) {
 			providerFunc: func(addr, dumpDir string) aibridge.Provider {
 				return provider.NewOpenAI(openaiCfgWithAPIDump(addr, apiKey, dumpDir))
 			},
-			path: pathOpenAIResponses,
+			path:              pathOpenAIResponses,
+			expectProviderDir: config.ProviderOpenAI,
+		},
+		{
+			name:    "copilot_chat_completions",
+			fixture: fixtures.OaiChatSimple,
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewCopilot(config.Copilot{BaseURL: addr, APIDumpDir: dumpDir})
+			},
+			path:              pathCopilotChatCompletions,
+			headers:           http.Header{"Authorization": {"Bearer test-copilot-token"}},
+			expectProviderDir: config.ProviderCopilot,
+		},
+		{
+			name:    "copilot_responses",
+			fixture: fixtures.OaiResponsesBlockingSimple,
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewCopilot(config.Copilot{BaseURL: addr, APIDumpDir: dumpDir})
+			},
+			path:              pathCopilotResponses,
+			headers:           http.Header{"Authorization": {"Bearer test-copilot-token"}},
+			expectProviderDir: config.ProviderCopilot,
 		},
 	}
 
@@ -74,7 +99,7 @@ func TestAPIDump(t *testing.T) {
 				withCustomProvider(tc.providerFunc(srv.URL, dumpDir)),
 			)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			_, err := io.ReadAll(resp.Body)
 			require.NoError(t, err)
@@ -106,6 +131,12 @@ func TestAPIDump(t *testing.T) {
 			require.NoError(t, err)
 			require.NotEmpty(t, reqDumpFile, "request dump file should exist")
 			require.NotEmpty(t, respDumpFile, "response dump file should exist")
+
+			// Verify dump files are in the correct provider subdirectory.
+			require.Contains(t, reqDumpFile, filepath.Join(dumpDir, tc.expectProviderDir)+"/",
+				"request dump should be in the %s provider directory", tc.expectProviderDir)
+			require.Contains(t, respDumpFile, filepath.Join(dumpDir, tc.expectProviderDir)+"/",
+				"response dump should be in the %s provider directory", tc.expectProviderDir)
 
 			// Verify request dump contains expected HTTP request format.
 			reqDumpData, err := os.ReadFile(reqDumpFile)
