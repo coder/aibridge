@@ -62,7 +62,7 @@ func TestPassthroughRoutesForProviders(t *testing.T) {
 			name:        "copilot_no_base_path",
 			requestPath: "/copilot/models",
 			provider: func(baseURL string) provider.Provider {
-				return NewCopilotProvider(config.Copilot{BaseURL: baseURL})
+				return NewCopilotProvider(config.Copilot{DefaultUpstreamURL: baseURL})
 			},
 			expectPath: "/models",
 		},
@@ -71,7 +71,7 @@ func TestPassthroughRoutesForProviders(t *testing.T) {
 			baseURLPath: "/v1",
 			requestPath: "/copilot/models",
 			provider: func(baseURL string) provider.Provider {
-				return NewCopilotProvider(config.Copilot{BaseURL: baseURL})
+				return NewCopilotProvider(config.Copilot{DefaultUpstreamURL: baseURL})
 			},
 			expectPath: "/v1/models",
 		},

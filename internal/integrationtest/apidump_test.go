@@ -170,7 +170,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		{
 			name: "copilot",
 			providerFunc: func(addr string, dumpDir string) aibridge.Provider {
-				return provider.NewCopilot(config.Copilot{BaseURL: addr, APIDumpDir: dumpDir})
+				return provider.NewCopilot(config.Copilot{DefaultUpstreamURL: addr, APIDumpDir: dumpDir})
 			},
 			requestPath:    "/copilot/models",
 			expectDumpName: "-models-",

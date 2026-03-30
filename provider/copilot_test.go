@@ -12,6 +12,7 @@ import (
 	"go.opentelemetry.io/otel"
 
 	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/internal/testutil"
 )
 
@@ -145,7 +146,7 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 
 		// Create provider with mock upstream URL
 		provider := NewCopilot(config.Copilot{
-			BaseURL: mockUpstream.URL,
+			DefaultUpstreamURL: mockUpstream.URL,
 		})
 
 		body := `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`
@@ -236,7 +237,7 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 
 		// Create provider with mock upstream URL
 		provider := NewCopilot(config.Copilot{
-			BaseURL: mockUpstream.URL,
+			DefaultUpstreamURL: mockUpstream.URL,
 		})
 
 		body := `{"model": "gpt-5-mini", "input": "hello", "stream": false}`
@@ -322,6 +323,66 @@ func TestExtractCopilotHeaders(t *testing.T) {
 
 			result := extractCopilotHeaders(req)
 			assert.Equal(t, tc.expected, result)
+		})
+	}
+}
+
+func TestCopilot_ResolveUpstream(t *testing.T) {
+	t.Parallel()
+
+	provider := NewCopilot(config.Copilot{})
+
+	tests := []struct {
+		name       string
+		host       string
+		expectName string
+		expectURL  string
+	}{
+		{
+			name:       "no_header_returns_default",
+			host:       "",
+			expectName: config.ProviderCopilot,
+			expectURL:  copilotIndividualUpstreamURL,
+		},
+		{
+			name:       "individual",
+			host:       "api.individual.githubcopilot.com",
+			expectName: "copilot-individual",
+			expectURL:  copilotIndividualUpstreamURL,
+		},
+		{
+			name:       "business",
+			host:       "api.business.githubcopilot.com",
+			expectName: "copilot-business",
+			expectURL:  copilotBusinessUpstreamURL,
+		},
+		{
+			name:       "enterprise",
+			host:       "api.enterprise.githubcopilot.com",
+			expectName: "copilot-enterprise",
+			expectURL:  copilotEnterpriseUpstreamURL,
+		},
+		{
+			name:       "unknown_host_returns_default",
+			host:       "unknown.example.com",
+			expectName: config.ProviderCopilot,
+			expectURL:  copilotIndividualUpstreamURL,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			req := httptest.NewRequest(http.MethodPost, "/", nil)
+			if tc.host != "" {
+				ctx := aibcontext.WithOriginalHost(req.Context(), tc.host)
+				req = req.WithContext(ctx)
+			}
+
+			upstream := provider.ResolveUpstream(req)
+			assert.Equal(t, tc.expectName, upstream.Name)
+			assert.Equal(t, tc.expectURL, upstream.URL)
 		})
 	}
 }

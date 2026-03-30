@@ -44,6 +44,10 @@ func AsActor(ctx context.Context, actorID string, metadata recorder.Metadata) co
 	return aibcontext.AsActor(ctx, actorID, metadata)
 }
 
+func WithOriginalHost(ctx context.Context, host string) context.Context {
+	return aibcontext.WithOriginalHost(ctx, host)
+}
+
 func NewAnthropicProvider(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) provider.Provider {
 	return provider.NewAnthropic(cfg, bedrockCfg)
 }

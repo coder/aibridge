@@ -77,7 +77,9 @@ func DefaultCircuitBreaker() CircuitBreaker {
 }
 
 type Copilot struct {
-	BaseURL        string
-	APIDumpDir     string
-	CircuitBreaker *CircuitBreaker
+	// DefaultUpstreamURL is the fallback upstream URL when no upstream
+	// header is provided in the request.
+	DefaultUpstreamURL string
+	APIDumpDir         string
+	CircuitBreaker     *CircuitBreaker
 }

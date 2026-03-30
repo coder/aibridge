@@ -7,7 +7,8 @@ import (
 )
 
 type (
-	actorContextKey struct{}
+	actorContextKey        struct{}
+	originalHostContextKey struct{}
 )
 
 type Actor struct {
@@ -26,6 +27,18 @@ func ActorFromContext(ctx context.Context) *Actor {
 	}
 
 	return a
+}
+
+// WithOriginalHost stores the original destination host in the context.
+func WithOriginalHost(ctx context.Context, host string) context.Context {
+	return context.WithValue(ctx, originalHostContextKey{}, host)
+}
+
+// OriginalHostFromContext retrieves the original destination host from the context.
+// Returns an empty string if not set.
+func OriginalHostFromContext(ctx context.Context) string {
+	h, _ := ctx.Value(originalHostContextKey{}).(string)
+	return h
 }
 
 // ActorIDFromContext safely extracts the actor ID from the context.

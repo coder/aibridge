@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/coder/aibridge/config"
+	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/chatcompletions"
 	"github.com/coder/aibridge/intercept/responses"
@@ -20,12 +21,21 @@ import (
 )
 
 const (
-	copilotBaseURL = "https://api.individual.githubcopilot.com"
+	copilotIndividualUpstreamURL = "https://api.individual.githubcopilot.com"
+	copilotBusinessUpstreamURL   = "https://api.business.githubcopilot.com"
+	copilotEnterpriseUpstreamURL = "https://api.enterprise.githubcopilot.com"
 
 	// Copilot exposes an OpenAI-compatible API, including for Anthropic models.
 	routeCopilotChatCompletions = "/chat/completions"
 	routeCopilotResponses       = "/responses"
 )
+
+// copilotUpstreams maps upstream URLs to their names.
+var copilotUpstreams = map[string]string{
+	copilotIndividualUpstreamURL: "individual",
+	copilotBusinessUpstreamURL:   "business",
+	copilotEnterpriseUpstreamURL: "enterprise",
+}
 
 var copilotOpenErrorResponse = func() []byte {
 	return []byte(`{"error":{"message":"circuit breaker is open","type":"server_error","code":"service_unavailable"}}`)
@@ -52,8 +62,8 @@ type Copilot struct {
 var _ Provider = &Copilot{}
 
 func NewCopilot(cfg config.Copilot) *Copilot {
-	if cfg.BaseURL == "" {
-		cfg.BaseURL = copilotBaseURL
+	if cfg.DefaultUpstreamURL == "" {
+		cfg.DefaultUpstreamURL = copilotIndividualUpstreamURL
 	}
 	if cfg.APIDumpDir == "" {
 		cfg.APIDumpDir = os.Getenv("BRIDGE_DUMP_DIR")
@@ -72,11 +82,25 @@ func (p *Copilot) Name() string {
 }
 
 func (p *Copilot) BaseURL() string {
-	return p.cfg.BaseURL
+	return p.cfg.DefaultUpstreamURL
 }
 
-func (p *Copilot) ResolveUpstream(_ *http.Request) intercept.ResolvedUpstream {
-	return intercept.ResolvedUpstream{Name: p.Name(), URL: p.cfg.BaseURL}
+// ResolveUpstream determines the Copilot upstream based on the original
+// destination host stored in the request context by coder. The host is
+// mapped to a known upstream URL and name.
+// If the host is absent or unknown, it falls back to the configured
+// default upstream URL.
+func (p *Copilot) ResolveUpstream(r *http.Request) intercept.ResolvedUpstream {
+	if host := aibcontext.OriginalHostFromContext(r.Context()); host != "" {
+		upstreamURL := "https://" + host
+		if name, ok := copilotUpstreams[upstreamURL]; ok {
+			return intercept.ResolvedUpstream{
+				Name: config.ProviderCopilot + "-" + name,
+				URL:  upstreamURL,
+			}
+		}
+	}
+	return intercept.ResolvedUpstream{Name: p.Name(), URL: p.cfg.DefaultUpstreamURL}
 }
 
 func (p *Copilot) RoutePrefix() string {
@@ -119,6 +143,11 @@ func (p *Copilot) APIDumpDir() string {
 }
 
 func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ intercept.Interceptor, outErr error) {
+	fmt.Println("################### aibridge copilot CreateInterceptor headers received:")
+	for k, v := range r.Header {
+		fmt.Printf("  %s: %s\n", k, v)
+	}
+
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
 	defer tracing.EndSpanErr(span, &outErr)
 
