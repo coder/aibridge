@@ -113,8 +113,10 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	//
 	// In BYOK mode the user's credential is in Authorization. Replace
 	// the centralized key with it so it is forwarded upstream.
+	credKind := intercept.CredentialKindCentralized
 	if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
 		cfg.Key = token
+		credKind = intercept.CredentialKindPersonalAPIKey
 	}
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
@@ -150,6 +152,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		span.SetStatus(codes.Error, "unknown route: "+r.URL.Path)
 		return nil, UnknownRoute
 	}
+	interceptor.SetCredential(credKind, utils.MaskSecret(cfg.Key))
 	span.SetAttributes(interceptor.TraceAttributes(r)...)
 	return interceptor, nil
 }

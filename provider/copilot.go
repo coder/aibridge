@@ -182,6 +182,7 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		return nil, UnknownRoute
 	}
 
+	interceptor.SetCredential(intercept.CredentialKindSubscription, utils.MaskSecret(key))
 	span.SetAttributes(interceptor.TraceAttributes(r)...)
 	return interceptor, nil
 }

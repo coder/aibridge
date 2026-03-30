@@ -40,6 +40,8 @@ type interceptionBase struct {
 
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
+
+	intercept.CredentialFields
 }
 
 func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService {

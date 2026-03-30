@@ -25,6 +25,15 @@ type Interceptor interface {
 	Streaming() bool
 	// TraceAttributes returns tracing attributes for this [Interceptor]
 	TraceAttributes(*http.Request) []attribute.KeyValue
+	// SetCredential sets the credential kind and hint for this
+	// interception. Called by the provider after construction.
+	SetCredential(kind, hint string)
+	// CredentialKind returns how the request was authenticated:
+	// centralized, personal_api_key, or subscription.
+	CredentialKind() string
+	// CredentialHint returns a masked credential identifier for audit
+	// purposes (e.g. sk-a...abc1).
+	CredentialHint() string
 	// CorrelatingToolCallID returns the ID of a tool call result submitted
 	// in the request, if present. This is used to correlate the current
 	// interception back to the previous interception that issued those tool

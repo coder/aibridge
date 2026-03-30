@@ -49,6 +49,8 @@ type responsesInterceptionBase struct {
 
 	logger slog.Logger
 	tracer trace.Tracer
+
+	intercept.CredentialFields
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {

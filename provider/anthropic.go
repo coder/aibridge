@@ -130,14 +130,20 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		// set BYOKBearerToken and clear the centralized key.
 		// When both are present, X-Api-Key takes priority to match
 		// claude-code behavior.
+		credKind := intercept.CredentialKindCentralized
+		credHint := utils.MaskSecret(cfg.Key)
 		authHeaderName := p.AuthHeader()
 		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 			cfg.Key = apiKey
 			authHeaderName = "X-Api-Key"
+			credKind = intercept.CredentialKindPersonalAPIKey
+			credHint = utils.MaskSecret(apiKey)
 		} else if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
 			cfg.BYOKBearerToken = token
 			cfg.Key = ""
 			authHeaderName = "Authorization"
+			credKind = intercept.CredentialKindSubscription
+			credHint = utils.MaskSecret(token)
 		}
 
 		var interceptor intercept.Interceptor
@@ -146,6 +152,7 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		} else {
 			interceptor = messages.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
 		}
+		interceptor.SetCredential(credKind, credHint)
 		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
 	}
