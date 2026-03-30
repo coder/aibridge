@@ -57,6 +57,19 @@ type RequestBridge struct {
 
 var _ http.Handler = &RequestBridge{}
 
+// validateProviders checks that no two providers share the same name.
+func validateProviders(providers []provider.Provider) error {
+	names := make(map[string]bool, len(providers))
+	for _, prov := range providers {
+		if names[prov.Name()] {
+			return fmt.Errorf("duplicate provider name: %q", prov.Name())
+		}
+		names[prov.Name()] = true
+	}
+	// TODO(ssncferreira): validate duplicate baseURLs as well
+	return nil
+}
+
 // NewRequestBridge creates a new *[RequestBridge] and registers the HTTP routes defined by the given providers.
 // Any routes which are requested but not registered will be reverse-proxied to the upstream service.
 //
@@ -67,6 +80,10 @@ var _ http.Handler = &RequestBridge{}
 // Circuit breaker configuration is obtained from each provider's CircuitBreakerConfig() method.
 // Providers returning nil will not have circuit breaker protection.
 func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec recorder.Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) (*RequestBridge, error) {
+	if err := validateProviders(providers); err != nil {
+		return nil, err
+	}
+
 	mux := http.NewServeMux()
 
 	for _, prov := range providers {
