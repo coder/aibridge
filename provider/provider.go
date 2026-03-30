@@ -44,7 +44,11 @@ var UnknownRoute = errors.New("unknown route")
 // OpenAI includes the version '/v1' in the base url while Anthropic does not.
 // More details/examples: https://github.com/coder/aibridge/pull/174#discussion_r2782320152
 type Provider interface {
-	// Name returns the provider's name.
+	// Type returns the provider type: "copilot", "openai", or "anthropic".
+	// Multiple provider instances can share the same type.
+	Type() string
+	// Name returns the provider instance name.
+	// Defaults to Type() when not explicitly configured.
 	Name() string
 	// BaseURL defines the base URL endpoint for this provider's API.
 	BaseURL() string

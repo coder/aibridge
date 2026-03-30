@@ -52,6 +52,9 @@ type Copilot struct {
 var _ Provider = &Copilot{}
 
 func NewCopilot(cfg config.Copilot) *Copilot {
+	if cfg.Name == "" {
+		cfg.Name = config.ProviderCopilot
+	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = copilotBaseURL
 	}
@@ -67,8 +70,12 @@ func NewCopilot(cfg config.Copilot) *Copilot {
 	}
 }
 
-func (p *Copilot) Name() string {
+func (p *Copilot) Type() string {
 	return config.ProviderCopilot
+}
+
+func (p *Copilot) Name() string {
+	return p.cfg.Name
 }
 
 func (p *Copilot) BaseURL() string {

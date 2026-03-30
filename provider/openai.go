@@ -37,6 +37,9 @@ type OpenAI struct {
 var _ Provider = &OpenAI{}
 
 func NewOpenAI(cfg config.OpenAI) *OpenAI {
+	if cfg.Name == "" {
+		cfg.Name = config.ProviderOpenAI
+	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.openai.com/v1/"
 	}
@@ -56,8 +59,12 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	}
 }
 
-func (p *OpenAI) Name() string {
+func (p *OpenAI) Type() string {
 	return config.ProviderOpenAI
+}
+
+func (p *OpenAI) Name() string {
+	return p.cfg.Name
 }
 
 func (p *OpenAI) RoutePrefix() string {

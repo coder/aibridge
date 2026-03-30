@@ -17,6 +17,7 @@ type MockProvider struct {
 	InterceptorFunc func(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (intercept.Interceptor, error)
 }
 
+func (m *MockProvider) Type() string                                 { return m.Name_ }
 func (m *MockProvider) Name() string                                 { return m.Name_ }
 func (m *MockProvider) BaseURL() string                              { return m.URL }
 func (m *MockProvider) RoutePrefix() string                          { return fmt.Sprintf("/%s", m.Name_) }
