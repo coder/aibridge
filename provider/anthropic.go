@@ -1,8 +1,6 @@
 package provider
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -102,8 +100,9 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		if err != nil {
 			return nil, fmt.Errorf("read body: %w", err)
 		}
-		var req messages.MessageNewParamsWrapper
-		if err := json.NewDecoder(bytes.NewReader(payload)).Decode(&req); err != nil {
+
+		reqPayload, err := messages.NewMessagesRequestPayload(payload)
+		if err != nil {
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 
@@ -111,10 +110,10 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		cfg.ExtraHeaders = extractAnthropicHeaders(r)
 
 		var interceptor intercept.Interceptor
-		if req.Stream {
-			interceptor = messages.NewStreamingInterceptor(id, &req, payload, cfg, p.bedrockCfg, tracer)
+		if reqPayload.Stream() {
+			interceptor = messages.NewStreamingInterceptor(id, reqPayload, cfg, p.bedrockCfg, tracer)
 		} else {
-			interceptor = messages.NewBlockingInterceptor(id, &req, payload, cfg, p.bedrockCfg, tracer)
+			interceptor = messages.NewBlockingInterceptor(id, reqPayload, cfg, p.bedrockCfg, tracer)
 		}
 		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
@@ -147,11 +146,11 @@ func (p *Anthropic) CircuitBreakerConfig() *config.CircuitBreaker {
 // extractAnthropicHeaders extracts headers required by the Anthropic API from
 // the incoming request.
 // TODO(ssncferreira): remove as part of https://github.com/coder/aibridge/issues/192
-func extractAnthropicHeaders(r *http.Request) map[string]string {
-	headers := make(map[string]string, len(anthropicForwardHeaders))
+func extractAnthropicHeaders(r *http.Request) http.Header {
+	headers := make(http.Header, len(anthropicForwardHeaders))
 	for _, h := range anthropicForwardHeaders {
-		if v := r.Header.Get(h); v != "" {
-			headers[h] = v
+		if values := r.Header.Values(h); len(values) > 0 {
+			headers[h] = values
 		}
 	}
 	return headers

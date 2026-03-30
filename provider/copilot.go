@@ -187,11 +187,11 @@ func extractBearerToken(auth string) string {
 
 // extractCopilotHeaders extracts headers required by the Copilot API from the
 // incoming request. Copilot requires certain client headers to be forwarded.
-func extractCopilotHeaders(r *http.Request) map[string]string {
-	headers := make(map[string]string, len(copilotForwardHeaders))
+func extractCopilotHeaders(r *http.Request) http.Header {
+	headers := make(http.Header, len(copilotForwardHeaders))
 	for _, h := range copilotForwardHeaders {
-		if v := r.Header.Get(h); v != "" {
-			headers[h] = v
+		if values := r.Header.Values(h); len(values) > 0 {
+			headers[h] = values
 		}
 	}
 	return headers

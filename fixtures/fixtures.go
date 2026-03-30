@@ -26,6 +26,9 @@ var (
 
 	//go:embed anthropic/non_stream_error.txtar
 	AntNonStreamError []byte
+
+	//go:embed anthropic/simple_bedrock.txtar
+	AntSimpleBedrock []byte
 )
 
 var (

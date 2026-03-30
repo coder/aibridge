@@ -2,14 +2,17 @@ package messages
 
 import (
 	"context"
+	"net/http"
 	"testing"
 
+	"cdr.dev/slog/v3"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/mcp"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 func TestAWSBedrockValidation(t *testing.T) {
@@ -310,28 +313,19 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 
 		// Request has existing tool with cache control, but no tools to inject.
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					Tools: []anthropic.ToolUnionParam{
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "existing_tool",
-								CacheControl: anthropic.CacheControlEphemeralParam{
-									Type: constant.ValueOf[constant.Ephemeral](),
-								},
-							},
-						},
-					},
-				},
-			},
+			reqPayload: mustMessagesPayload(t, `{"tools":[`+
+				`{"name":"existing_tool","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}}]}`),
 			mcpProxy: &mockServerProxier{tools: nil},
+			logger:   slog.Make(),
 		}
 
 		i.injectTools()
 
 		// Cache control should remain untouched since no tools were injected.
-		require.Len(t, i.req.Tools, 1)
-		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[0].OfTool.CacheControl.Type)
+		toolItems := gjson.GetBytes(i.reqPayload, "tools").Array()
+		require.Len(t, toolItems, 1)
+		require.Equal(t, "existing_tool", toolItems[0].Get("name").String())
+		require.Equal(t, string(constant.ValueOf[constant.Ephemeral]()), toolItems[0].Get("cache_control.type").String())
 	})
 
 	t.Run("cache control breakpoint is preserved by prepending injected tools", func(t *testing.T) {
@@ -339,36 +333,26 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 
 		// Request has existing tool with cache control.
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					Tools: []anthropic.ToolUnionParam{
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "existing_tool",
-								CacheControl: anthropic.CacheControlEphemeralParam{
-									Type: constant.ValueOf[constant.Ephemeral](),
-								},
-							},
-						},
-					},
-				},
-			},
+			reqPayload: mustMessagesPayload(t, `{"tools":[`+
+				`{"name":"existing_tool","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}}]}`),
 			mcpProxy: &mockServerProxier{
 				tools: []*mcp.Tool{
 					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
 				},
 			},
+			logger: slog.Make(),
 		}
 
 		i.injectTools()
 
-		require.Len(t, i.req.Tools, 2)
+		toolItems := gjson.GetBytes(i.reqPayload, "tools").Array()
+		require.Len(t, toolItems, 2)
 		// Injected tools are prepended.
-		require.Equal(t, "injected_tool", i.req.Tools[0].OfTool.Name)
-		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
+		require.Equal(t, "injected_tool", toolItems[0].Get("name").String())
+		require.Empty(t, toolItems[0].Get("cache_control.type").String())
 		// Original tool's cache control should be preserved at the end.
-		require.Equal(t, "existing_tool", i.req.Tools[1].OfTool.Name)
-		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[1].OfTool.CacheControl.Type)
+		require.Equal(t, "existing_tool", toolItems[1].Get("name").String())
+		require.Equal(t, string(constant.ValueOf[constant.Ephemeral]()), toolItems[1].Get("cache_control.type").String())
 	})
 
 	// The cache breakpoint SHOULD be on the final tool, but may not be; we must preserve that intention.
@@ -377,43 +361,29 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 
 		// Request has multiple tools with cache control breakpoints.
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					Tools: []anthropic.ToolUnionParam{
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "tool_with_cache_1",
-								CacheControl: anthropic.CacheControlEphemeralParam{
-									Type: constant.ValueOf[constant.Ephemeral](),
-								},
-							},
-						},
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "tool_with_cache_2",
-							},
-						},
-					},
-				},
-			},
+			reqPayload: mustMessagesPayload(t, `{"tools":[`+
+				`{"name":"tool_with_cache_1","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}},`+
+				`{"name":"tool_with_cache_2","type":"custom","input_schema":{"type":"object","properties":{}}}]}`),
 			mcpProxy: &mockServerProxier{
 				tools: []*mcp.Tool{
 					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
 				},
 			},
+			logger: slog.Make(),
 		}
 
 		i.injectTools()
 
-		require.Len(t, i.req.Tools, 3)
+		toolItems := gjson.GetBytes(i.reqPayload, "tools").Array()
+		require.Len(t, toolItems, 3)
 		// Injected tool is prepended without cache control.
-		require.Equal(t, "injected_tool", i.req.Tools[0].OfTool.Name)
-		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
+		require.Equal(t, "injected_tool", toolItems[0].Get("name").String())
+		require.Empty(t, toolItems[0].Get("cache_control.type").String())
 		// Both original tools' cache controls should remain.
-		require.Equal(t, "tool_with_cache_1", i.req.Tools[1].OfTool.Name)
-		require.Equal(t, constant.ValueOf[constant.Ephemeral](), i.req.Tools[1].OfTool.CacheControl.Type)
-		require.Equal(t, "tool_with_cache_2", i.req.Tools[2].OfTool.Name)
-		require.Zero(t, i.req.Tools[2].OfTool.CacheControl)
+		require.Equal(t, "tool_with_cache_1", toolItems[1].Get("name").String())
+		require.Equal(t, string(constant.ValueOf[constant.Ephemeral]()), toolItems[1].Get("cache_control.type").String())
+		require.Equal(t, "tool_with_cache_2", toolItems[2].Get("name").String())
+		require.Empty(t, toolItems[2].Get("cache_control.type").String())
 	})
 
 	t.Run("no cache control added when none originally set", func(t *testing.T) {
@@ -421,33 +391,26 @@ func TestInjectTools_CacheBreakpoints(t *testing.T) {
 
 		// Request has tools but none with cache control.
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					Tools: []anthropic.ToolUnionParam{
-						{
-							OfTool: &anthropic.ToolParam{
-								Name: "existing_tool_no_cache",
-							},
-						},
-					},
-				},
-			},
+			reqPayload: mustMessagesPayload(t, `{"tools":[`+
+				`{"name":"existing_tool_no_cache","type":"custom","input_schema":{"type":"object","properties":{}}}]}`),
 			mcpProxy: &mockServerProxier{
 				tools: []*mcp.Tool{
 					{ID: "injected_tool", Name: "injected", Description: "Injected tool"},
 				},
 			},
+			logger: slog.Make(),
 		}
 
 		i.injectTools()
 
-		require.Len(t, i.req.Tools, 2)
+		toolItems := gjson.GetBytes(i.reqPayload, "tools").Array()
+		require.Len(t, toolItems, 2)
 		// Injected tool is prepended without cache control.
-		require.Equal(t, "injected_tool", i.req.Tools[0].OfTool.Name)
-		require.Zero(t, i.req.Tools[0].OfTool.CacheControl)
+		require.Equal(t, "injected_tool", toolItems[0].Get("name").String())
+		require.Empty(t, toolItems[0].Get("cache_control.type").String())
 		// Original tool remains at the end without cache control.
-		require.Equal(t, "existing_tool_no_cache", i.req.Tools[1].OfTool.Name)
-		require.Zero(t, i.req.Tools[1].OfTool.CacheControl)
+		require.Equal(t, "existing_tool_no_cache", toolItems[1].Get("name").String())
+		require.Empty(t, toolItems[1].Get("cache_control.type").String())
 	})
 }
 
@@ -458,150 +421,293 @@ func TestInjectTools_ParallelToolCalls(t *testing.T) {
 		t.Parallel()
 
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfAuto: &anthropic.ToolChoiceAutoParam{
-							Type: constant.ValueOf[constant.Auto](),
-						},
-					},
-				},
-			},
-			mcpProxy: &mockServerProxier{tools: nil}, // No tools to inject.
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"auto"}}`),
+			mcpProxy:   &mockServerProxier{tools: nil}, // No tools to inject.
+			logger:     slog.Make(),
 		}
 
 		i.injectTools()
 
 		// Tool choice should remain unchanged - DisableParallelToolUse should not be set.
-		require.NotNil(t, i.req.ToolChoice.OfAuto)
-		require.False(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Valid())
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Auto]()), toolChoice.Get("type").String())
+		require.False(t, toolChoice.Get("disable_parallel_tool_use").Exists())
 	})
 
-	t.Run("disables parallel tool use for auto tool choice (default)", func(t *testing.T) {
+	t.Run("disables parallel tool use for empty tool choice (default)", func(t *testing.T) {
 		t.Parallel()
 
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					// No tool choice set (default).
-				},
-			},
+			reqPayload: mustMessagesPayload(t, `{}`),
 			mcpProxy: &mockServerProxier{
 				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
 			},
+			logger: slog.Make(),
 		}
 
 		i.injectTools()
 
-		require.NotNil(t, i.req.ToolChoice.OfAuto)
-		require.True(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Valid())
-		require.True(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Value)
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Auto]()), toolChoice.Get("type").String())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Bool())
 	})
 
 	t.Run("disables parallel tool use for explicit auto tool choice", func(t *testing.T) {
 		t.Parallel()
 
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfAuto: &anthropic.ToolChoiceAutoParam{
-							Type: constant.ValueOf[constant.Auto](),
-						},
-					},
-				},
-			},
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"auto"}}`),
 			mcpProxy: &mockServerProxier{
 				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
 			},
+			logger: slog.Make(),
 		}
 
 		i.injectTools()
 
-		require.NotNil(t, i.req.ToolChoice.OfAuto)
-		require.True(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Valid())
-		require.True(t, i.req.ToolChoice.OfAuto.DisableParallelToolUse.Value)
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Auto]()), toolChoice.Get("type").String())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Bool())
 	})
 
 	t.Run("disables parallel tool use for any tool choice", func(t *testing.T) {
 		t.Parallel()
 
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfAny: &anthropic.ToolChoiceAnyParam{
-							Type: constant.ValueOf[constant.Any](),
-						},
-					},
-				},
-			},
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"any"}}`),
 			mcpProxy: &mockServerProxier{
 				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
 			},
+			logger: slog.Make(),
 		}
 
 		i.injectTools()
 
-		require.NotNil(t, i.req.ToolChoice.OfAny)
-		require.True(t, i.req.ToolChoice.OfAny.DisableParallelToolUse.Valid())
-		require.True(t, i.req.ToolChoice.OfAny.DisableParallelToolUse.Value)
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Any]()), toolChoice.Get("type").String())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Bool())
 	})
 
 	t.Run("disables parallel tool use for tool choice type", func(t *testing.T) {
 		t.Parallel()
 
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfTool: &anthropic.ToolChoiceToolParam{
-							Type: constant.ValueOf[constant.Tool](),
-							Name: "specific_tool",
-						},
-					},
-				},
-			},
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"tool","name":"specific_tool"}}`),
 			mcpProxy: &mockServerProxier{
 				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
 			},
+			logger: slog.Make(),
 		}
 
 		i.injectTools()
 
-		require.NotNil(t, i.req.ToolChoice.OfTool)
-		require.True(t, i.req.ToolChoice.OfTool.DisableParallelToolUse.Valid())
-		require.True(t, i.req.ToolChoice.OfTool.DisableParallelToolUse.Value)
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.Tool]()), toolChoice.Get("type").String())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Exists())
+		require.True(t, toolChoice.Get("disable_parallel_tool_use").Bool())
 	})
 
 	t.Run("no-op for none tool choice type", func(t *testing.T) {
 		t.Parallel()
 
 		i := &interceptionBase{
-			req: &MessageNewParamsWrapper{
-				MessageNewParams: anthropic.MessageNewParams{
-					ToolChoice: anthropic.ToolChoiceUnionParam{
-						OfNone: &anthropic.ToolChoiceNoneParam{
-							Type: constant.ValueOf[constant.None](),
-						},
-					},
-				},
-			},
+			reqPayload: mustMessagesPayload(t, `{"tool_choice":{"type":"none"}}`),
 			mcpProxy: &mockServerProxier{
 				tools: []*mcp.Tool{{ID: "test_tool", Name: "test", Description: "Test"}},
 			},
+			logger: slog.Make(),
 		}
 
 		i.injectTools()
 
 		// Tools are still injected.
-		require.Len(t, i.req.Tools, 1)
+		require.Len(t, gjson.GetBytes(i.reqPayload, "tools").Array(), 1)
 		// But no parallel tool use modification for "none" type.
-		require.Nil(t, i.req.ToolChoice.OfAuto)
-		require.Nil(t, i.req.ToolChoice.OfAny)
-		require.Nil(t, i.req.ToolChoice.OfTool)
-		require.NotNil(t, i.req.ToolChoice.OfNone)
+		toolChoice := gjson.GetBytes(i.reqPayload, "tool_choice")
+		require.Equal(t, string(constant.ValueOf[constant.None]()), toolChoice.Get("type").String())
+		require.False(t, toolChoice.Get("disable_parallel_tool_use").Exists())
 	})
+}
+
+func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+
+		bedrockModel    string
+		requestBody     string
+		clientBetaFlags string
+
+		expectThinkingType  string
+		expectBudgetTokens  int64 // 0 means budget_tokens should not be present
+		expectRemovedFields []string
+		expectKeptFields    []string
+		expectBetaValues    []string // expected separate Anthropic-Beta header values
+	}{
+		{
+			name:               "non_4_6_model_with_adaptive_thinking_gets_converted",
+			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:        `{"max_tokens":10000,"thinking":{"type":"adaptive"}}`,
+			expectThinkingType: "enabled",
+			expectBudgetTokens: 8000, // 10000 * 0.8 (default/high effort)
+		},
+		{
+			name:               "non_4_6_model_with_adaptive_thinking_and_small_max_tokens_disables_thinking",
+			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:        `{"max_tokens":1000,"thinking":{"type":"adaptive"}}`,
+			expectThinkingType: "disabled",
+		},
+		{
+			name:               "opus_4_6_model_with_adaptive_thinking_is_not_converted",
+			bedrockModel:       "anthropic.claude-opus-4-6-v1",
+			requestBody:        `{"max_tokens":10000,"thinking":{"type":"adaptive"}}`,
+			expectThinkingType: "adaptive",
+		},
+		{
+			name:               "sonnet_4_6_model_with_adaptive_thinking_is_not_converted",
+			bedrockModel:       "anthropic.claude-sonnet-4-6",
+			requestBody:        `{"max_tokens":10000,"thinking":{"type":"adaptive"}}`,
+			expectThinkingType: "adaptive",
+		},
+		{
+			name:         "non_4_6_model_with_no_thinking_field_is_unchanged",
+			bedrockModel: "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:  `{"max_tokens":10000}`,
+		},
+		{
+			name:               "non_4_6_model_with_enabled_thinking_is_unchanged",
+			bedrockModel:       "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:        `{"max_tokens":10000,"thinking":{"type":"enabled","budget_tokens":5000}}`,
+			expectThinkingType: "enabled",
+			expectBudgetTokens: 5000,
+		},
+		{
+			name:                "output_config_stripped_without_beta_flag_and_effort_used_for_budget",
+			bedrockModel:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:         `{"max_tokens":10000,"thinking":{"type":"adaptive"},"output_config":{"effort":"low"}}`,
+			expectThinkingType:  "enabled",
+			expectBudgetTokens:  2000, // 10000 * 0.2 (low effort)
+			expectRemovedFields: []string{"output_config"},
+		},
+		{
+			name:             "output_config_kept_when_effort_beta_flag_present_on_opus_4_5",
+			bedrockModel:     "anthropic.claude-opus-4-5-20250929-v1:0",
+			clientBetaFlags:  "effort-2025-11-24,interleaved-thinking-2025-05-14",
+			requestBody:      `{"max_tokens":10000,"output_config":{"effort":"high"}}`,
+			expectKeptFields: []string{"output_config"},
+			expectBetaValues: []string{"effort-2025-11-24", "interleaved-thinking-2025-05-14"},
+		},
+		{
+			name:                "output_config_stripped_for_non_opus_4_5_even_with_effort_beta_flag",
+			bedrockModel:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			clientBetaFlags:     "effort-2025-11-24,interleaved-thinking-2025-05-14",
+			requestBody:         `{"max_tokens":10000,"output_config":{"effort":"high"}}`,
+			expectRemovedFields: []string{"output_config"},
+			expectBetaValues:    []string{"interleaved-thinking-2025-05-14"},
+		},
+		{
+			name:             "context_management_kept_when_beta_flag_present",
+			bedrockModel:     "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			clientBetaFlags:  "context-management-2025-06-27",
+			requestBody:      `{"max_tokens":10000,"context_management":{"type":"auto"}}`,
+			expectKeptFields: []string{"context_management"},
+			expectBetaValues: []string{"context-management-2025-06-27"},
+		},
+		{
+			name:                "context_management_stripped_without_beta_flag",
+			bedrockModel:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			requestBody:         `{"max_tokens":10000,"context_management":{"type":"auto"}}`,
+			expectRemovedFields: []string{"context_management"},
+		},
+		{
+			name:                "context_management_stripped_for_unsupported_model_even_with_beta_flag",
+			bedrockModel:        "anthropic.claude-opus-4-6-v1",
+			clientBetaFlags:     "context-management-2025-06-27",
+			requestBody:         `{"max_tokens":10000,"thinking":{"type":"adaptive"},"context_management":{"type":"auto"}}`,
+			expectThinkingType:  "adaptive",
+			expectRemovedFields: []string{"context_management"},
+		},
+		{
+			name:             "unsupported_beta_flags_are_filtered_out",
+			bedrockModel:     "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			clientBetaFlags:  "claude-code-20250219,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05",
+			requestBody:      `{"max_tokens":10000}`,
+			expectBetaValues: []string{"interleaved-thinking-2025-05-14"},
+		},
+		{
+			name:                "all_unsupported_fields_stripped_and_beta_flags_filtered",
+			bedrockModel:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			clientBetaFlags:     "claude-code-20250219,prompt-caching-scope-2026-01-05",
+			requestBody:         `{"max_tokens":10000,"output_config":{"effort":"high"},"metadata":{"user_id":"u123"},"service_tier":"auto","container":"ctr_abc","inference_geo":"us","context_management":{"type":"auto"}}`,
+			expectRemovedFields: []string{"output_config", "metadata", "service_tier", "container", "inference_geo", "context_management"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			extraHeaders := make(http.Header)
+			if tc.clientBetaFlags != "" {
+				extraHeaders.Set("Anthropic-Beta", tc.clientBetaFlags)
+			}
+
+			i := &interceptionBase{
+				reqPayload: mustMessagesPayload(t, tc.requestBody),
+				cfg:        config.Anthropic{ExtraHeaders: extraHeaders},
+				bedrockCfg: &config.AWSBedrock{
+					Model:          tc.bedrockModel,
+					SmallFastModel: "anthropic.claude-haiku-3-5",
+				},
+				logger: slog.Make(),
+			}
+
+			i.augmentRequestForBedrock()
+
+			thinkingType := gjson.GetBytes(i.reqPayload, "thinking.type")
+			if tc.expectThinkingType == "" {
+				require.False(t, thinkingType.Exists())
+			} else {
+				require.Equal(t, tc.expectThinkingType, thinkingType.String())
+			}
+
+			budgetTokens := gjson.GetBytes(i.reqPayload, "thinking.budget_tokens")
+			if tc.expectBudgetTokens == 0 {
+				require.False(t, budgetTokens.Exists(), "budget_tokens should not be set")
+			} else {
+				require.Equal(t, tc.expectBudgetTokens, budgetTokens.Int())
+			}
+
+			// Model should always be set to the bedrock model.
+			require.Equal(t, tc.bedrockModel, gjson.GetBytes(i.reqPayload, "model").String())
+
+			// Verify expected fields are removed.
+			for _, field := range tc.expectRemovedFields {
+				require.False(t, gjson.GetBytes(i.reqPayload, field).Exists(), "%s should be removed", field)
+			}
+
+			// Verify expected fields are kept.
+			for _, field := range tc.expectKeptFields {
+				require.True(t, gjson.GetBytes(i.reqPayload, field).Exists(), "%s should be kept", field)
+			}
+
+			got := extraHeaders.Values("Anthropic-Beta")
+			require.Equal(t, tc.expectBetaValues, got)
+		})
+	}
+}
+
+func mustMessagesPayload(t *testing.T, requestBody string) MessagesRequestPayload {
+	t.Helper()
+
+	payload, err := NewMessagesRequestPayload([]byte(requestBody))
+	require.NoError(t, err)
+
+	return payload
 }
 
 // mockServerProxier is a test implementation of mcp.ServerProxier.
@@ -632,4 +738,99 @@ func (m *mockServerProxier) GetTool(id string) *mcp.Tool {
 
 func (m *mockServerProxier) CallTool(context.Context, string, any) (*mcpgo.CallToolResult, error) {
 	return nil, nil
+}
+
+func TestFilterBedrockBetaFlags(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name         string
+		model        string
+		inputValues  []string // header values to set (each element is a separate header value)
+		expectValues []string // expected separate header values after filtering
+	}{
+		{
+			name:         "empty header",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  nil,
+			expectValues: nil,
+		},
+		{
+			name:         "all supported flags kept",
+			model:        "anthropic.claude-opus-4-5-20250929-v1:0",
+			inputValues:  []string{"interleaved-thinking-2025-05-14,effort-2025-11-24"},
+			expectValues: []string{"interleaved-thinking-2025-05-14", "effort-2025-11-24"},
+		},
+		{
+			name:         "unsupported flags removed",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"claude-code-20250219,interleaved-thinking-2025-05-14,prompt-caching-scope-2026-01-05"},
+			expectValues: []string{"interleaved-thinking-2025-05-14"},
+		},
+		{
+			name:         "header removed when all flags unsupported",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"claude-code-20250219,prompt-caching-scope-2026-01-05"},
+			expectValues: nil,
+		},
+		{
+			name:         "effort flag removed for non opus 4.5 model",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"effort-2025-11-24,interleaved-thinking-2025-05-14"},
+			expectValues: []string{"interleaved-thinking-2025-05-14"},
+		},
+		{
+			name:         "effort flag kept for opus 4.5 model",
+			model:        "anthropic.claude-opus-4-5-20250929-v1:0",
+			inputValues:  []string{"effort-2025-11-24,interleaved-thinking-2025-05-14"},
+			expectValues: []string{"effort-2025-11-24", "interleaved-thinking-2025-05-14"},
+		},
+		{
+			name:         "context management kept for sonnet 4.5",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"context-management-2025-06-27"},
+			expectValues: []string{"context-management-2025-06-27"},
+		},
+		{
+			name:         "context management kept for haiku 4.5",
+			model:        "anthropic.claude-haiku-4-5-20250929-v1:0",
+			inputValues:  []string{"context-management-2025-06-27"},
+			expectValues: []string{"context-management-2025-06-27"},
+		},
+		{
+			name:         "context management removed for unsupported model",
+			model:        "anthropic.claude-opus-4-6-v1",
+			inputValues:  []string{"context-management-2025-06-27,interleaved-thinking-2025-05-14"},
+			expectValues: []string{"interleaved-thinking-2025-05-14"},
+		},
+		{
+			name:         "separate header values are handled correctly",
+			model:        "anthropic.claude-sonnet-4-5-20250929-v1:0",
+			inputValues:  []string{"interleaved-thinking-2025-05-14", "context-management-2025-06-27"},
+			expectValues: []string{"interleaved-thinking-2025-05-14", "context-management-2025-06-27"},
+		},
+		{
+			name:         "mixed comma-joined and separate header values",
+			model:        "anthropic.claude-opus-4-5-20250929-v1:0",
+			inputValues:  []string{"interleaved-thinking-2025-05-14,effort-2025-11-24", "token-efficient-tools-2025-02-19"},
+			expectValues: []string{"interleaved-thinking-2025-05-14", "effort-2025-11-24", "token-efficient-tools-2025-02-19"},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			headers := http.Header{}
+			for _, v := range tc.inputValues {
+				headers.Add("Anthropic-Beta", v)
+			}
+
+			filterBedrockBetaFlags(headers, tc.model)
+
+			// Each kept flag should be a separate header value.
+			got := headers.Values("Anthropic-Beta")
+			require.Equal(t, tc.expectValues, got)
+		})
+	}
 }

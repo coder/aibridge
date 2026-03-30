@@ -23,7 +23,6 @@ import (
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/quartz"
-	"github.com/tidwall/sjson"
 
 	"github.com/google/uuid"
 	"go.opentelemetry.io/otel/attribute"
@@ -32,10 +31,38 @@ import (
 	"cdr.dev/slog/v3"
 )
 
+// bedrockSupportedBetaFlags is the set of Anthropic-Beta flags that AWS Bedrock
+// accepts. Flags not in this set cause a 400 "invalid beta flag" error.
+//
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
+var bedrockSupportedBetaFlags = map[string]bool{
+	// Supported on Claude 3.7 Sonnet.
+	"computer-use-2025-01-24": true,
+	// Supported on Claude 3.7 Sonnet and Claude 4+.
+	"token-efficient-tools-2025-02-19": true,
+	// Supported on Claude 4+ models.
+	"interleaved-thinking-2025-05-14": true,
+	// Supported on Claude 3.7 Sonnet.
+	"output-128k-2025-02-19": true,
+	// Supported on Claude 4+ models. Requires account team access.
+	"dev-full-thinking-2025-05-14": true,
+	// Supported on Claude Sonnet 4.
+	"context-1m-2025-08-07": true,
+	// Supported on Claude Sonnet 4.5 and Claude Haiku 4.5.
+	// Enables context_management body field for thinking block clearing.
+	"context-management-2025-06-27": true,
+	// Supported on Claude Opus 4.5.
+	// Enables output_config body field for effort control.
+	"effort-2025-11-24": true,
+	// Supported on Claude Opus 4.5.
+	"tool-search-tool-2025-10-19": true,
+	// Supported on Claude Opus 4.5.
+	"tool-examples-2025-10-29": true,
+}
+
 type interceptionBase struct {
-	id      uuid.UUID
-	req     *MessageNewParamsWrapper
-	payload []byte
+	id         uuid.UUID
+	reqPayload MessagesRequestPayload
 
 	cfg        aibconfig.Anthropic
 	bedrockCfg *aibconfig.AWSBedrock
@@ -58,7 +85,7 @@ func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder,
 }
 
 func (i *interceptionBase) Model() string {
-	if i.req == nil {
+	if len(i.reqPayload) == 0 {
 		return "coder-aibridge-unknown"
 	}
 
@@ -70,7 +97,7 @@ func (i *interceptionBase) Model() string {
 		return model
 	}
 
-	return string(i.req.Model)
+	return i.reqPayload.model()
 }
 
 func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
@@ -86,7 +113,7 @@ func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) 
 }
 
 func (i *interceptionBase) injectTools() {
-	if i.req == nil || i.mcpProxy == nil {
+	if i.mcpProxy == nil {
 		return
 	}
 
@@ -115,43 +142,21 @@ func (i *interceptionBase) injectTools() {
 	// Prepend the injected tools in order to maintain any configured cache breakpoints.
 	// The order of injected tools is expected to be stable, and therefore will not cause
 	// any cache invalidation when prepended.
-	i.req.Tools = append(injectedTools, i.req.Tools...)
-
-	var err error
-	i.payload, err = sjson.SetBytes(i.payload, "tools", i.req.Tools)
+	updated, err := i.reqPayload.injectTools(injectedTools)
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to set inject tools in request payload", slog.Error(err))
+		return
 	}
+	i.reqPayload = updated
 
 	// Note: Parallel tool calls are disabled to avoid tool_use/tool_result block mismatches.
 	// https://github.com/coder/aibridge/issues/2
-	toolChoiceType := i.req.ToolChoice.GetType()
-	var toolChoiceTypeStr string
-	if toolChoiceType != nil {
-		toolChoiceTypeStr = *toolChoiceType
-	}
-
-	switch toolChoiceTypeStr {
-	// If no tool_choice was defined, assume auto.
-	// See https://platform.claude.com/docs/en/agents-and-tools/tool-use/implement-tool-use#parallel-tool-use.
-	case "", string(constant.ValueOf[constant.Auto]()):
-		// We only set OfAuto if no tool_choice was provided (the default).
-		// "auto" is the default when a zero value is provided, so we can safely disable parallel checks on it.
-		if i.req.ToolChoice.OfAuto == nil {
-			i.req.ToolChoice.OfAuto = &anthropic.ToolChoiceAutoParam{}
-		}
-		i.req.ToolChoice.OfAuto.DisableParallelToolUse = anthropic.Bool(true)
-	case string(constant.ValueOf[constant.Any]()):
-		i.req.ToolChoice.OfAny.DisableParallelToolUse = anthropic.Bool(true)
-	case string(constant.ValueOf[constant.Tool]()):
-		i.req.ToolChoice.OfTool.DisableParallelToolUse = anthropic.Bool(true)
-	case string(constant.ValueOf[constant.None]()):
-		// No-op; if tool_choice=none then tools are not used at all.
-	}
-	i.payload, err = sjson.SetBytes(i.payload, "tool_choice", i.req.ToolChoice)
+	updated, err = i.reqPayload.disableParallelToolCalls()
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to set tool_choice in request payload", slog.Error(err))
+		return
 	}
+	i.reqPayload = updated
 }
 
 // IsSmallFastModel checks if the model is a small/fast model (Haiku 3.5).
@@ -159,18 +164,12 @@ func (i *interceptionBase) injectTools() {
 // See `ANTHROPIC_SMALL_FAST_MODEL`: https://docs.anthropic.com/en/docs/claude-code/settings#environment-variables
 // https://docs.claude.com/en/docs/claude-code/costs#background-token-usage
 func (i *interceptionBase) isSmallFastModel() bool {
-	return strings.Contains(string(i.req.Model), "haiku")
+	return strings.Contains(i.reqPayload.model(), "haiku")
 }
 
 func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...option.RequestOption) (anthropic.MessageService, error) {
 	opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
-
-	// Add extra headers if configured.
-	// Some providers require additional headers that are not added by the SDK.
-	for key, value := range i.cfg.ExtraHeaders {
-		opts = append(opts, option.WithHeader(key, value))
-	}
 
 	// Add API dump middleware if configured
 	if mw := apidump.NewMiddleware(i.cfg.APIDumpDir, aibconfig.ProviderAnthropic, i.Model(), i.id, i.logger, quartz.NewReal()); mw != nil {
@@ -188,26 +187,23 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 		i.augmentRequestForBedrock()
 	}
 
+	// Add extra headers after augmentRequestForBedrock() so that any
+	// Bedrock-specific header filtering (e.g. Anthropic-Beta) is applied first.
+	for key, values := range i.cfg.ExtraHeaders {
+		for _, v := range values {
+			opts = append(opts, option.WithHeaderAdd(key, v))
+		}
+	}
+
 	return anthropic.NewMessageService(opts...), nil
 }
 
-// withBody returns a per-request option that sends the current i.payload as the
-// request body. This is called for each API request so that the latest payload (including
-// any messages appended during the agentic tool loop) is always sent.
+// withBody returns a per-request option that sends the current raw request
+// payload as the request body. This is called for each API request so that the
+// latest payload (including any messages appended during the agentic tool loop)
+// is always sent.
 func (i *interceptionBase) withBody() option.RequestOption {
-	return option.WithRequestBody("application/json", i.payload)
-}
-
-// syncPayloadMessages updates the raw payload's "messages" field to match the given messages.
-// This must be called before the next API request in the agentic loop so that
-// withBody() picks up the updated messages.
-func (i *interceptionBase) syncPayloadMessages(messages []anthropic.MessageParam) error {
-	var err error
-	i.payload, err = sjson.SetBytes(i.payload, "messages", messages)
-	if err != nil {
-		return fmt.Errorf("sync payload messages: %w", err)
-	}
-	return nil
+	return option.WithRequestBody("application/json", []byte(i.reqPayload))
 }
 
 func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
@@ -258,18 +254,95 @@ func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibco
 }
 
 // augmentRequestForBedrock will change the model used for the request since AWS Bedrock doesn't support
-// Anthropics' model names.
+// Anthropics' model names. It also converts adaptive thinking to enabled with a budget for models that
+// don't support adaptive thinking natively.
 func (i *interceptionBase) augmentRequestForBedrock() {
 	if i.bedrockCfg == nil {
 		return
 	}
 
-	i.req.MessageNewParams.Model = anthropic.Model(i.Model())
-
-	var err error
-	i.payload, err = sjson.SetBytes(i.payload, "model", i.Model())
+	model := i.Model()
+	updated, err := i.reqPayload.withModel(model)
 	if err != nil {
 		i.logger.Warn(context.Background(), "failed to set model in request payload for Bedrock", slog.Error(err))
+		return
+	}
+	i.reqPayload = updated
+
+	if !bedrockModelSupportsAdaptiveThinking(model) {
+		updated, err = i.reqPayload.convertAdaptiveThinkingForBedrock()
+		if err != nil {
+			i.logger.Warn(context.Background(), "failed to convert adaptive thinking for Bedrock", slog.Error(err))
+			return
+		}
+		i.reqPayload = updated
+	}
+
+	// Filter Anthropic-Beta header to only include Bedrock-supported flags
+	// that the current model supports.
+	filterBedrockBetaFlags(i.cfg.ExtraHeaders, model)
+
+	// Strip body fields that Bedrock does not accept.
+	updated, err = i.reqPayload.removeUnsupportedBedrockFields(i.cfg.ExtraHeaders)
+	if err != nil {
+		i.logger.Warn(context.Background(), "failed to remove unsupported fields for Bedrock", slog.Error(err))
+		return
+	}
+	i.reqPayload = updated
+}
+
+// bedrockModelSupportsAdaptiveThinking returns true if the given Bedrock model ID
+// supports the "adaptive" thinking type natively (i.e. Claude 4.6 models).
+// See https://docs.aws.amazon.com/bedrock/latest/userguide/claude-messages-adaptive-thinking.html
+func bedrockModelSupportsAdaptiveThinking(model string) bool {
+	return strings.Contains(model, "anthropic.claude-opus-4-6") ||
+		strings.Contains(model, "anthropic.claude-sonnet-4-6")
+}
+
+// filterBedrockBetaFlags removes unsupported beta flags from the Anthropic-Beta
+// header and also removes model-gated flags the current model doesn't support.
+// https://docs.aws.amazon.com/bedrock/latest/userguide/model-parameters-anthropic-claude-messages-request-response.html
+func filterBedrockBetaFlags(headers http.Header, model string) {
+	// Collect all flags regardless of whether the client sent them as a single
+	// comma-separated value (eg. Claude Code sends them in that format)
+	// or as multiple separate header lines.
+	// https://httpwg.org/specs/rfc9110.html#rfc.section.5.3
+	var flags []string
+	for _, v := range headers.Values("Anthropic-Beta") {
+		for _, flag := range strings.Split(v, ",") {
+			flags = append(flags, flag)
+		}
+	}
+
+	if len(flags) == 0 {
+		return
+	}
+
+	var keep []string
+	for _, flag := range flags {
+		trimmed := strings.TrimSpace(flag)
+		if !bedrockSupportedBetaFlags[trimmed] {
+			continue
+		}
+
+		// effort is only supported in Opus 4.5 on Bedrock.
+		if trimmed == "effort-2025-11-24" && !strings.Contains(model, "anthropic.claude-opus-4-5") {
+			continue
+		}
+
+		// context_management is only supported in Sonnet 4.5 and Haiku 4.5 models on Bedrock.
+		if trimmed == "context-management-2025-06-27" &&
+			!strings.Contains(model, "anthropic.claude-sonnet-4-5") &&
+			!strings.Contains(model, "anthropic.claude-haiku-4-5") {
+			continue
+		}
+
+		keep = append(keep, trimmed)
+	}
+
+	headers.Del("Anthropic-Beta")
+	for _, flag := range keep {
+		headers.Add("Anthropic-Beta", flag)
 	}
 }
 

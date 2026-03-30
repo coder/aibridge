@@ -41,8 +41,10 @@ func (i *interceptionBase) newCompletionsService() openai.ChatCompletionService 
 
 	// Add extra headers if configured.
 	// Some providers require additional headers that are not added by the SDK.
-	for key, value := range i.cfg.ExtraHeaders {
-		opts = append(opts, option.WithHeader(key, value))
+	for key, values := range i.cfg.ExtraHeaders {
+		for _, v := range values {
+			opts = append(opts, option.WithHeaderAdd(key, v))
+		}
 	}
 
 	// Add API dump middleware if configured
