@@ -693,6 +693,17 @@ func TestSimple(t *testing.T) {
 			expectedClient:    aibridge.ClientClaudeCode,
 		},
 		{
+			name:              config.ProviderAnthropic + "_haiku_prompt_capture",
+			fixture:           fixtures.AntHaikuSimple,
+			basePath:          "",
+			expectedPath:      "/v1/messages",
+			getResponseIDFunc: getAnthropicResponseID,
+			path:              pathAnthropicMessages,
+			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
+			userAgent:         "claude-cli/2.0.67 (external, cli)",
+			expectedClient:    aibridge.ClientClaudeCode,
+		},
+		{
 			name:              config.ProviderOpenAI,
 			fixture:           fixtures.OaiChatSimple,
 			basePath:          "",
@@ -2069,64 +2080,5 @@ func TestActorHeaders(t *testing.T) {
 				}
 			})
 		}
-	}
-}
-
-// TestAnthropicMessagesHaikuPromptCapture validates that prompts are captured
-// for small/fast models like Haiku.
-//
-// Claude Code uses Haiku for ancillary tasks (generating session titles, push
-// notification summaries, etc.) and sets role:"user" on those requests even
-// though they are agent-initiated, not human-initiated. Previously we skipped
-// prompt capture for these models because, without the session view, it was
-// hard for auditors to reason about agent-initiated vs human-initiated prompts.
-// Now that the session view provides the broader context of how Haiku
-// interceptions relate to the parent session, we capture all prompts regardless
-// of model size so auditors have a complete picture.
-//
-// See: https://github.com/coder/aibridge/pull/230
-func TestAnthropicMessagesHaikuPromptCapture(t *testing.T) {
-	t.Parallel()
-
-	cases := []struct {
-		name      string
-		streaming bool
-	}{
-		{name: "streaming", streaming: true},
-		{name: "non-streaming", streaming: false},
-	}
-
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-			t.Cleanup(cancel)
-
-			fix := fixtures.Parse(t, fixtures.AntHaikuSimple)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
-
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
-
-			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
-			require.NoError(t, err)
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
-			require.Equal(t, http.StatusOK, resp.StatusCode)
-
-			if tc.streaming {
-				sp := aibridge.NewSSEParser()
-				require.NoError(t, sp.Parse(resp.Body))
-				assert.Contains(t, sp.AllEvents(), "message_start")
-				assert.Contains(t, sp.AllEvents(), "message_stop")
-			}
-
-			// The key assertion: the prompt must be captured even though this is
-			// a Haiku (small/fast) model request.
-			promptUsages := bridgeServer.Recorder.RecordedPromptUsages()
-			require.Len(t, promptUsages, 1, "prompt should be captured for haiku models")
-			assert.Contains(t, promptUsages[0].Prompt, "Chat title: yo")
-
-			bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
-		})
 	}
 }
