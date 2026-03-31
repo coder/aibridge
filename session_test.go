@@ -171,7 +171,13 @@ func TestGuessSessionID(t *testing.T) {
 		},
 		// Coder Agents.
 		{
-			name:   "coder_agents_returns_empty",
+			name:      "coder_agents_with_chat_id",
+			client:    ClientCoderAgents,
+			headers:   map[string]string{"X-Coder-Chat-Id": "a1b2c3d4-e5f6-7890-abcd-ef1234567890"},
+			sessionID: utils.PtrTo("a1b2c3d4-e5f6-7890-abcd-ef1234567890"),
+		},
+		{
+			name:   "coder_agents_without_chat_id",
 			client: ClientCoderAgents,
 		},
 		// Roo.
