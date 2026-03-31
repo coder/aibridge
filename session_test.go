@@ -22,10 +22,54 @@ func TestGuessSessionID(t *testing.T) {
 	}{
 		// Claude Code.
 		{
+			name:      "claude_code_header_takes_precedence",
+			client:    ClientClaudeCode,
+			headers:   map[string]string{"X-Claude-Code-Session-Id": "header-session-id"},
+			body:      `{"metadata":{"user_id":"user_abc123_account_456_session_body-session-id"}}`,
+			sessionID: utils.PtrTo("header-session-id"),
+		},
+		{
+			name:      "claude_code_header_only",
+			client:    ClientClaudeCode,
+			headers:   map[string]string{"X-Claude-Code-Session-Id": "aabb-ccdd"},
+			body:      `{"model":"claude-3"}`,
+			sessionID: utils.PtrTo("aabb-ccdd"),
+		},
+		{
+			name:      "claude_code_empty_header_falls_back_to_body",
+			client:    ClientClaudeCode,
+			headers:   map[string]string{"X-Claude-Code-Session-Id": ""},
+			body:      `{"metadata":{"user_id":"user_abc123_account_456_session_f47ac10b-58cc-4372-a567-0e02b2c3d479"}}`,
+			sessionID: utils.PtrTo("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+		},
+		{
+			name:      "claude_code_whitespace_header_falls_back_to_body",
+			client:    ClientClaudeCode,
+			headers:   map[string]string{"X-Claude-Code-Session-Id": "   "},
+			body:      `{"metadata":{"user_id":"user_abc123_account_456_session_f47ac10b-58cc-4372-a567-0e02b2c3d479"}}`,
+			sessionID: utils.PtrTo("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+		},
+		{
 			name:      "claude_code_with_valid_session",
 			client:    ClientClaudeCode,
 			body:      `{"metadata":{"user_id":"user_abc123_account_456_session_f47ac10b-58cc-4372-a567-0e02b2c3d479"}}`,
 			sessionID: utils.PtrTo("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+		},
+		{
+			name:      "claude_code_with_valid_session_new_format",
+			client:    ClientClaudeCode,
+			body:      `{"metadata":{"user_id":"{\"device_id\":\"45aa15c8c244ea2582f8144dde91a50ec3815851f6f648abef4ee15b173cc927\",\"account_uuid\":\"\",\"session_id\":\"54c1eb09-bc4c-4d2f-98eb-6d2ab2d5e2fe\"}"}}`,
+			sessionID: utils.PtrTo("54c1eb09-bc4c-4d2f-98eb-6d2ab2d5e2fe"),
+		},
+		{
+			name:   "claude_code_new_format_empty_session_id",
+			client: ClientClaudeCode,
+			body:   `{"metadata":{"user_id":"{\"device_id\":\"abc\",\"account_uuid\":\"\",\"session_id\":\"\"}"}}`,
+		},
+		{
+			name:   "claude_code_new_format_no_session_id_field",
+			client: ClientClaudeCode,
+			body:   `{"metadata":{"user_id":"{\"device_id\":\"abc\",\"account_uuid\":\"\"}"}}`,
 		},
 		{
 			name:   "claude_code_missing_metadata",
