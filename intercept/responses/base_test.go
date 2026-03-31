@@ -303,6 +303,7 @@ func TestRecordTokenUsage(t *testing.T) {
 				Output:               20,
 				CacheReadInputTokens: 5,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     5,
 					"output_reasoning": 5,
 					"total_tokens":     30,
 				},

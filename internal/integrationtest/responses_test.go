@@ -55,6 +55,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  11,
 				Output: 18,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 0,
 					"total_tokens":     29,
 				},
@@ -79,6 +80,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  58,
 				Output: 18,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 0,
 					"total_tokens":     76,
 				},
@@ -96,6 +98,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Output:               44,
 				CacheReadInputTokens: 11904,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     11904,
 					"output_reasoning": 0,
 					"total_tokens":     12077,
 				},
@@ -119,6 +122,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  64,
 				Output: 148,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 128,
 					"total_tokens":     212,
 				},
@@ -135,6 +139,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  48,
 				Output: 116,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 0,
 					"total_tokens":     164,
 				},
@@ -151,6 +156,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  43,
 				Output: 129,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 0,
 					"total_tokens":     172,
 				},
@@ -168,6 +174,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  11,
 				Output: 18,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 0,
 					"total_tokens":     29,
 				},
@@ -186,6 +193,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  4006,
 				Output: 13,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 0,
 					"total_tokens":     4019,
 				},
@@ -211,6 +219,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  58,
 				Output: 18,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 0,
 					"total_tokens":     76,
 				},
@@ -229,6 +238,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Output:               54,
 				CacheReadInputTokens: 15744,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     15744,
 					"output_reasoning": 0,
 					"total_tokens":     16963,
 				},
@@ -253,6 +263,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  64,
 				Output: 340,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 320,
 					"total_tokens":     404,
 				},
@@ -278,6 +289,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 				Input:  43,
 				Output: 182,
 				ExtraTokenTypes: map[string]int64{
+					"input_cached":     0,
 					"output_reasoning": 0,
 					"total_tokens":     225,
 				},
@@ -744,6 +756,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 					Output:               75,
 					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
 						"output_reasoning": 25,
 						"total_tokens":     6446,
 					},
@@ -754,6 +767,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 					Output:               231,
 					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
 						"output_reasoning": 43,
 						"total_tokens":     6987,
 					},
@@ -776,6 +790,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 					Output:               119,
 					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
 						"output_reasoning": 70,
 						"total_tokens":     6496,
 					},
@@ -786,6 +801,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 					Output:               144,
 					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
 						"output_reasoning": 28,
 						"total_tokens":     6683,
 					},
@@ -805,6 +821,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 					Input:  6269, // 6269 input - 0 cached
 					Output: 18,
 					ExtraTokenTypes: map[string]int64{
+						"input_cached":     0,
 						"output_reasoning": 0,
 						"total_tokens":     6287,
 					},
@@ -815,6 +832,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 					Output:               182,
 					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
+						"input_cached":     6144,
 						"output_reasoning": 0,
 						"total_tokens":     6645,
 					},
@@ -838,6 +856,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 					Input:  6280, // 6280 input - 0 cached
 					Output: 30,
 					ExtraTokenTypes: map[string]int64{
+						"input_cached":     0,
 						"output_reasoning": 0,
 						"total_tokens":     6310,
 					},
@@ -847,6 +866,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 					Input:  6346, // 6346 input - 0 cached
 					Output: 56,
 					ExtraTokenTypes: map[string]int64{
+						"input_cached":     0,
 						"output_reasoning": 0,
 						"total_tokens":     6402,
 					},
