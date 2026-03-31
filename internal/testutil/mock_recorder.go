@@ -105,6 +105,28 @@ func (m *MockRecorder) TotalOutputTokens() int64 {
 	return total
 }
 
+// TotalCacheReadInputTokens returns the sum of cache read input tokens across all recorded token usages.
+func (m *MockRecorder) TotalCacheReadInputTokens() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var total int64
+	for _, el := range m.tokenUsages {
+		total += el.CacheReadInputTokens
+	}
+	return total
+}
+
+// TotalCacheWriteInputTokens returns the sum of cache write input tokens across all recorded token usages.
+func (m *MockRecorder) TotalCacheWriteInputTokens() int64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	var total int64
+	for _, el := range m.tokenUsages {
+		total += el.CacheWriteInputTokens
+	}
+	return total
+}
+
 // RecordedPromptUsages returns a copy of recorded prompt usages in a thread-safe manner.
 // Note: This is a shallow clone (see RecordedTokenUsages for details).
 func (m *MockRecorder) RecordedPromptUsages() []*recorder.PromptUsageRecord {

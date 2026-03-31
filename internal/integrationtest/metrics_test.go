@@ -16,6 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
 )
 
 func TestMetrics_Interception(t *testing.T) {
@@ -270,36 +271,104 @@ func TestMetrics_PromptCount(t *testing.T) {
 func TestMetrics_TokenUseCount(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
-	t.Cleanup(cancel)
+	cases := []struct {
+		name           string
+		fixture        []byte
+		reqPath        string
+		streaming      bool
+		expectProvider string
+		expectModel    string
+		expectedLabels map[string]float64
+	}{
+		{
+			name:           "openai_responses",
+			fixture:        fixtures.OaiResponsesBlockingCachedInputTokens,
+			reqPath:        pathOpenAIResponses,
+			expectProvider: config.ProviderOpenAI,
+			expectModel:    "gpt-4.1",
+			expectedLabels: map[string]float64{
+				"input":                    129, // 12033 - 11904 cached
+				"output":                   44,
+				"cache_read_input_tokens":  11904,
+				"cache_write_input_tokens": 0,
+				"input_cached":             11904,
+				"output_reasoning":         0,
+				"total_tokens":             12077,
+			},
+		},
+		{
+			name:           "anthropic_messages_streaming",
+			fixture:        fixtures.AntSingleBuiltinTool,
+			reqPath:        pathAnthropicMessages,
+			streaming:      true,
+			expectProvider: config.ProviderAnthropic,
+			expectModel:    "claude-sonnet-4-20250514",
+			expectedLabels: map[string]float64{
+				"input":                    2,
+				"output":                   66,
+				"cache_read_input_tokens":  13993,
+				"cache_write_input_tokens": 22,
+				"cache_read_input":         13993,
+				"cache_creation_input":     22,
+			},
+		},
+		{
+			name:           "openai_chat_completions",
+			fixture:        fixtures.OaiChatSimple,
+			reqPath:        pathOpenAIChatCompletions,
+			expectProvider: config.ProviderOpenAI,
+			expectModel:    "gpt-4.1",
+			expectedLabels: map[string]float64{
+				"input":                          19,
+				"output":                         200,
+				"cache_read_input_tokens":        0,
+				"cache_write_input_tokens":       0,
+				"prompt_cached":                  0,
+				"completion_reasoning":           0,
+				"completion_accepted_prediction": 0,
+				"completion_rejected_prediction": 0,
+			},
+		},
+	}
 
-	fix := fixtures.Parse(t, fixtures.OaiResponsesBlockingCachedInputTokens)
-	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
-		withMetrics(m),
-	)
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request(),
-		http.Header{"User-Agent": []string{"claude-code/1.0.0"}})
-	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, _ = io.ReadAll(resp.Body)
+			fix := fixtures.Parse(t, tc.fixture)
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-	clientLabel := string(aibridge.ClientClaudeCode)
-	// Token metrics are recorded asynchronously; wait for them to appear.
-	require.Eventually(t, func() bool {
-		return promtest.ToFloat64(m.TokenUseCount.WithLabelValues(
-			config.ProviderOpenAI, "gpt-4.1", "input", defaultActorID, clientLabel)) > 0
-	}, time.Second*10, time.Millisecond*50)
+			m := aibridge.NewMetrics(prometheus.NewRegistry())
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+				withMetrics(m),
+			)
 
-	require.Equal(t, 129.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "input", defaultActorID, clientLabel))) // 12033 - 11904 (cached)
-	require.Equal(t, 44.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "output", defaultActorID, clientLabel)))
+			reqBody := fix.Request()
+			if tc.streaming {
+				var err error
+				reqBody, err = sjson.SetBytes(reqBody, "stream", true)
+				require.NoError(t, err)
+			}
+			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.reqPath, reqBody, nil)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			_, _ = io.ReadAll(resp.Body)
 
-	// ExtraTokenTypes
-	require.Equal(t, 11904.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "input_cached", defaultActorID, clientLabel)))
-	require.Equal(t, 0.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "output_reasoning", defaultActorID, clientLabel)))
-	require.Equal(t, 12077.0, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(config.ProviderOpenAI, "gpt-4.1", "total_tokens", defaultActorID, clientLabel)))
+			// metrics are updated asynchronously
+			require.Eventually(t, func() bool {
+				return promtest.ToFloat64(m.TokenUseCount.WithLabelValues(
+					tc.expectProvider, tc.expectModel, "input", defaultActorID, string(aibridge.ClientUnknown))) > 0
+			}, time.Second*10, time.Millisecond*50)
+
+			for label, expected := range tc.expectedLabels {
+				require.Equal(t, expected, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(
+					tc.expectProvider, tc.expectModel, label, defaultActorID, string(aibridge.ClientUnknown),
+				)), "metric label %q mismatch", label)
+			}
+		})
+	}
 }
 
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {

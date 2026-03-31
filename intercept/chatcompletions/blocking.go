@@ -114,13 +114,14 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		cumulativeUsage = sumUsage(cumulativeUsage, completion.Usage)
 
 		_ = i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
-			InterceptionID: i.ID().String(),
-			MsgID:          completion.ID,
-			Input:          calculateActualInputTokenUsage(lastUsage),
-			Output:         lastUsage.CompletionTokens,
+			InterceptionID:       i.ID().String(),
+			MsgID:                completion.ID,
+			Input:                calculateActualInputTokenUsage(lastUsage),
+			Output:               lastUsage.CompletionTokens,
+			CacheReadInputTokens: lastUsage.PromptTokensDetails.CachedTokens,
 			ExtraTokenTypes: map[string]int64{
 				"prompt_audio":                   lastUsage.PromptTokensDetails.AudioTokens,
-				"prompt_cached":                  lastUsage.PromptTokensDetails.CachedTokens,
+				"prompt_cached":                  lastUsage.PromptTokensDetails.CachedTokens, // TODO: remove from ExtraTokenTypes (https://github.com/coder/aibridge/issues/243)
 				"completion_accepted_prediction": lastUsage.CompletionTokensDetails.AcceptedPredictionTokens,
 				"completion_rejected_prediction": lastUsage.CompletionTokensDetails.RejectedPredictionTokens,
 				"completion_audio":               lastUsage.CompletionTokensDetails.AudioTokens,

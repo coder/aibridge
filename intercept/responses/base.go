@@ -240,12 +240,13 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 	inputNonCacheTokens := usage.InputTokens - usage.InputTokensDetails.CachedTokens
 
 	if err := i.recorder.RecordTokenUsage(ctx, &recorder.TokenUsageRecord{
-		InterceptionID: i.ID().String(),
-		MsgID:          response.ID,
-		Input:          inputNonCacheTokens,
-		Output:         usage.OutputTokens,
+		InterceptionID:       i.ID().String(),
+		MsgID:                response.ID,
+		Input:                inputNonCacheTokens,
+		Output:               usage.OutputTokens,
+		CacheReadInputTokens: usage.InputTokensDetails.CachedTokens,
 		ExtraTokenTypes: map[string]int64{
-			"input_cached":     usage.InputTokensDetails.CachedTokens,
+			"input_cached":     usage.InputTokensDetails.CachedTokens, // TODO: remove from ExtraTokenTypes (https://github.com/coder/aibridge/issues/243)
 			"output_reasoning": usage.OutputTokensDetails.ReasoningTokens,
 			"total_tokens":     usage.TotalTokens,
 		},

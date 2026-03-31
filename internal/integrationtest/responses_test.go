@@ -93,9 +93,10 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			expectModel:          "gpt-4.1",
 			expectPromptRecorded: "This was a large input...",
 			expectTokenUsage: &recorder.TokenUsageRecord{
-				MsgID:  "resp_0cd5d6b8310055d600696a1776b42c81a199fbb02248a8bfa0",
-				Input:  129, // 12033 input - 11904 cached
-				Output: 44,
+				MsgID:                "resp_0cd5d6b8310055d600696a1776b42c81a199fbb02248a8bfa0",
+				Input:                129, // 12033 input - 11904 cached
+				Output:               44,
+				CacheReadInputTokens: 11904,
 				ExtraTokenTypes: map[string]int64{
 					"input_cached":     11904,
 					"output_reasoning": 0,
@@ -232,9 +233,10 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 			expectModel:          "gpt-5.2-codex",
 			expectPromptRecorded: "Test cached input tokens.",
 			expectTokenUsage: &recorder.TokenUsageRecord{
-				MsgID:  "resp_05080461b406f3f501696a1409d34c8195a40ff4b092145c35",
-				Input:  1165, // 16909 input - 15744 cached
-				Output: 54,
+				MsgID:                "resp_05080461b406f3f501696a1409d34c8195a40ff4b092145c35",
+				Input:                1165, // 16909 input - 15744 cached
+				Output:               54,
+				CacheReadInputTokens: 15744,
 				ExtraTokenTypes: map[string]int64{
 					"input_cached":     15744,
 					"output_reasoning": 0,
@@ -749,9 +751,10 @@ func TestResponsesInjectedTool(t *testing.T) {
 			expectPrompt: "list the template params for version aa4e30e4-a086-4df6-a364-1343f1458104",
 			expectTokenUsages: []recorder.TokenUsageRecord{
 				{
-					MsgID:  "resp_012db006225b0ec700696b5de8a01481a28182ea6885448f93",
-					Input:  227, // 6371 input - 6144 cached
-					Output: 75,
+					MsgID:                "resp_012db006225b0ec700696b5de8a01481a28182ea6885448f93",
+					Input:                227, // 6371 input - 6144 cached
+					Output:               75,
+					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
 						"input_cached":     6144,
 						"output_reasoning": 25,
@@ -759,9 +762,10 @@ func TestResponsesInjectedTool(t *testing.T) {
 					},
 				},
 				{
-					MsgID:  "resp_012db006225b0ec700696b5dec1d4c81a2a6a416e31af39b90",
-					Input:  612, // 6756 input - 6144 cached
-					Output: 231,
+					MsgID:                "resp_012db006225b0ec700696b5dec1d4c81a2a6a416e31af39b90",
+					Input:                612, // 6756 input - 6144 cached
+					Output:               231,
+					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
 						"input_cached":     6144,
 						"output_reasoning": 43,
@@ -781,9 +785,10 @@ func TestResponsesInjectedTool(t *testing.T) {
 			expectToolError: "500 Internal error deleting template: unauthorized: rbac: forbidden",
 			expectTokenUsages: []recorder.TokenUsageRecord{
 				{
-					MsgID:  "resp_06e2afba24b6b2ad00696b774d1df0819eaf1ec802bc8a2ca9",
-					Input:  233, // 6377 input - 6144 cached
-					Output: 119,
+					MsgID:                "resp_06e2afba24b6b2ad00696b774d1df0819eaf1ec802bc8a2ca9",
+					Input:                233, // 6377 input - 6144 cached
+					Output:               119,
+					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
 						"input_cached":     6144,
 						"output_reasoning": 70,
@@ -791,9 +796,10 @@ func TestResponsesInjectedTool(t *testing.T) {
 					},
 				},
 				{
-					MsgID:  "resp_06e2afba24b6b2ad00696b775044e8819ea14840698ef966e2",
-					Input:  395, // 6539 input - 6144 cached
-					Output: 144,
+					MsgID:                "resp_06e2afba24b6b2ad00696b775044e8819ea14840698ef966e2",
+					Input:                395, // 6539 input - 6144 cached
+					Output:               144,
+					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
 						"input_cached":     6144,
 						"output_reasoning": 28,
@@ -821,9 +827,10 @@ func TestResponsesInjectedTool(t *testing.T) {
 					},
 				},
 				{
-					MsgID:  "resp_0bc5f54fce6df69a006972442175908194bb81d31f576e6ca6",
-					Input:  319, // 6463 input - 6144 cached
-					Output: 182,
+					MsgID:                "resp_0bc5f54fce6df69a006972442175908194bb81d31f576e6ca6",
+					Input:                319, // 6463 input - 6144 cached
+					Output:               182,
+					CacheReadInputTokens: 6144,
 					ExtraTokenTypes: map[string]int64{
 						"input_cached":     6144,
 						"output_reasoning": 0,

@@ -205,14 +205,16 @@ newStream:
 				accumulateUsage(&cumulativeUsage, start.Message.Usage)
 
 				_ = i.recorder.RecordTokenUsage(streamCtx, &recorder.TokenUsageRecord{
-					InterceptionID: i.ID().String(),
-					MsgID:          message.ID,
-					Input:          start.Message.Usage.InputTokens,
-					Output:         start.Message.Usage.OutputTokens,
+					InterceptionID:        i.ID().String(),
+					MsgID:                 message.ID,
+					Input:                 start.Message.Usage.InputTokens,
+					Output:                start.Message.Usage.OutputTokens,
+					CacheReadInputTokens:  start.Message.Usage.CacheReadInputTokens,
+					CacheWriteInputTokens: start.Message.Usage.CacheCreationInputTokens,
 					ExtraTokenTypes: map[string]int64{
 						"web_search_requests":      start.Message.Usage.ServerToolUse.WebSearchRequests,
-						"cache_creation_input":     start.Message.Usage.CacheCreationInputTokens,
-						"cache_read_input":         start.Message.Usage.CacheReadInputTokens,
+						"cache_creation_input":     start.Message.Usage.CacheCreationInputTokens, // TODO: remove from ExtraTokenTypes (https://github.com/coder/aibridge/issues/243)
+						"cache_read_input":         start.Message.Usage.CacheReadInputTokens,     // TODO: remove from ExtraTokenTypes (https://github.com/coder/aibridge/issues/243)
 						"cache_ephemeral_1h_input": start.Message.Usage.CacheCreation.Ephemeral1hInputTokens,
 						"cache_ephemeral_5m_input": start.Message.Usage.CacheCreation.Ephemeral5mInputTokens,
 					},

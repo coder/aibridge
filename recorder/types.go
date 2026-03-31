@@ -47,9 +47,12 @@ type InterceptionRecordEnded struct {
 }
 
 type TokenUsageRecord struct {
-	InterceptionID string
-	MsgID          string
-	Input, Output  int64
+	InterceptionID        string
+	MsgID                 string
+	Input                 int64
+	Output                int64
+	CacheReadInputTokens  int64
+	CacheWriteInputTokens int64
 	// ExtraTokenTypes holds token types which *may* exist over and above input/output.
 	// These should ultimately get merged into [Metadata], but it's useful to keep these
 	// with their actual type (int64) since [Metadata] is a map[string]any.
@@ -60,14 +63,16 @@ type TokenUsageRecord struct {
 
 type PromptUsageRecord struct {
 	InterceptionID string
-	MsgID, Prompt  string
+	MsgID          string
+	Prompt         string
 	Metadata       Metadata
 	CreatedAt      time.Time
 }
 
 type ToolUsageRecord struct {
 	InterceptionID  string
-	MsgID, Tool     string
+	MsgID           string
+	Tool            string
 	ToolCallID      string
 	ServerURL       *string
 	Args            ToolArgs
