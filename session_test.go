@@ -28,6 +28,22 @@ func TestGuessSessionID(t *testing.T) {
 			sessionID: utils.PtrTo("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
 		},
 		{
+			name:      "claude_code_with_valid_session_new_format",
+			client:    ClientClaudeCode,
+			body:      `{"metadata":{"user_id":"{\"device_id\":\"45aa15c8c244ea2582f8144dde91a50ec3815851f6f648abef4ee15b173cc927\",\"account_uuid\":\"\",\"session_id\":\"54c1eb09-bc4c-4d2f-98eb-6d2ab2d5e2fe\"}"}}`,
+			sessionID: utils.PtrTo("54c1eb09-bc4c-4d2f-98eb-6d2ab2d5e2fe"),
+		},
+		{
+			name:   "claude_code_new_format_empty_session_id",
+			client: ClientClaudeCode,
+			body:   `{"metadata":{"user_id":"{\"device_id\":\"abc\",\"account_uuid\":\"\",\"session_id\":\"\"}"}}`,
+		},
+		{
+			name:   "claude_code_new_format_no_session_id_field",
+			client: ClientClaudeCode,
+			body:   `{"metadata":{"user_id":"{\"device_id\":\"abc\",\"account_uuid\":\"\"}"}}`,
+		},
+		{
 			name:   "claude_code_missing_metadata",
 			client: ClientClaudeCode,
 			body:   `{"model":"claude-3"}`,

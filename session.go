@@ -11,7 +11,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-var claudeCodePattern = regexp.MustCompile(`_session_(.+)$`) // Save compilation on each call.
+var claudeCodePattern = regexp.MustCompile(`_session_(.+)$`) // Legacy format: save compilation on each call.
 
 // guessSessionID attempts to retrieve a session ID which may have been sent by
 // the client. We only attempt to retrieve sessions using methods recognized for
@@ -20,12 +20,17 @@ func guessSessionID(client Client, r *http.Request) *string {
 	switch client {
 	case ClientClaudeCode:
 		/* Claude Code adds the session ID into the `metadata.user_id` field in the JSON body.
+		Legacy format:
 		{
-			...
 			"metadata": {
 				"user_id": "user_{sha256}_account_{account_id}_session_{uuid_v4}"
-			},
-			...
+			}
+		}
+		New format (the value is a JSON-encoded string):
+		{
+			"metadata": {
+				"user_id": "{\"device_id\":\"...\",\"account_uuid\":\"...\",\"session_id\":\"uuid_v4\"}"
+			}
 		} */
 		payload, err := io.ReadAll(r.Body)
 		if err != nil {
@@ -41,7 +46,15 @@ func guessSessionID(client Client, r *http.Request) *string {
 			return nil
 		}
 
-		matches := claudeCodePattern.FindStringSubmatch(userID.String())
+		raw := userID.String()
+
+		// New format: user_id is a JSON-encoded object with a session_id field.
+		if sessionID := gjson.Get(raw, "session_id"); sessionID.Exists() {
+			return cleanRef(sessionID.String())
+		}
+
+		// Legacy format: "user_{sha256}_account_{id}_session_{uuid}"
+		matches := claudeCodePattern.FindStringSubmatch(raw)
 		if len(matches) < 2 {
 			return nil
 		}
