@@ -25,8 +25,8 @@ func guessSessionID(client Client, r *http.Request) *string {
 		}
 
 		// Fall back to extracting from the metadata.user_id field in the JSON body.
-		// Legacy format: "user_{sha256}_account_{id}_session_{uuid}"
 		// Newer format:  JSON-encoded object with a "session_id" field.
+		// Legacy format: "user_{sha256}_account_{id}_session_{uuid}"
 		payload, err := io.ReadAll(r.Body)
 		if err != nil {
 			return nil
@@ -36,7 +36,7 @@ func guessSessionID(client Client, r *http.Request) *string {
 		// Restore the request body.
 		r.Body = io.NopCloser(bytes.NewReader(payload))
 		userID := gjson.GetBytes(payload, "metadata.user_id")
-		if !userID.Exists() {
+		if userID.Type != gjson.String {
 			return nil
 		}
 

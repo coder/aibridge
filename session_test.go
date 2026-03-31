@@ -43,6 +43,13 @@ func TestGuessSessionID(t *testing.T) {
 			sessionID: utils.PtrTo("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
 		},
 		{
+			name:      "claude_code_whitespace_header_falls_back_to_body",
+			client:    ClientClaudeCode,
+			headers:   map[string]string{"X-Claude-Code-Session-Id": "   "},
+			body:      `{"metadata":{"user_id":"user_abc123_account_456_session_f47ac10b-58cc-4372-a567-0e02b2c3d479"}}`,
+			sessionID: utils.PtrTo("f47ac10b-58cc-4372-a567-0e02b2c3d479"),
+		},
+		{
 			name:      "claude_code_with_valid_session",
 			client:    ClientClaudeCode,
 			body:      `{"metadata":{"user_id":"user_abc123_account_456_session_f47ac10b-58cc-4372-a567-0e02b2c3d479"}}`,
