@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,6 +58,25 @@ type RequestBridge struct {
 
 var _ http.Handler = &RequestBridge{}
 
+// validProviderName matches names containing only lowercase alphanumeric characters and hyphens.
+var validProviderName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// validateProviders checks that provider names are valid and unique.
+func validateProviders(providers []provider.Provider) error {
+	names := make(map[string]bool, len(providers))
+	for _, prov := range providers {
+		name := prov.Name()
+		if !validProviderName.MatchString(name) {
+			return fmt.Errorf("invalid provider name %q: must contain only lowercase alphanumeric characters and hyphens", name)
+		}
+		if names[name] {
+			return fmt.Errorf("duplicate provider name: %q", name)
+		}
+		names[name] = true
+	}
+	return nil
+}
+
 // NewRequestBridge creates a new *[RequestBridge] and registers the HTTP routes defined by the given providers.
 // Any routes which are requested but not registered will be reverse-proxied to the upstream service.
 //
@@ -67,6 +87,10 @@ var _ http.Handler = &RequestBridge{}
 // Circuit breaker configuration is obtained from each provider's CircuitBreakerConfig() method.
 // Providers returning nil will not have circuit breaker protection.
 func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec recorder.Recorder, mcpProxy mcp.ServerProxier, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) (*RequestBridge, error) {
+	if err := validateProviders(providers); err != nil {
+		return nil, err
+	}
+
 	mux := http.NewServeMux()
 
 	for _, prov := range providers {
