@@ -66,7 +66,6 @@ func validateProviders(providers []provider.Provider) error {
 		}
 		names[prov.Name()] = true
 	}
-	// TODO(ssncferreira): validate duplicate baseURLs as well
 	return nil
 }
 
