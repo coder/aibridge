@@ -48,6 +48,9 @@ var anthropicIsFailure = func(statusCode int) bool {
 }
 
 func NewAnthropic(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) *Anthropic {
+	if cfg.Name == "" {
+		cfg.Name = config.ProviderAnthropic
+	}
 	if cfg.BaseURL == "" {
 		cfg.BaseURL = "https://api.anthropic.com/"
 	}
@@ -68,8 +71,12 @@ func NewAnthropic(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) *Anthropi
 	}
 }
 
-func (p *Anthropic) Name() string {
+func (p *Anthropic) Type() string {
 	return config.ProviderAnthropic
+}
+
+func (p *Anthropic) Name() string {
+	return p.cfg.Name
 }
 
 func (p *Anthropic) RoutePrefix() string {

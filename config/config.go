@@ -9,6 +9,8 @@ const (
 )
 
 type Anthropic struct {
+	// Name is the provider instance name. If empty, defaults to "anthropic".
+	Name             string
 	BaseURL          string
 	Key              string
 	APIDumpDir       string
@@ -32,12 +34,22 @@ type AWSBedrock struct {
 }
 
 type OpenAI struct {
+	// Name is the provider instance name. If empty, defaults to "openai".
+	Name             string
 	BaseURL          string
 	Key              string
 	APIDumpDir       string
 	CircuitBreaker   *CircuitBreaker
 	SendActorHeaders bool
 	ExtraHeaders     map[string]string
+}
+
+type Copilot struct {
+	// Name is the provider instance name. If empty, defaults to "copilot".
+	Name           string
+	BaseURL        string
+	APIDumpDir     string
+	CircuitBreaker *CircuitBreaker
 }
 
 // CircuitBreaker holds configuration for circuit breakers.
@@ -66,10 +78,4 @@ func DefaultCircuitBreaker() CircuitBreaker {
 		Timeout:          30 * time.Second,
 		MaxRequests:      3,
 	}
-}
-
-type Copilot struct {
-	BaseURL        string
-	APIDumpDir     string
-	CircuitBreaker *CircuitBreaker
 }
