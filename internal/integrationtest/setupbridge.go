@@ -51,6 +51,7 @@ type bridgeConfig struct {
 	userID           string
 	metadata         recorder.Metadata
 	logger           slog.Logger
+	loggerSet        bool
 }
 
 // bridgeTestServer wraps an httptest.Server running a RequestBridge.
@@ -119,6 +120,11 @@ func withMCP(p mcp.ServerProxier) bridgeOption {
 	return func(c *bridgeConfig) { c.mcpProxy = p }
 }
 
+// withLogger overrides the default test logger.
+func withLogger(l slog.Logger) bridgeOption {
+	return func(c *bridgeConfig) { c.logger = l; c.loggerSet = true }
+}
+
 // withActor sets the actor ID and metadata for the BaseContext.
 func withActor(id string, md recorder.Metadata) bridgeOption {
 	return func(c *bridgeConfig) { c.userID = id; c.metadata = md }
@@ -148,7 +154,9 @@ func newBridgeTestServer(
 	if cfg.tracer == nil {
 		cfg.tracer = defaultTracer
 	}
-	cfg.logger = newLogger(t)
+	if !cfg.loggerSet {
+		cfg.logger = newLogger(t)
+	}
 	if cfg.mcpProxy == nil {
 		cfg.mcpProxy = newNoopMCPManager()
 	}

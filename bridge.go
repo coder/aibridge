@@ -203,9 +203,15 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			if ownerID := r.Header.Get("X-Coder-Owner-Id"); ownerID != "" {
 				existingActor := aibcontext.ActorFromContext(ctx)
 				var md recorder.Metadata
+				var previousActorID string
 				if existingActor != nil {
 					md = existingActor.Metadata
+					previousActorID = existingActor.ID
 				}
+				logger.Debug(ctx, "overriding initiator with X-Coder-Owner-Id",
+					slog.F("previous_actor_id", previousActorID),
+					slog.F("new_actor_id", ownerID),
+				)
 				ctx = aibcontext.AsActor(ctx, ownerID, md)
 				r = r.WithContext(ctx)
 			}

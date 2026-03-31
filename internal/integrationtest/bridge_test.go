@@ -12,6 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"cdr.dev/slog/v3"
+	"cdr.dev/slog/v3/sloggers/sloghuman"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
@@ -2101,12 +2103,14 @@ func TestCoderAgentsInitiatorOverride(t *testing.T) {
 		userAgent       string
 		ownerIDHeader   string
 		expectInitiator string
+		expectLogOverride bool
 	}{
 		{
-			name:            "coder_agents_with_owner_id",
-			userAgent:       "coder-agents/v2.24.0 (linux/amd64)",
-			ownerIDHeader:   overrideActorID,
-			expectInitiator: overrideActorID,
+			name:              "coder_agents_with_owner_id",
+			userAgent:         "coder-agents/v2.24.0 (linux/amd64)",
+			ownerIDHeader:     overrideActorID,
+			expectInitiator:   overrideActorID,
+			expectLogOverride: true,
 		},
 		{
 			name:            "coder_agents_without_owner_id",
@@ -2132,7 +2136,9 @@ func TestCoderAgentsInitiatorOverride(t *testing.T) {
 			fix := fixtures.Parse(t, fixtures.AntSimple)
 			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
 
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+			var logBuf bytes.Buffer
+			logger := slog.Make(sloghuman.Sink(&logBuf)).Leveled(slog.LevelDebug)
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, withLogger(logger))
 
 			headers := http.Header{"User-Agent": {tc.userAgent}}
 			if tc.ownerIDHeader != "" {
@@ -2147,6 +2153,15 @@ func TestCoderAgentsInitiatorOverride(t *testing.T) {
 			interceptions := bridgeServer.Recorder.RecordedInterceptions()
 			require.Len(t, interceptions, 1)
 			require.Equal(t, tc.expectInitiator, interceptions[0].InitiatorID)
+
+			logOutput := logBuf.String()
+			if tc.expectLogOverride {
+				assert.Contains(t, logOutput, "overriding initiator with X-Coder-Owner-Id")
+				assert.Contains(t, logOutput, defaultActorID)
+				assert.Contains(t, logOutput, overrideActorID)
+			} else {
+				assert.NotContains(t, logOutput, "overriding initiator with X-Coder-Owner-Id")
+			}
 		})
 	}
 }
