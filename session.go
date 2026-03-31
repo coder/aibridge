@@ -19,22 +19,16 @@ var claudeCodePattern = regexp.MustCompile(`_session_(.+)$`) // Legacy format: s
 func guessSessionID(client Client, r *http.Request) *string {
 	switch client {
 	case ClientClaudeCode:
-		/* Claude Code adds the session ID into the `metadata.user_id` field in the JSON body.
-		Legacy format:
-		{
-			"metadata": {
-				"user_id": "user_{sha256}_account_{account_id}_session_{uuid_v4}"
-			}
+		// Prefer the dedicated header (added in Claude Code v2.1.86+).
+		if sid := cleanRef(r.Header.Get("X-Claude-Code-Session-Id")); sid != nil {
+			return sid
 		}
-		New format (the value is a JSON-encoded string):
-		{
-			"metadata": {
-				"user_id": "{\"device_id\":\"...\",\"account_uuid\":\"...\",\"session_id\":\"uuid_v4\"}"
-			}
-		} */
+
+		// Fall back to extracting from the metadata.user_id field in the JSON body.
+		// Legacy format: "user_{sha256}_account_{id}_session_{uuid}"
+		// Newer format:  JSON-encoded object with a "session_id" field.
 		payload, err := io.ReadAll(r.Body)
 		if err != nil {
-			// Failing silently is suitable here; if the body cannot be read, we won't be able to do much more.
 			return nil
 		}
 		_ = r.Body.Close()
@@ -48,12 +42,12 @@ func guessSessionID(client Client, r *http.Request) *string {
 
 		raw := userID.String()
 
-		// New format: user_id is a JSON-encoded object with a session_id field.
+		// Newer body format: user_id is a JSON-encoded object with a session_id field.
 		if sessionID := gjson.Get(raw, "session_id"); sessionID.Exists() {
 			return cleanRef(sessionID.String())
 		}
 
-		// Legacy format: "user_{sha256}_account_{id}_session_{uuid}"
+		// Legacy body format: "user_{sha256}_account_{id}_session_{uuid}"
 		matches := claudeCodePattern.FindStringSubmatch(raw)
 		if len(matches) < 2 {
 			return nil
