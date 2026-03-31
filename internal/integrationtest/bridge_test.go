@@ -2096,13 +2096,13 @@ func TestActorHeaders(t *testing.T) {
 func TestCoderAgentsInitiatorOverride(t *testing.T) {
 	t.Parallel()
 
-	const overrideActorID = "owner-id-from-coder"
+	const overrideActorID = "b1c2d3e4-5678-4a9b-8c0d-1e2f3a4b5c6d"
 
 	cases := []struct {
-		name            string
-		userAgent       string
-		ownerIDHeader   string
-		expectInitiator string
+		name              string
+		userAgent         string
+		ownerIDHeader     string
+		expectInitiator   string
 		expectLogOverride bool
 	}{
 		{
@@ -2116,6 +2116,12 @@ func TestCoderAgentsInitiatorOverride(t *testing.T) {
 			name:            "coder_agents_without_owner_id",
 			userAgent:       "coder-agents/v2.24.0 (linux/amd64)",
 			ownerIDHeader:   "",
+			expectInitiator: defaultActorID,
+		},
+		{
+			name:            "coder_agents_with_invalid_owner_id",
+			userAgent:       "coder-agents/v2.24.0 (linux/amd64)",
+			ownerIDHeader:   "not-a-uuid",
 			expectInitiator: defaultActorID,
 		},
 		{

@@ -13,6 +13,7 @@ import (
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/circuitbreaker"
+	"github.com/google/uuid"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/metrics"
@@ -201,19 +202,26 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		// to the correct user rather than the service-level identity.
 		if client == ClientCoderAgents {
 			if ownerID := r.Header.Get("X-Coder-Owner-Id"); ownerID != "" {
-				existingActor := aibcontext.ActorFromContext(ctx)
-				var md recorder.Metadata
-				var previousActorID string
-				if existingActor != nil {
-					md = existingActor.Metadata
-					previousActorID = existingActor.ID
+				if _, err := uuid.Parse(ownerID); err != nil {
+					logger.Warn(ctx, "ignoring invalid X-Coder-Owner-Id, expected UUID",
+						slog.F("value", ownerID),
+						slog.Error(err),
+					)
+				} else {
+					existingActor := aibcontext.ActorFromContext(ctx)
+					var md recorder.Metadata
+					var previousActorID string
+					if existingActor != nil {
+						md = existingActor.Metadata
+						previousActorID = existingActor.ID
+					}
+					logger.Debug(ctx, "overriding initiator with X-Coder-Owner-Id",
+						slog.F("previous_actor_id", previousActorID),
+						slog.F("new_actor_id", ownerID),
+					)
+					ctx = aibcontext.AsActor(ctx, ownerID, md)
+					r = r.WithContext(ctx)
 				}
-				logger.Debug(ctx, "overriding initiator with X-Coder-Owner-Id",
-					slog.F("previous_actor_id", previousActorID),
-					slog.F("new_actor_id", ownerID),
-				)
-				ctx = aibcontext.AsActor(ctx, ownerID, md)
-				r = r.WithContext(ctx)
 			}
 		}
 
