@@ -2090,3 +2090,63 @@ func TestActorHeaders(t *testing.T) {
 		}
 	}
 }
+
+func TestCoderAgentsInitiatorOverride(t *testing.T) {
+	t.Parallel()
+
+	const overrideActorID = "owner-id-from-coder"
+
+	cases := []struct {
+		name            string
+		userAgent       string
+		ownerIDHeader   string
+		expectInitiator string
+	}{
+		{
+			name:            "coder_agents_with_owner_id",
+			userAgent:       "coder-agents/v2.24.0 (linux/amd64)",
+			ownerIDHeader:   overrideActorID,
+			expectInitiator: overrideActorID,
+		},
+		{
+			name:            "coder_agents_without_owner_id",
+			userAgent:       "coder-agents/v2.24.0 (linux/amd64)",
+			ownerIDHeader:   "",
+			expectInitiator: defaultActorID,
+		},
+		{
+			name:            "non_coder_agents_with_owner_id_header",
+			userAgent:       "claude-code/1.0.0",
+			ownerIDHeader:   overrideActorID,
+			expectInitiator: defaultActorID,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Cleanup(cancel)
+
+			fix := fixtures.Parse(t, fixtures.AntSimple)
+			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+
+			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+
+			headers := http.Header{"User-Agent": {tc.userAgent}}
+			if tc.ownerIDHeader != "" {
+				headers.Set("X-Coder-Owner-Id", tc.ownerIDHeader)
+			}
+
+			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fix.Request(), headers)
+			require.Equal(t, http.StatusOK, resp.StatusCode)
+			_, err := io.ReadAll(resp.Body)
+			require.NoError(t, err)
+
+			interceptions := bridgeServer.Recorder.RecordedInterceptions()
+			require.Len(t, interceptions, 1)
+			require.Equal(t, tc.expectInitiator, interceptions[0].InitiatorID)
+		})
+	}
+}

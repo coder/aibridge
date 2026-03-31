@@ -196,6 +196,21 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			}()
 		}
 
+		// For Coder Agents, the X-Coder-Owner-Id header identifies the actual
+		// user who initiated the chat. Override the actor so usage is attributed
+		// to the correct user rather than the service-level identity.
+		if client == ClientCoderAgents {
+			if ownerID := r.Header.Get("X-Coder-Owner-Id"); ownerID != "" {
+				existingActor := aibcontext.ActorFromContext(ctx)
+				var md recorder.Metadata
+				if existingActor != nil {
+					md = existingActor.Metadata
+				}
+				ctx = aibcontext.AsActor(ctx, ownerID, md)
+				r = r.WithContext(ctx)
+			}
+		}
+
 		actor := aibcontext.ActorFromContext(ctx)
 		if actor == nil {
 			logger.Warn(ctx, "no actor found in context")
