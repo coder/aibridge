@@ -693,6 +693,17 @@ func TestSimple(t *testing.T) {
 			expectedClient:    aibridge.ClientClaudeCode,
 		},
 		{
+			name:              config.ProviderAnthropic + "_haiku_prompt_capture",
+			fixture:           fixtures.AntHaikuSimple,
+			basePath:          "",
+			expectedPath:      "/v1/messages",
+			getResponseIDFunc: getAnthropicResponseID,
+			path:              pathAnthropicMessages,
+			expectedMsgID:     "msg_01Pvyf26bY17RcjmWfJsXGBn",
+			userAgent:         "claude-cli/2.0.67 (external, cli)",
+			expectedClient:    aibridge.ClientClaudeCode,
+		},
+		{
 			name:              config.ProviderOpenAI,
 			fixture:           fixtures.OaiChatSimple,
 			basePath:          "",

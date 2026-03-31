@@ -71,13 +71,11 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	i.injectTools()
 
 	var prompt *string
-	if !i.isSmallFastModel() {
-		promptText, promptFound, promptErr := i.reqPayload.lastUserPrompt()
-		if promptErr != nil {
-			i.logger.Warn(ctx, "failed to retrieve last user prompt", slog.Error(promptErr))
-		} else if promptFound {
-			prompt = &promptText
-		}
+	promptText, promptFound, promptErr := i.reqPayload.lastUserPrompt()
+	if promptErr != nil {
+		i.logger.Warn(ctx, "failed to retrieve last user prompt", slog.Error(promptErr))
+	} else if promptFound {
+		prompt = &promptText
 	}
 
 	// TODO(ssncferreira): inject actor headers directly in the client-header
