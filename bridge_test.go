@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestValidateProviders(t *testing.T) {
+func TestValidateProvider_Names(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -48,12 +48,57 @@ func TestValidateProviders(t *testing.T) {
 			},
 		},
 		{
-			name: "duplicate_name",
+			name: "name_with_slashes",
+			providers: []provider.Provider{
+				NewCopilotProvider(config.Copilot{Name: "copilot/business", BaseURL: "https://api.business.githubcopilot.com"}),
+			},
+			expectErr: "invalid provider name",
+		},
+		{
+			name: "name_with_spaces",
+			providers: []provider.Provider{
+				NewCopilotProvider(config.Copilot{Name: "copilot business", BaseURL: "https://api.business.githubcopilot.com"}),
+			},
+			expectErr: "invalid provider name",
+		},
+		{
+			name: "name_with_uppercase",
+			providers: []provider.Provider{
+				NewCopilotProvider(config.Copilot{Name: "Copilot", BaseURL: "https://api.business.githubcopilot.com"}),
+			},
+			expectErr: "invalid provider name",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := validateProviders(tc.providers)
+			if tc.expectErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.expectErr)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidateProvider_DuplicateNames(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		providers []provider.Provider
+		expectErr string
+	}{
+		{
+			name: "unique_names",
 			providers: []provider.Provider{
 				NewCopilotProvider(config.Copilot{Name: "copilot", BaseURL: "https://api.individual.githubcopilot.com"}),
-				NewCopilotProvider(config.Copilot{Name: "copilot", BaseURL: "https://api.business.githubcopilot.com"}),
+				NewCopilotProvider(config.Copilot{Name: "copilot-business", BaseURL: "https://api.business.githubcopilot.com"}),
 			},
-			expectErr: "duplicate provider name",
 		},
 		{
 			name: "duplicate_base_url_different_names",
@@ -61,6 +106,14 @@ func TestValidateProviders(t *testing.T) {
 				NewCopilotProvider(config.Copilot{Name: "copilot", BaseURL: "https://api.individual.githubcopilot.com"}),
 				NewCopilotProvider(config.Copilot{Name: "copilot-business", BaseURL: "https://api.individual.githubcopilot.com"}),
 			},
+		},
+		{
+			name: "duplicate_name",
+			providers: []provider.Provider{
+				NewCopilotProvider(config.Copilot{Name: "copilot", BaseURL: "https://api.individual.githubcopilot.com"}),
+				NewCopilotProvider(config.Copilot{Name: "copilot", BaseURL: "https://api.business.githubcopilot.com"}),
+			},
+			expectErr: "duplicate provider name",
 		},
 	}
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -57,14 +58,21 @@ type RequestBridge struct {
 
 var _ http.Handler = &RequestBridge{}
 
-// validateProviders checks that no two providers share the same name.
+// validProviderName matches names containing only lowercase alphanumeric characters and hyphens.
+var validProviderName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// validateProviders checks that provider names are valid and unique.
 func validateProviders(providers []provider.Provider) error {
 	names := make(map[string]bool, len(providers))
 	for _, prov := range providers {
-		if names[prov.Name()] {
-			return fmt.Errorf("duplicate provider name: %q", prov.Name())
+		name := prov.Name()
+		if !validProviderName.MatchString(name) {
+			return fmt.Errorf("invalid provider name %q: must contain only lowercase alphanumeric characters and hyphens", name)
 		}
-		names[prov.Name()] = true
+		if names[name] {
+			return fmt.Errorf("duplicate provider name: %q", name)
+		}
+		names[name] = true
 	}
 	return nil
 }
