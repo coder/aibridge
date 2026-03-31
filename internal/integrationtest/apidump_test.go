@@ -79,6 +79,34 @@ func TestAPIDump(t *testing.T) {
 			headers:           http.Header{"Authorization": {"Bearer test-copilot-token"}},
 			expectProviderDir: config.ProviderCopilot,
 		},
+		{
+			name:    "copilot_custom_name_chat_completions",
+			fixture: fixtures.OaiChatSimple,
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewCopilot(config.Copilot{
+					Name:       "copilot-business",
+					BaseURL:    addr,
+					APIDumpDir: dumpDir,
+				})
+			},
+			path:              "/copilot-business/chat/completions",
+			headers:           http.Header{"Authorization": {"Bearer test-copilot-token"}},
+			expectProviderDir: "copilot-business",
+		},
+		{
+			name:    "copilot_custom_name_responses",
+			fixture: fixtures.OaiChatSimple,
+			providerFunc: func(addr, dumpDir string) aibridge.Provider {
+				return provider.NewCopilot(config.Copilot{
+					Name:       "copilot-enterprise",
+					BaseURL:    addr,
+					APIDumpDir: dumpDir,
+				})
+			},
+			path:              "/copilot-enterprise/chat/completions",
+			headers:           http.Header{"Authorization": {"Bearer test-copilot-token"}},
+			expectProviderDir: "copilot-enterprise",
+		},
 	}
 
 	for _, tc := range cases {
