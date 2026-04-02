@@ -146,13 +146,14 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 			credHint = utils.MaskSecret(token)
 		}
 
+		cred := intercept.CredentialFields{Kind: credKind, Hint: credHint}
+
 		var interceptor intercept.Interceptor
 		if reqPayload.Stream() {
-			interceptor = messages.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
+			interceptor = messages.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer, cred)
 		} else {
-			interceptor = messages.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
+			interceptor = messages.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer, cred)
 		}
-		interceptor.SetCredential(credKind, credHint)
 		span.SetAttributes(interceptor.TraceAttributes(r)...)
 		return interceptor, nil
 	}

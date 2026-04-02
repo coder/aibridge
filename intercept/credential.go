@@ -7,23 +7,8 @@ const (
 	CredentialKindSubscription   = "subscription"
 )
 
-// CredentialFields is an embeddable helper that implements the
-// SetCredential, CredentialKind, and CredentialHint methods of the
-// Interceptor interface.
+// CredentialFields holds credential metadata for an interception.
 type CredentialFields struct {
 	Kind string
 	Hint string
-}
-
-func (c *CredentialFields) SetCredential(kind, hint string) {
-	c.Kind = kind
-	c.Hint = hint
-}
-
-func (c *CredentialFields) CredentialKind() string {
-	return c.Kind
-}
-
-func (c *CredentialFields) CredentialHint() string {
-	return c.Hint
 }

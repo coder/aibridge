@@ -145,6 +145,8 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		ExtraHeaders:   extractCopilotHeaders(r),
 	}
 
+	cred := intercept.CredentialFields{Kind: intercept.CredentialKindSubscription, Hint: utils.MaskSecret(key)}
+
 	var interceptor intercept.Interceptor
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
@@ -156,9 +158,9 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		}
 
 	case routeCopilotResponses:
@@ -172,9 +174,9 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		}
 
 		if reqPayload.Stream() {
-			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		}
 
 	default:
@@ -182,7 +184,6 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		return nil, UnknownRoute
 	}
 
-	interceptor.SetCredential(intercept.CredentialKindSubscription, utils.MaskSecret(key))
 	span.SetAttributes(interceptor.TraceAttributes(r)...)
 	return interceptor, nil
 }

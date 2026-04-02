@@ -118,6 +118,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		cfg.Key = token
 		credKind = intercept.CredentialKindPersonalAPIKey
 	}
+	cred := intercept.CredentialFields{Kind: credKind, Hint: utils.MaskSecret(cfg.Key)}
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
 	switch path {
@@ -128,9 +129,9 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		}
 
 	case routeResponses:
@@ -143,16 +144,15 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 			return nil, fmt.Errorf("unmarshal request body: %w", err)
 		}
 		if reqPayload.Stream() {
-			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		}
 
 	default:
 		span.SetStatus(codes.Error, "unknown route: "+r.URL.Path)
 		return nil, UnknownRoute
 	}
-	interceptor.SetCredential(credKind, utils.MaskSecret(cfg.Key))
 	span.SetAttributes(interceptor.TraceAttributes(r)...)
 	return interceptor, nil
 }
