@@ -131,22 +131,22 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		// When both are present, X-Api-Key takes priority to match
 		// claude-code behavior.
 		credKind := intercept.CredentialKindCentralized
-		credHint := utils.MaskSecret(cfg.Key)
+		credSecret := cfg.Key
 		authHeaderName := p.AuthHeader()
 		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 			cfg.Key = apiKey
 			authHeaderName = "X-Api-Key"
 			credKind = intercept.CredentialKindPersonalAPIKey
-			credHint = utils.MaskSecret(apiKey)
+			credSecret = apiKey
 		} else if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
 			cfg.BYOKBearerToken = token
 			cfg.Key = ""
 			authHeaderName = "Authorization"
 			credKind = intercept.CredentialKindSubscription
-			credHint = utils.MaskSecret(token)
+			credSecret = token
 		}
 
-		cred := intercept.CredentialInfo{Kind: credKind, Hint: credHint}
+		cred := intercept.NewCredentialInfo(credKind, credSecret)
 
 		var interceptor intercept.Interceptor
 		if reqPayload.Stream() {

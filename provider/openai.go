@@ -118,7 +118,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 		cfg.Key = token
 		credKind = intercept.CredentialKindPersonalAPIKey
 	}
-	cred := intercept.CredentialInfo{Kind: credKind, Hint: utils.MaskSecret(cfg.Key)}
+	cred := intercept.NewCredentialInfo(credKind, cfg.Key)
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
 	switch path {
