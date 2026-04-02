@@ -145,7 +145,7 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		ExtraHeaders:   extractCopilotHeaders(r),
 	}
 
-	cred := intercept.CredentialFields{Kind: intercept.CredentialKindSubscription, Hint: utils.MaskSecret(key)}
+	cred := intercept.CredentialInfo{Kind: intercept.CredentialKindSubscription, Hint: utils.MaskSecret(key)}
 
 	var interceptor intercept.Interceptor
 

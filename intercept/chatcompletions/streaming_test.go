@@ -87,7 +87,7 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 			httpReq := httptest.NewRequest(http.MethodPost, "/chat/completions", nil)
 
 			tracer := otel.Tracer("test")
-			interceptor := NewStreamingInterceptor(uuid.New(), req, config.ProviderOpenAI, cfg, httpReq.Header, "Authorization", tracer, intercept.CredentialFields{})
+			interceptor := NewStreamingInterceptor(uuid.New(), req, config.ProviderOpenAI, cfg, httpReq.Header, "Authorization", tracer, intercept.CredentialInfo{})
 
 			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)

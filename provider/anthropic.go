@@ -146,7 +146,7 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 			credHint = utils.MaskSecret(token)
 		}
 
-		cred := intercept.CredentialFields{Kind: credKind, Hint: credHint}
+		cred := intercept.CredentialInfo{Kind: credKind, Hint: credHint}
 
 		var interceptor intercept.Interceptor
 		if reqPayload.Stream() {

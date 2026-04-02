@@ -49,7 +49,7 @@ type responsesInterceptionBase struct {
 
 	logger     slog.Logger
 	tracer     trace.Tracer
-	credential intercept.CredentialFields
+	credential intercept.CredentialInfo
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -84,7 +84,7 @@ func (i *responsesInterceptionBase) ID() uuid.UUID {
 	return i.id
 }
 
-func (i *responsesInterceptionBase) Credential() intercept.CredentialFields {
+func (i *responsesInterceptionBase) Credential() intercept.CredentialInfo {
 	return i.credential
 }
 

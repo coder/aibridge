@@ -7,8 +7,8 @@ const (
 	CredentialKindSubscription   = "byok_subscription"
 )
 
-// CredentialFields holds credential metadata for an interception.
-type CredentialFields struct {
+// CredentialInfo holds credential metadata for an interception.
+type CredentialInfo struct {
 	Kind string
 	Hint string
 }

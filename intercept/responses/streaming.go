@@ -40,7 +40,7 @@ func NewStreamingInterceptor(
 	clientHeaders http.Header,
 	authHeaderName string,
 	tracer trace.Tracer,
-	cred intercept.CredentialFields,
+	cred intercept.CredentialInfo,
 ) *StreamingResponsesInterceptor {
 	return &StreamingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{

@@ -33,7 +33,7 @@ func NewBlockingInterceptor(
 	clientHeaders http.Header,
 	authHeaderName string,
 	tracer trace.Tracer,
-	cred intercept.CredentialFields,
+	cred intercept.CredentialInfo,
 ) *BlockingResponsesInterceptor {
 	return &BlockingResponsesInterceptor{
 		responsesInterceptionBase: responsesInterceptionBase{
