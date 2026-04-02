@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/internal/testutil"
 )
 
@@ -163,25 +164,29 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		setHeaders        map[string]string
-		wantXApiKey       string
-		wantAuthorization string
+		name               string
+		setHeaders         map[string]string
+		wantXApiKey        string
+		wantAuthorization  string
+		wantCredentialKind intercept.CredentialKind
 	}{
 		{
-			name:              "Messages_BYOK_BearerToken",
-			setHeaders:        map[string]string{"Authorization": "Bearer user-access-token"},
-			wantAuthorization: "Bearer user-access-token",
+			name:               "Messages_BYOK_BearerToken",
+			setHeaders:         map[string]string{"Authorization": "Bearer user-access-token"},
+			wantAuthorization:  "Bearer user-access-token",
+			wantCredentialKind: intercept.CredentialKindSubscription,
 		},
 		{
-			name:        "Messages_BYOK_APIKey",
-			setHeaders:  map[string]string{"X-Api-Key": "user-api-key"},
-			wantXApiKey: "user-api-key",
+			name:               "Messages_BYOK_APIKey",
+			setHeaders:         map[string]string{"X-Api-Key": "user-api-key"},
+			wantXApiKey:        "user-api-key",
+			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
 		},
 		{
-			name:        "Messages_Centralized_UsesCentralizedKey",
-			setHeaders:  map[string]string{},
-			wantXApiKey: "test-key",
+			name:               "Messages_Centralized_UsesCentralizedKey",
+			setHeaders:         map[string]string{},
+			wantXApiKey:        "test-key",
+			wantCredentialKind: intercept.CredentialKindCentralized,
 		},
 		{
 			name: "Messages_BYOK_BearerToken_And_APIKey",
@@ -189,7 +194,8 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 				"Authorization": "Bearer user-access-token",
 				"X-Api-Key":     "user-api-key",
 			},
-			wantXApiKey: "user-api-key",
+			wantXApiKey:        "user-api-key",
+			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
 		},
 	}
 
@@ -222,6 +228,10 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 			interceptor, err := provider.CreateInterceptor(w, req, testTracer)
 			require.NoError(t, err)
 			require.NotNil(t, interceptor)
+
+			cred := interceptor.Credential()
+			assert.Equal(t, tc.wantCredentialKind, cred.Kind, "credential kind mismatch")
+			assert.NotEmpty(t, cred.Hint, "credential hint should not be empty")
 
 			logger := slog.Make()
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
