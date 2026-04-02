@@ -2,23 +2,26 @@ package intercept
 
 import "github.com/coder/aibridge/utils"
 
+// CredentialKind identifies how a request was authenticated.
+type CredentialKind string
+
 // Credential kind constants for interception recording.
 const (
-	CredentialKindCentralized    = "centralized"
-	CredentialKindPersonalAPIKey = "byok_api_key"
-	CredentialKindSubscription   = "byok_subscription"
+	CredentialKindCentralized    CredentialKind = "centralized"
+	CredentialKindPersonalAPIKey CredentialKind = "byok_api_key"
+	CredentialKindSubscription   CredentialKind = "byok_subscription"
 )
 
 // CredentialInfo holds credential metadata for an interception.
 type CredentialInfo struct {
-	Kind string
+	Kind CredentialKind
 	Hint string
 }
 
 // NewCredentialInfo creates a CredentialInfo from a raw credential.
 // The credential is automatically masked before storage so that the
 // original secret is never retained.
-func NewCredentialInfo(kind, credential string) CredentialInfo {
+func NewCredentialInfo(kind CredentialKind, credential string) CredentialInfo {
 	return CredentialInfo{
 		Kind: kind,
 		Hint: utils.MaskSecret(credential),

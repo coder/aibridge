@@ -228,7 +228,7 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			Client:                string(client),
 			ClientSessionID:       sessionID,
 			CorrelatingToolCallID: interceptor.CorrelatingToolCallID(),
-			CredentialKind:        interceptor.Credential().Kind,
+			CredentialKind:        string(interceptor.Credential().Kind),
 			CredentialHint:        interceptor.Credential().Hint,
 		}); err != nil {
 			span.SetStatus(codes.Error, fmt.Sprintf("failed to record interception: %v", err))
