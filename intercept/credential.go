@@ -3,8 +3,8 @@ package intercept
 // Credential kind constants for interception recording.
 const (
 	CredentialKindCentralized    = "centralized"
-	CredentialKindPersonalAPIKey = "personal_api_key"
-	CredentialKindSubscription   = "subscription"
+	CredentialKindPersonalAPIKey = "byok_api_key"
+	CredentialKindSubscription   = "byok_subscription"
 )
 
 // CredentialFields holds credential metadata for an interception.
