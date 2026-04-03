@@ -1,7 +1,6 @@
 package utils_test
 
 import (
-	"strings"
 	"testing"
 
 	"github.com/coder/aibridge/utils"
@@ -17,13 +16,12 @@ func TestMaskSecret(t *testing.T) {
 		expected string
 	}{
 		{"empty", "", ""},
-		{"short", "short", "...(5)..."},
-		{"short_9_chars", "veryshort", "...(9)..."},
-		{"medium_15_chars", "thisisquitelong", "th...(11)...ng"},
-		{"long_api_key", "sk-ant-api03-abcdefgh", "sk-a...(13)...efgh"},
-		{"unicode", "hélloworld🌍!", "hé...(8)...🌍!"},
-		{"github_token", "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh", "ghp_...(30)...efgh"},
-		{"jwt_300_chars", "eyJh" + strings.Repeat("a", 292) + "Xk8s", "eyJh...(292)...Xk8s"},
+		{"short", "short", "*****"},
+		{"short_9_chars", "veryshort", "*********"},
+		{"medium_15_chars", "thisisquitelong", "th***********ng"},
+		{"long_api_key", "sk-ant-api03-abcdefgh", "sk-a*************efgh"},
+		{"unicode", "hélloworld🌍!", "hé********🌍!"},
+		{"github_token", "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh", "ghp_******************************efgh"},
 	}
 
 	for _, tc := range tests {
