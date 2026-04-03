@@ -205,6 +205,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 		setHeaders         map[string]string
 		wantAuthorization  string
 		wantCredentialKind intercept.CredentialKind
+		wantCredentialHint string
 	}{
 		{
 			name:               "ChatCompletions_BYOK",
@@ -214,6 +215,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			setHeaders:         map[string]string{"Authorization": "Bearer user-token"},
 			wantAuthorization:  "Bearer user-token",
 			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialHint: "us...(6)...en",
 		},
 		{
 			name:               "ChatCompletions_Centralized",
@@ -223,6 +225,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			setHeaders:         map[string]string{},
 			wantAuthorization:  "Bearer centralized-key",
 			wantCredentialKind: intercept.CredentialKindCentralized,
+			wantCredentialHint: "ce...(11)...ey",
 		},
 		{
 			name:               "Responses_BYOK",
@@ -232,6 +235,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			setHeaders:         map[string]string{"Authorization": "Bearer user-token"},
 			wantAuthorization:  "Bearer user-token",
 			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialHint: "us...(6)...en",
 		},
 		{
 			name:               "Responses_Centralized",
@@ -241,6 +245,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			setHeaders:         map[string]string{},
 			wantAuthorization:  "Bearer centralized-key",
 			wantCredentialKind: intercept.CredentialKindCentralized,
+			wantCredentialHint: "ce...(11)...ey",
 		},
 		// X-Api-Key should not appear in production since clients use Authorization,
 		// but ensure it is stripped if it does arrive.
@@ -255,6 +260,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			},
 			wantAuthorization:  "Bearer user-token",
 			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialHint: "us...(6)...en",
 		},
 		{
 			name:        "Responses_BYOK_XApiKeyStripped",
@@ -267,6 +273,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			},
 			wantAuthorization:  "Bearer user-token",
 			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialHint: "us...(6)...en",
 		},
 	}
 
@@ -302,7 +309,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 
 			cred := interceptor.Credential()
 			assert.Equal(t, tc.wantCredentialKind, cred.Kind, "credential kind mismatch")
-			assert.NotEmpty(t, cred.Hint, "credential hint should not be empty")
+			assert.Equal(t, tc.wantCredentialHint, cred.Hint, "credential hint mismatch")
 
 			logger := slog.Make()
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)

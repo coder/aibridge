@@ -169,24 +169,28 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 		wantXApiKey        string
 		wantAuthorization  string
 		wantCredentialKind intercept.CredentialKind
+		wantCredentialHint string
 	}{
 		{
 			name:               "Messages_BYOK_BearerToken",
 			setHeaders:         map[string]string{"Authorization": "Bearer user-access-token"},
 			wantAuthorization:  "Bearer user-access-token",
 			wantCredentialKind: intercept.CredentialKindSubscription,
+			wantCredentialHint: "us...(13)...en",
 		},
 		{
 			name:               "Messages_BYOK_APIKey",
 			setHeaders:         map[string]string{"X-Api-Key": "user-api-key"},
 			wantXApiKey:        "user-api-key",
 			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialHint: "us...(8)...ey",
 		},
 		{
 			name:               "Messages_Centralized_UsesCentralizedKey",
 			setHeaders:         map[string]string{},
 			wantXApiKey:        "test-key",
 			wantCredentialKind: intercept.CredentialKindCentralized,
+			wantCredentialHint: "...(8)...",
 		},
 		{
 			name: "Messages_BYOK_BearerToken_And_APIKey",
@@ -196,6 +200,7 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 			},
 			wantXApiKey:        "user-api-key",
 			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialHint: "us...(8)...ey",
 		},
 	}
 
@@ -231,7 +236,7 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 
 			cred := interceptor.Credential()
 			assert.Equal(t, tc.wantCredentialKind, cred.Kind, "credential kind mismatch")
-			assert.NotEmpty(t, cred.Hint, "credential hint should not be empty")
+			assert.Equal(t, tc.wantCredentialHint, cred.Hint, "credential hint mismatch")
 
 			logger := slog.Make()
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
