@@ -3,6 +3,7 @@ package intercept
 import "github.com/coder/aibridge/utils"
 
 // CredentialKind identifies how a request was authenticated.
+// Keep in sync with the credential_kind enum in coderd's database.
 type CredentialKind string
 
 // Credential kind constants for interception recording.
