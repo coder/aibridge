@@ -217,6 +217,7 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 		asyncRecorder.WithClient(string(client))
 		interceptor.Setup(logger, asyncRecorder, mcpProxy)
 
+		cred := interceptor.Credential()
 		if err := rec.RecordInterception(ctx, &recorder.InterceptionRecord{
 			ID:                    interceptor.ID().String(),
 			InitiatorID:           actor.ID,
@@ -228,8 +229,8 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			Client:                string(client),
 			ClientSessionID:       sessionID,
 			CorrelatingToolCallID: interceptor.CorrelatingToolCallID(),
-			CredentialKind:        string(interceptor.Credential().Kind),
-			CredentialHint:        interceptor.Credential().Hint,
+			CredentialKind:        string(cred.Kind),
+			CredentialHint:        cred.Hint,
 		}); err != nil {
 			span.SetStatus(codes.Error, fmt.Sprintf("failed to record interception: %v", err))
 			logger.Warn(ctx, "failed to record interception", slog.Error(err))
@@ -244,6 +245,8 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			slog.F("interception_id", interceptor.ID()),
 			slog.F("user_agent", r.UserAgent()),
 			slog.F("streaming", interceptor.Streaming()),
+			slog.F("credential_kind", string(cred.Kind)),
+			slog.F("credential_hint", cred.Hint),
 		)
 
 		log.Debug(ctx, "interception started")
