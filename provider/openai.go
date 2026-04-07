@@ -116,7 +116,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	credKind := intercept.CredentialKindCentralized
 	if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
 		cfg.Key = token
-		credKind = intercept.CredentialKindPersonalAPIKey
+		credKind = intercept.CredentialKindBYOK
 	}
 	cred := intercept.NewCredentialInfo(credKind, cfg.Key)
 

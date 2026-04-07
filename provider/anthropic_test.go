@@ -175,14 +175,14 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 			name:               "Messages_BYOK_BearerToken",
 			setHeaders:         map[string]string{"Authorization": "Bearer user-access-token"},
 			wantAuthorization:  "Bearer user-access-token",
-			wantCredentialKind: intercept.CredentialKindSubscription,
+			wantCredentialKind: intercept.CredentialKindBYOK,
 			wantCredentialHint: "us*************en",
 		},
 		{
 			name:               "Messages_BYOK_APIKey",
 			setHeaders:         map[string]string{"X-Api-Key": "user-api-key"},
 			wantXApiKey:        "user-api-key",
-			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialKind: intercept.CredentialKindBYOK,
 			wantCredentialHint: "us********ey",
 		},
 		{
@@ -199,7 +199,7 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 				"X-Api-Key":     "user-api-key",
 			},
 			wantXApiKey:        "user-api-key",
-			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialKind: intercept.CredentialKindBYOK,
 			wantCredentialHint: "us********ey",
 		},
 	}

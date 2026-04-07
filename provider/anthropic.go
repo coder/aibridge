@@ -136,13 +136,13 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
 			cfg.Key = apiKey
 			authHeaderName = "X-Api-Key"
-			credKind = intercept.CredentialKindPersonalAPIKey
+			credKind = intercept.CredentialKindBYOK
 			credSecret = apiKey
 		} else if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
 			cfg.BYOKBearerToken = token
 			cfg.Key = ""
 			authHeaderName = "Authorization"
-			credKind = intercept.CredentialKindSubscription
+			credKind = intercept.CredentialKindBYOK
 			credSecret = token
 		}
 

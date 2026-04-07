@@ -8,9 +8,8 @@ type CredentialKind string
 
 // Credential kind constants for interception recording.
 const (
-	CredentialKindCentralized    CredentialKind = "centralized"
-	CredentialKindPersonalAPIKey CredentialKind = "byok_api_key"
-	CredentialKindSubscription   CredentialKind = "byok_subscription"
+	CredentialKindCentralized CredentialKind = "centralized"
+	CredentialKindBYOK        CredentialKind = "byok"
 )
 
 // CredentialInfo holds credential metadata for an interception.

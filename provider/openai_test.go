@@ -214,7 +214,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			responseBody:       chatCompletionResponse,
 			setHeaders:         map[string]string{"Authorization": "Bearer user-token"},
 			wantAuthorization:  "Bearer user-token",
-			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialKind: intercept.CredentialKindBYOK,
 			wantCredentialHint: "us******en",
 		},
 		{
@@ -234,7 +234,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			responseBody:       responsesAPIResponse,
 			setHeaders:         map[string]string{"Authorization": "Bearer user-token"},
 			wantAuthorization:  "Bearer user-token",
-			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialKind: intercept.CredentialKindBYOK,
 			wantCredentialHint: "us******en",
 		},
 		{
@@ -259,7 +259,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 				"X-Api-Key":     "some-key",
 			},
 			wantAuthorization:  "Bearer user-token",
-			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialKind: intercept.CredentialKindBYOK,
 			wantCredentialHint: "us******en",
 		},
 		{
@@ -272,7 +272,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 				"X-Api-Key":     "some-key",
 			},
 			wantAuthorization:  "Bearer user-token",
-			wantCredentialKind: intercept.CredentialKindPersonalAPIKey,
+			wantCredentialKind: intercept.CredentialKindBYOK,
 			wantCredentialHint: "us******en",
 		},
 	}
