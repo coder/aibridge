@@ -247,6 +247,7 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			slog.F("streaming", interceptor.Streaming()),
 			slog.F("credential_kind", string(cred.Kind)),
 			slog.F("credential_hint", cred.Hint),
+			slog.F("credential_length", cred.Length),
 		)
 
 		log.Debug(ctx, "interception started")
