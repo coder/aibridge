@@ -1,7 +1,5 @@
 package utils
 
-import "strings"
-
 // MaskSecret masks the middle of a secret string, revealing a small
 // prefix and suffix for identification. The number of characters
 // revealed scales with string length.
@@ -13,15 +11,14 @@ func MaskSecret(s string) string {
 	runes := []rune(s)
 	reveal := revealLength(len(runes))
 
-	// If we'd reveal everything or more, mask it all.
-	if reveal*2 >= len(runes) {
-		return strings.Repeat("*", len(runes))
+	// If there's nothing safe to reveal, mask it all.
+	if reveal == 0 || reveal*2 >= len(runes) {
+		return "***"
 	}
 
 	prefix := string(runes[:reveal])
 	suffix := string(runes[len(runes)-reveal:])
-	masked := len(runes) - reveal*2
-	return prefix + strings.Repeat("*", masked) + suffix
+	return prefix + "..." + suffix
 }
 
 // revealLength returns the number of runes to show at each end.

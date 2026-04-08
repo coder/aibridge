@@ -16,12 +16,12 @@ func TestMaskSecret(t *testing.T) {
 		expected string
 	}{
 		{"empty", "", ""},
-		{"short", "short", "*****"},
-		{"short_9_chars", "veryshort", "*********"},
-		{"medium_15_chars", "thisisquitelong", "th***********ng"},
-		{"long_api_key", "sk-ant-api03-abcdefgh", "sk-a*************efgh"},
-		{"unicode", "hélloworld🌍!", "hé********🌍!"},
-		{"github_token", "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh", "ghp_******************************efgh"},
+		{"short", "short", "***"},
+		{"short_9_chars", "veryshort", "***"},
+		{"medium_15_chars", "thisisquitelong", "th...ng"},
+		{"long_api_key", "sk-ant-api03-abcdefgh", "sk-a...efgh"},
+		{"unicode", "hélloworld🌍!", "hé...🌍!"},
+		{"github_token", "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefgh", "ghp_...efgh"},
 	}
 
 	for _, tc := range tests {

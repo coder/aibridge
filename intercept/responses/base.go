@@ -47,8 +47,9 @@ type responsesInterceptionBase struct {
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
 
-	logger slog.Logger
-	tracer trace.Tracer
+	logger     slog.Logger
+	tracer     trace.Tracer
+	credential intercept.CredentialInfo
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -81,6 +82,10 @@ func (i *responsesInterceptionBase) newResponsesService() responses.ResponseServ
 
 func (i *responsesInterceptionBase) ID() uuid.UUID {
 	return i.id
+}
+
+func (i *responsesInterceptionBase) Credential() intercept.CredentialInfo {
+	return i.credential
 }
 
 func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {

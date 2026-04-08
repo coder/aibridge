@@ -77,12 +77,17 @@ type interceptionBase struct {
 	tracer trace.Tracer
 	logger slog.Logger
 
-	recorder recorder.Recorder
-	mcpProxy mcp.ServerProxier
+	recorder   recorder.Recorder
+	mcpProxy   mcp.ServerProxier
+	credential intercept.CredentialInfo
 }
 
 func (i *interceptionBase) ID() uuid.UUID {
 	return i.id
+}
+
+func (i *interceptionBase) Credential() intercept.CredentialInfo {
+	return i.credential
 }
 
 func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
