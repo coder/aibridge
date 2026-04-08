@@ -186,7 +186,7 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 			wantCredentialHint: "us***ey",
 		},
 		{
-			name:               "Messages_Centralized_UsesCentralizedKey",
+			name:               "Messages_Centralized",
 			setHeaders:         map[string]string{},
 			wantXApiKey:        "test-key",
 			wantCredentialKind: intercept.CredentialKindCentralized,
