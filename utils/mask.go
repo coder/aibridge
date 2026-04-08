@@ -13,12 +13,12 @@ func MaskSecret(s string) string {
 
 	// If we'd reveal everything or more, mask it all.
 	if reveal*2 >= len(runes) {
-		return "***"
+		return "..."
 	}
 
 	prefix := string(runes[:reveal])
 	suffix := string(runes[len(runes)-reveal:])
-	return prefix + "***" + suffix
+	return prefix + "..." + suffix
 }
 
 // revealLength returns the number of runes to show at each end.

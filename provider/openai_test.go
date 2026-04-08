@@ -215,7 +215,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			setHeaders:         map[string]string{"Authorization": "Bearer user-token"},
 			wantAuthorization:  "Bearer user-token",
 			wantCredentialKind: intercept.CredentialKindBYOK,
-			wantCredentialHint: "us***en",
+			wantCredentialHint: "us...en",
 		},
 		{
 			name:               "ChatCompletions_Centralized",
@@ -225,7 +225,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			setHeaders:         map[string]string{},
 			wantAuthorization:  "Bearer centralized-key",
 			wantCredentialKind: intercept.CredentialKindCentralized,
-			wantCredentialHint: "ce***ey",
+			wantCredentialHint: "ce...ey",
 		},
 		{
 			name:               "Responses_BYOK",
@@ -235,7 +235,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			setHeaders:         map[string]string{"Authorization": "Bearer user-token"},
 			wantAuthorization:  "Bearer user-token",
 			wantCredentialKind: intercept.CredentialKindBYOK,
-			wantCredentialHint: "us***en",
+			wantCredentialHint: "us...en",
 		},
 		{
 			name:               "Responses_Centralized",
@@ -245,7 +245,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			setHeaders:         map[string]string{},
 			wantAuthorization:  "Bearer centralized-key",
 			wantCredentialKind: intercept.CredentialKindCentralized,
-			wantCredentialHint: "ce***ey",
+			wantCredentialHint: "ce...ey",
 		},
 		// X-Api-Key should not appear in production since clients use Authorization,
 		// but ensure it is stripped if it does arrive.
@@ -260,7 +260,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			},
 			wantAuthorization:  "Bearer user-token",
 			wantCredentialKind: intercept.CredentialKindBYOK,
-			wantCredentialHint: "us***en",
+			wantCredentialHint: "us...en",
 		},
 		{
 			name:         "Responses_BYOK_XApiKeyStripped",
@@ -273,7 +273,7 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			},
 			wantAuthorization:  "Bearer user-token",
 			wantCredentialKind: intercept.CredentialKindBYOK,
-			wantCredentialHint: "us***en",
+			wantCredentialHint: "us...en",
 		},
 	}
 
