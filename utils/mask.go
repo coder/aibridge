@@ -11,9 +11,8 @@ func MaskSecret(s string) string {
 	runes := []rune(s)
 	reveal := revealLength(len(runes))
 
-	// If there's nothing safe to reveal, mask it all.
-	if reveal == 0 || reveal*2 >= len(runes) {
-		return "***"
+	if len(runes) <= reveal*2 {
+		return s
 	}
 
 	prefix := string(runes[:reveal])
@@ -29,6 +28,6 @@ func revealLength(n int) int {
 	case n >= 10:
 		return 2
 	default:
-		return 0
+		return 1
 	}
 }
