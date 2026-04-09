@@ -1,5 +1,5 @@
 # Use a single bash shell for each job, and immediately exit on failure
-.SHELL := /usr/bin/env bash
+SHELL := bash
 .SHELLFLAGS := -ceu
 .ONESHELL:
 
@@ -12,6 +12,25 @@
 ifndef VERBOSE
 .SILENT:
 endif
+
+SHELL_SRC_FILES := $(shell find . -type f -name '*.sh' -not -path '*/.git/*')
+GOLANGCI_LINT_VERSION ?= 2.11.4
+PARALLELTESTCTX_VERSION ?= 0.0.1
+
+lint: lint/shellcheck lint/go
+.PHONY: lint
+
+lint/go:
+	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION) run
+	go run github.com/coder/paralleltestctx/cmd/paralleltestctx@v$(PARALLELTESTCTX_VERSION) -custom-funcs="testutil.Context" ./...
+.PHONY: lint/go
+
+lint/shellcheck:
+	if test -n "$(strip $(SHELL_SRC_FILES))"; then \
+		echo "--- shellcheck"; \
+		shellcheck --external-sources $(SHELL_SRC_FILES); \
+	fi
+.PHONY: lint/shellcheck
 
 test:
 	go test -count=1 ./...
