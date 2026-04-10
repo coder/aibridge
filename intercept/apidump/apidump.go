@@ -14,6 +14,7 @@ import (
 
 	"cdr.dev/slog/v3"
 
+	"github.com/coder/aibridge/utils"
 	"github.com/coder/quartz"
 	"github.com/google/uuid"
 	"github.com/tidwall/pretty"
@@ -186,7 +187,7 @@ func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitiv
 			}
 
 			if isSensitive {
-				value = redactHeaderValue(value)
+				value = utils.MaskSecret(value)
 			}
 			_, err := fmt.Fprintf(w, "%s: %s\r\n", key, value)
 			if err != nil {
