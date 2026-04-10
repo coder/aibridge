@@ -133,7 +133,7 @@ func TestBridgedMiddleware_RedactsSensitiveResponseHeaders(t *testing.T) {
 	// Verify sensitive headers are present but redacted
 	require.Contains(t, content, "Set-Cookie: sess...cure")
 	// Note: Go canonicalizes WWW-Authenticate to Www-Authenticate
-	// "Bearer realm=\"api\"" = 18 chars, reveal=2, first 2 = "Be", last 2 = "i\""
+	// "Bearer realm=\"api\"" = 18 chars, first 2 = "Be", last 2 = "i\""
 	require.Contains(t, content, "Www-Authenticate: Be...i\"")
 
 	// Verify full secret values are NOT present
