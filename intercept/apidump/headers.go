@@ -18,17 +18,3 @@ var sensitiveResponseHeaders = map[string]struct{}{
 	"Www-Authenticate":   {},
 	"Proxy-Authenticate": {},
 }
-
-// redactHeaderValue redacts a sensitive header value, showing only partial content.
-// For values >= 8 bytes: shows first 4 and last 4 bytes with "..." in between.
-// For values < 8 bytes: shows first and last byte with "..." in between.
-func redactHeaderValue(value string) string {
-	if len(value) >= 8 {
-		return value[:4] + "..." + value[len(value)-4:]
-	}
-	if len(value) >= 2 {
-		return value[:1] + "..." + value[len(value)-1:]
-	}
-	// Single character or empty - just return as-is
-	return value
-}

@@ -16,8 +16,11 @@ func TestMaskSecret(t *testing.T) {
 		expected string
 	}{
 		{"empty", "", ""},
-		{"short", "short", "***"},
-		{"short_9_chars", "veryshort", "***"},
+		{"single_char", "x", "..."},
+		{"two_chars", "ab", "..."},
+		{"four_chars", "abcd", "..."},
+		{"short", "short", "s...t"},
+		{"short_9_chars", "veryshort", "v...t"},
 		{"medium_15_chars", "thisisquitelong", "th...ng"},
 		{"long_api_key", "sk-ant-api03-abcdefgh", "sk-a...efgh"},
 		{"unicode", "hélloworld🌍!", "hé...🌍!"},
