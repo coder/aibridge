@@ -16,8 +16,9 @@ func TestMaskSecret(t *testing.T) {
 		expected string
 	}{
 		{"empty", "", ""},
-		{"single_char", "x", "x"},
-		{"two_chars", "ab", "ab"},
+		{"single_char", "x", "..."},
+		{"two_chars", "ab", "..."},
+		{"four_chars", "abcd", "..."},
 		{"short", "short", "s...t"},
 		{"short_9_chars", "veryshort", "v...t"},
 		{"medium_15_chars", "thisisquitelong", "th...ng"},
