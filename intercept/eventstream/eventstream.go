@@ -240,8 +240,7 @@ func flush(w http.ResponseWriter) (err error) {
 	}
 
 	defer func() {
-		if r := recover(); r != nil {
-			// Likely a broken connection, don't spam the logs.
+		if r := recover(); r != nil { //nolint:revive // Intentionally swallowed; likely a broken connection.
 		}
 	}()
 

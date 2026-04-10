@@ -183,17 +183,15 @@ func (i *interceptionBase) extractModelThoughts(msg *anthropic.Message) []*recor
 
 	var thoughtRecords []*recorder.ModelThoughtRecord
 	for _, block := range msg.Content {
-		switch variant := block.AsAny().(type) {
-		case anthropic.ThinkingBlock:
-			if variant.Thinking == "" {
-				continue
-			}
-			thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
-				Content:  variant.Thinking,
-				Metadata: recorder.Metadata{"source": recorder.ThoughtSourceThinking},
-			})
-		}
 		// anthropic.RedactedThinkingBlock also exists, but there's nothing useful we can capture.
+		variant, ok := block.AsAny().(anthropic.ThinkingBlock)
+		if !ok || variant.Thinking == "" {
+			continue
+		}
+		thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
+			Content:  variant.Thinking,
+			Metadata: recorder.Metadata{"source": recorder.ThoughtSourceThinking},
+		})
 	}
 	return thoughtRecords
 }

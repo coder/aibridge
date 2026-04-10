@@ -104,7 +104,7 @@ func TestMetrics_Interception(t *testing.T) {
 		},
 		{
 			name:           "oai_responses_blocking_error",
-			fixture:        fixtures.OaiResponsesBlockingHttpErr,
+			fixture:        fixtures.OaiResponsesBlockingHTTPErr,
 			path:           pathOpenAIResponses,
 			headers:        http.Header{"User-Agent": []string{"codex/1.0.0"}},
 			expectStatus:   metrics.InterceptionCountStatusFailed,
@@ -127,7 +127,7 @@ func TestMetrics_Interception(t *testing.T) {
 		},
 		{
 			name:           "oai_responses_streaming_error",
-			fixture:        fixtures.OaiResponsesStreamingHttpErr,
+			fixture:        fixtures.OaiResponsesStreamingHTTPErr,
 			path:           pathOpenAIResponses,
 			headers:        http.Header{"Originator": []string{"roo-code"}},
 			expectStatus:   metrics.InterceptionCountStatusFailed,

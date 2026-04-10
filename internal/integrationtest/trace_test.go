@@ -647,7 +647,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 		},
 		{
 			name:          "trace_openai_responses_streaming_http_error",
-			fixture:       fixtures.OaiResponsesStreamingHttpErr,
+			fixture:       fixtures.OaiResponsesStreamingHTTPErr,
 			streaming:     true,
 			allowOverflow: true, // 429 error causes retries
 
@@ -664,7 +664,7 @@ func TestTraceOpenAIErr(t *testing.T) {
 		},
 		{
 			name:      "trace_openai_responses_blocking_http_error",
-			fixture:   fixtures.OaiResponsesBlockingHttpErr,
+			fixture:   fixtures.OaiResponsesBlockingHTTPErr,
 			streaming: false,
 
 			path:       pathOpenAIResponses,

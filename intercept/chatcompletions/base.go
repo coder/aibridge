@@ -115,7 +115,7 @@ func (i *interceptionBase) Model() string {
 		return "coder-aibridge-unknown"
 	}
 
-	return string(i.req.Model)
+	return i.req.Model
 }
 
 func (i *interceptionBase) newErrorResponse(err error) map[string]any {
