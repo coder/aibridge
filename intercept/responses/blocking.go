@@ -28,7 +28,7 @@ type BlockingResponsesInterceptor struct {
 
 func NewBlockingInterceptor(
 	id uuid.UUID,
-	reqPayload ResponsesRequestPayload,
+	reqPayload RequestPayload,
 	providerName string,
 	cfg config.OpenAI,
 	clientHeaders http.Header,

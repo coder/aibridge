@@ -67,7 +67,7 @@ var bedrockSupportedBetaFlags = map[string]bool{
 type interceptionBase struct {
 	id           uuid.UUID
 	providerName string
-	reqPayload   MessagesRequestPayload
+	reqPayload   RequestPayload
 
 	cfg        aibconfig.Anthropic
 	bedrockCfg *aibconfig.AWSBedrock

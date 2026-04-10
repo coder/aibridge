@@ -37,7 +37,7 @@ type StreamingInterception struct {
 
 func NewStreamingInterceptor(
 	id uuid.UUID,
-	reqPayload MessagesRequestPayload,
+	reqPayload RequestPayload,
 	providerName string,
 	cfg config.Anthropic,
 	bedrockCfg *config.AWSBedrock,
@@ -573,13 +573,14 @@ func (i *StreamingInterception) pingPayload() []byte {
 }
 
 func (*StreamingInterception) encodeForStream(payload []byte, typ string) []byte {
+	// bytes.Buffer writes to in-memory storage and never return errors.
 	var buf bytes.Buffer
-	buf.WriteString("event: ")
-	buf.WriteString(typ)
-	buf.WriteString("\n")
-	buf.WriteString("data: ")
-	buf.Write(payload)
-	buf.WriteString("\n\n")
+	_, _ = buf.WriteString("event: ")
+	_, _ = buf.WriteString(typ)
+	_, _ = buf.WriteString("\n")
+	_, _ = buf.WriteString("data: ")
+	_, _ = buf.Write(payload)
+	_, _ = buf.WriteString("\n\n")
 	return buf.Bytes()
 }
 

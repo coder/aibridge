@@ -114,7 +114,7 @@ func (p *Anthropic) CreateInterceptor(_ http.ResponseWriter, r *http.Request, tr
 		return nil, xerrors.Errorf("read body: %w", err)
 	}
 
-	reqPayload, err := messages.NewMessagesRequestPayload(payload)
+	reqPayload, err := messages.NewRequestPayload(payload)
 	if err != nil {
 		return nil, xerrors.Errorf("unmarshal request body: %w", err)
 	}

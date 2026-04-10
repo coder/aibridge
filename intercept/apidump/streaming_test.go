@@ -42,10 +42,12 @@ func TestMiddleware_StreamingResponse(t *testing.T) {
 	// Create a pipe to simulate streaming
 	pr, pw := io.Pipe()
 	go func() {
+		defer pw.Close() //nolint:revive // error handled via pipe read side
 		for _, chunk := range chunks {
-			pw.Write([]byte(chunk))
+			if _, err := pw.Write([]byte(chunk)); err != nil {
+				return
+			}
 		}
-		pw.Close()
 	}()
 
 	resp, err := middleware(req, func(r *http.Request) (*http.Response, error) {
@@ -65,7 +67,7 @@ func TestMiddleware_StreamingResponse(t *testing.T) {
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
-			receivedData.Write(buf[:n])
+			_, _ = receivedData.Write(buf[:n]) // bytes.Buffer.Write never fails
 		}
 		if err == io.EOF {
 			break
