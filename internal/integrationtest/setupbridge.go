@@ -63,11 +63,13 @@ type bridgeTestServer struct {
 
 // makeRequest builds and executes an HTTP request against this server.
 // Optional headers are applied after the default Content-Type.
-func (s *bridgeTestServer) makeRequest(t *testing.T, method string, path string, body []byte, header ...http.Header) *http.Response {
+func (s *bridgeTestServer) makeRequest(t *testing.T, method string, path string, body []byte, header ...http.Header) (*http.Response, error) {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), method, s.URL+path, bytes.NewReader(body))
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	for _, h := range header {
 		for k, vals := range h {
@@ -76,10 +78,7 @@ func (s *bridgeTestServer) makeRequest(t *testing.T, method string, path string,
 			}
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = resp.Body.Close() })
-	return resp
+	return http.DefaultClient.Do(req)
 }
 
 type bridgeOption func(*bridgeConfig)
@@ -236,7 +235,8 @@ func setupInjectedToolTest(
 	reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 	require.NoError(t, err)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, path, reqBody)
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, path, reqBody)
+	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Wait both requests (initial + tool call result)

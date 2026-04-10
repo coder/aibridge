@@ -120,6 +120,7 @@ func TestMiddleware_PreservesResponseBody(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
+	defer resp.Body.Close()
 
 	// Verify the response body is still readable after middleware
 	capturedBody, err := io.ReadAll(resp.Body)

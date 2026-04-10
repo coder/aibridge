@@ -52,7 +52,7 @@ func TestBridgedMiddleware_RedactsSensitiveRequestHeaders(t *testing.T) {
 	req.Header.Set("User-Agent", "test-client")
 
 	// Call middleware with a mock next function
-	_, err = middleware(req, func(r *http.Request) (*http.Response, error) {
+	resp, err := middleware(req, func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
@@ -62,6 +62,7 @@ func TestBridgedMiddleware_RedactsSensitiveRequestHeaders(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
+	defer resp.Body.Close()
 
 	// Read the request dump file
 	modelDir := filepath.Join(tmpDir, "openai", "gpt-4")
@@ -170,7 +171,7 @@ func TestBridgedMiddleware_PreservesRequestBody(t *testing.T) {
 	require.NoError(t, err)
 
 	var capturedBody []byte
-	_, err = middleware(req, func(r *http.Request) (*http.Response, error) {
+	resp2, err := middleware(req, func(r *http.Request) (*http.Response, error) {
 		// Read the body in the next handler to verify it's still available
 		capturedBody, _ = io.ReadAll(r.Body)
 		return &http.Response{
@@ -182,6 +183,7 @@ func TestBridgedMiddleware_PreservesRequestBody(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
+	defer resp2.Body.Close()
 
 	// Verify the body was preserved for the next handler
 	require.Equal(t, originalBody, string(capturedBody))
@@ -202,7 +204,7 @@ func TestBridgedMiddleware_ModelWithSlash(t *testing.T) {
 	req, err := http.NewRequest(http.MethodPost, "https://api.google.com/v1/chat", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 
-	_, err = middleware(req, func(r *http.Request) (*http.Response, error) {
+	resp3, err := middleware(req, func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
@@ -212,6 +214,7 @@ func TestBridgedMiddleware_ModelWithSlash(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
+	defer resp3.Body.Close()
 
 	// Verify files are created with sanitized model name
 	modelDir := filepath.Join(tmpDir, "google", "gemini-1.5-pro")
@@ -290,7 +293,7 @@ func TestBridgedMiddleware_AllSensitiveRequestHeaders(t *testing.T) {
 	req.Header.Set("Proxy-Authorization", "Basic proxy-creds")
 	req.Header.Set("X-Amz-Security-Token", "aws-security-token")
 
-	_, err = middleware(req, func(r *http.Request) (*http.Response, error) {
+	resp4, err := middleware(req, func(r *http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
 			Status:     "200 OK",
@@ -300,6 +303,7 @@ func TestBridgedMiddleware_AllSensitiveRequestHeaders(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
+	defer resp4.Body.Close()
 
 	modelDir := filepath.Join(tmpDir, "openai", "gpt-4")
 	reqDumpPath := findDumpFile(t, modelDir, SuffixRequest)
@@ -358,7 +362,7 @@ func TestPassthroughMiddleware(t *testing.T) {
 		req, err := http.NewRequest(http.MethodGet, "https://api.openai.com/v1/models", nil)
 		require.NoError(t, err)
 
-		resp, err := rt.RoundTrip(req)
+		resp, err := rt.RoundTrip(req) //nolint:bodyclose // resp is nil on error
 		require.ErrorIs(t, err, innerErr)
 		require.Nil(t, resp)
 	})

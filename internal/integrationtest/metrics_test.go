@@ -155,8 +155,10 @@ func TestMetrics_Interception(t *testing.T) {
 				withMetrics(m),
 			)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
-			_, err := io.ReadAll(resp.Body)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			_, err = io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
 			count := promtest.ToFloat64(m.InterceptionCount.WithLabelValues(
@@ -237,7 +239,9 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 		withMetrics(m),
 	)
 
-	resp := bridgeServer.makeRequest(t, http.MethodGet, "/openai/v1/models", nil)
+	resp, err := bridgeServer.makeRequest(t, http.MethodGet, "/openai/v1/models", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	count := promtest.ToFloat64(m.PassthroughCount.WithLabelValues(
@@ -259,9 +263,11 @@ func TestMetrics_PromptCount(t *testing.T) {
 		withMetrics(m),
 	)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request(), http.Header{"User-Agent": []string{"claude-code/1.0.0"}})
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request(), http.Header{"User-Agent": []string{"claude-code/1.0.0"}})
+	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, err := io.ReadAll(resp.Body)
+	_, err = io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
 	prompts := promtest.ToFloat64(m.PromptCount.WithLabelValues(
@@ -353,7 +359,9 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 				reqBody, err = sjson.SetBytes(reqBody, "stream", true)
 				require.NoError(t, err)
 			}
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.reqPath, reqBody, nil)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.reqPath, reqBody, nil)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			_, _ = io.ReadAll(resp.Body)
 
@@ -386,9 +394,11 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 		withMetrics(m),
 	)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
+	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, err := io.ReadAll(resp.Body)
+	_, err = io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
 	count := promtest.ToFloat64(m.NonInjectedToolUseCount.WithLabelValues(
@@ -416,9 +426,11 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 		withMCP(mockMCP),
 	)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fix.Request())
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fix.Request())
+	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, err := io.ReadAll(resp.Body)
+	_, err = io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
 	// Wait until full roundtrip has completed.
