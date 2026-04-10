@@ -14,14 +14,14 @@ ifndef VERBOSE
 endif
 
 SHELL_SRC_FILES := $(shell find . -type f -name '*.sh' -not -path '*/.git/*')
-GOLANGCI_LINT_VERSION ?= 2.11.4
+GOLANGCI_LINT_VERSION ?= 1.64.8
 PARALLELTESTCTX_VERSION ?= 0.0.1
 
 lint: lint/shellcheck lint/go
 .PHONY: lint
 
 lint/go:
-	go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION) run
+	go run github.com/golangci/golangci-lint/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION) run
 	go run github.com/coder/paralleltestctx/cmd/paralleltestctx@v$(PARALLELTESTCTX_VERSION) -custom-funcs="testutil.Context" ./...
 .PHONY: lint/go
 
