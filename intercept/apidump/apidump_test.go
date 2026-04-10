@@ -73,7 +73,7 @@ func TestBridgedMiddleware_RedactsSensitiveRequestHeaders(t *testing.T) {
 	// Verify sensitive headers ARE present but redacted
 	require.Contains(t, content, "Authorization: Bear...2345")
 	require.Contains(t, content, "X-Api-Key: secr...alue")
-	require.Contains(t, content, "Cookie: se...23") // "session=abc123" is 14 chars, reveal=2
+	require.Contains(t, content, "Cookie: se...23") // "session=abc123" is 14 chars, so first 2 + last 2
 
 	// Verify the full secret values are NOT present
 	require.NotContains(t, content, "sk-secret-key-12345")
