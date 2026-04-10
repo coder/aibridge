@@ -18,16 +18,16 @@ type MockProvider struct {
 	InterceptorFunc func(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (intercept.Interceptor, error)
 }
 
-func (m *MockProvider) Type() string                                 { return m.NameStr }
-func (m *MockProvider) Name() string                                 { return m.NameStr }
-func (m *MockProvider) BaseURL() string                              { return m.URL }
-func (m *MockProvider) RoutePrefix() string                          { return fmt.Sprintf("/%s", m.NameStr) }
-func (m *MockProvider) BridgedRoutes() []string                      { return m.Bridged }
-func (m *MockProvider) PassthroughRoutes() []string                  { return m.Passthrough }
-func (m *MockProvider) AuthHeader() string                           { return "Authorization" }
-func (m *MockProvider) InjectAuthHeader(h *http.Header)              {}
-func (m *MockProvider) CircuitBreakerConfig() *config.CircuitBreaker { return nil }
-func (m *MockProvider) APIDumpDir() string                           { return "" }
+func (m *MockProvider) Type() string                               { return m.NameStr }
+func (m *MockProvider) Name() string                               { return m.NameStr }
+func (m *MockProvider) BaseURL() string                            { return m.URL }
+func (m *MockProvider) RoutePrefix() string                        { return fmt.Sprintf("/%s", m.NameStr) }
+func (m *MockProvider) BridgedRoutes() []string                    { return m.Bridged }
+func (m *MockProvider) PassthroughRoutes() []string                { return m.Passthrough }
+func (*MockProvider) AuthHeader() string                           { return "Authorization" }
+func (*MockProvider) InjectAuthHeader(_ *http.Header)              {}
+func (*MockProvider) CircuitBreakerConfig() *config.CircuitBreaker { return nil }
+func (*MockProvider) APIDumpDir() string                           { return "" }
 func (m *MockProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (intercept.Interceptor, error) {
 	if m.InterceptorFunc != nil {
 		return m.InterceptorFunc(w, r, tracer)

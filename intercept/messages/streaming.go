@@ -59,16 +59,16 @@ func NewStreamingInterceptor(
 	}}
 }
 
-func (s *StreamingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	s.interceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
+func (i *StreamingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	i.interceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
-func (s *StreamingInterception) Streaming() bool {
+func (*StreamingInterception) Streaming() bool {
 	return true
 }
 
-func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.interceptionBase.baseTraceAttributes(r, true)
+func (i *StreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return i.interceptionBase.baseTraceAttributes(r, true)
 }
 
 // ProcessRequest handles a request to /v1/messages.
@@ -534,8 +534,8 @@ newStream:
 	return interceptionErr
 }
 
-func (s *StreamingInterception) marshalEvent(event anthropic.MessageStreamEventUnion) ([]byte, error) {
-	sj, err := sjson.Set(event.RawJSON(), "message.id", s.ID().String())
+func (i *StreamingInterception) marshalEvent(event anthropic.MessageStreamEventUnion) ([]byte, error) {
+	sj, err := sjson.Set(event.RawJSON(), "message.id", i.ID().String())
 	if err != nil {
 		return nil, xerrors.Errorf("marshal event id failed: %w", err)
 	}
@@ -545,10 +545,10 @@ func (s *StreamingInterception) marshalEvent(event anthropic.MessageStreamEventU
 		return nil, xerrors.Errorf("marshal event usage failed: %w", err)
 	}
 
-	return s.encodeForStream([]byte(sj), event.Type), nil
+	return i.encodeForStream([]byte(sj), event.Type), nil
 }
 
-func (s *StreamingInterception) marshal(payload any) ([]byte, error) {
+func (i *StreamingInterception) marshal(payload any) ([]byte, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
 		return nil, xerrors.Errorf("marshal payload: %w", err)
@@ -564,15 +564,15 @@ func (s *StreamingInterception) marshal(payload any) ([]byte, error) {
 		return nil, xerrors.Errorf("could not determine type from payload %q", data)
 	}
 
-	return s.encodeForStream(data, eventType), nil
+	return i.encodeForStream(data, eventType), nil
 }
 
 // https://docs.anthropic.com/en/docs/build-with-claude/streaming#basic-streaming-request
-func (s *StreamingInterception) pingPayload() []byte {
-	return s.encodeForStream([]byte(`{"type": "ping"}`), "ping")
+func (i *StreamingInterception) pingPayload() []byte {
+	return i.encodeForStream([]byte(`{"type": "ping"}`), "ping")
 }
 
-func (s *StreamingInterception) encodeForStream(payload []byte, typ string) []byte {
+func (*StreamingInterception) encodeForStream(payload []byte, typ string) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("event: ")
 	buf.WriteString(typ)
@@ -584,9 +584,9 @@ func (s *StreamingInterception) encodeForStream(payload []byte, typ string) []by
 }
 
 // newStream traces svc.NewStreaming() call.
-func (s *StreamingInterception) newStream(ctx context.Context, svc anthropic.MessageService) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
-	_, span := s.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
+func (i *StreamingInterception) newStream(ctx context.Context, svc anthropic.MessageService) *ssestream.Stream[anthropic.MessageStreamEventUnion] {
+	_, span := i.tracer.Start(ctx, "Intercept.ProcessRequest.Upstream", trace.WithAttributes(tracing.InterceptionAttributesFromContext(ctx)...))
 	defer span.End()
 
-	return svc.NewStreaming(ctx, anthropic.MessageNewParams{}, s.withBody())
+	return svc.NewStreaming(ctx, anthropic.MessageNewParams{}, i.withBody())
 }

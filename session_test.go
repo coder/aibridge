@@ -236,6 +236,6 @@ func TestUnreadableBody(t *testing.T) {
 // errReader is an io.Reader that always returns an error.
 type errReader struct{}
 
-func (e *errReader) Read([]byte) (int, error) {
+func (*errReader) Read([]byte) (int, error) {
 	return 0, io.ErrUnexpectedEOF
 }

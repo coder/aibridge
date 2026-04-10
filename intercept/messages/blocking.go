@@ -62,7 +62,7 @@ func (i *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyV
 	return i.interceptionBase.baseTraceAttributes(r, false)
 }
 
-func (s *BlockingInterception) Streaming() bool {
+func (*BlockingInterception) Streaming() bool {
 	return false
 }
 

@@ -54,7 +54,7 @@ func (i *BlockingResponsesInterceptor) Setup(logger slog.Logger, recorder record
 	i.responsesInterceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
-func (i *BlockingResponsesInterceptor) Streaming() bool {
+func (*BlockingResponsesInterceptor) Streaming() bool {
 	return false
 }
 

@@ -153,7 +153,7 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 // for deterministic output.
 // `sensitive` and `overrides` must both supply keys in canoncialized form.
 // See [textproto.MIMEHeader].
-func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitive map[string]struct{}, overrides map[string]string) error {
+func (*dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitive map[string]struct{}, overrides map[string]string) error {
 	// Collect all header keys including overrides.
 	headerKeys := make([]string, 0, len(headers)+len(overrides))
 	seen := make(map[string]struct{}, len(headers)+len(overrides))

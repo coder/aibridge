@@ -777,11 +777,11 @@ type mockServerProxier struct {
 	tools []*mcp.Tool
 }
 
-func (m *mockServerProxier) Init(context.Context) error {
+func (*mockServerProxier) Init(context.Context) error {
 	return nil
 }
 
-func (m *mockServerProxier) Shutdown(context.Context) error {
+func (*mockServerProxier) Shutdown(context.Context) error {
 	return nil
 }
 
@@ -798,7 +798,7 @@ func (m *mockServerProxier) GetTool(id string) *mcp.Tool {
 	return nil
 }
 
-func (m *mockServerProxier) CallTool(context.Context, string, any) (*mcpgo.CallToolResult, error) {
+func (*mockServerProxier) CallTool(context.Context, string, any) (*mcpgo.CallToolResult, error) {
 	return nil, nil
 }
 

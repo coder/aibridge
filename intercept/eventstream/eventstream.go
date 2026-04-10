@@ -32,7 +32,6 @@ type EventStream struct {
 	initiated    atomic.Bool
 	initiateOnce sync.Once
 
-	closeOnce    sync.Once
 	shutdownOnce sync.Once
 	eventsCh     chan event
 

@@ -51,16 +51,16 @@ func NewBlockingInterceptor(
 	}}
 }
 
-func (s *BlockingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	s.interceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+func (i *BlockingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	i.interceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
 }
 
-func (s *BlockingInterception) Streaming() bool {
+func (*BlockingInterception) Streaming() bool {
 	return false
 }
 
-func (s *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.interceptionBase.baseTraceAttributes(r, false)
+func (i *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return i.interceptionBase.baseTraceAttributes(r, false)
 }
 
 func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {

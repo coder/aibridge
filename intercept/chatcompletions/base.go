@@ -99,13 +99,13 @@ func (i *interceptionBase) CorrelatingToolCallID() *string {
 	return &msg.OfTool.ToolCallID
 }
 
-func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
+func (i *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),
-		attribute.String(tracing.InterceptionID, s.id.String()),
+		attribute.String(tracing.InterceptionID, i.id.String()),
 		attribute.String(tracing.InitiatorID, aibcontext.ActorIDFromContext(r.Context())),
-		attribute.String(tracing.Provider, s.providerName),
-		attribute.String(tracing.Model, s.Model()),
+		attribute.String(tracing.Provider, i.providerName),
+		attribute.String(tracing.Model, i.Model()),
 		attribute.Bool(tracing.Streaming, streaming),
 	}
 }
@@ -118,7 +118,7 @@ func (i *interceptionBase) Model() string {
 	return i.req.Model
 }
 
-func (i *interceptionBase) newErrorResponse(err error) map[string]any {
+func (*interceptionBase) newErrorResponse(err error) map[string]any {
 	return map[string]any{
 		"error":   true,
 		"message": err.Error(),
