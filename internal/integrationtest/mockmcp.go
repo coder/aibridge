@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/mark3labs/mcp-go/client/transport"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
@@ -19,6 +18,7 @@ import (
 
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/slogtest"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 )
 
@@ -68,12 +68,12 @@ func setupMCPForTestWithName(t *testing.T, name string, tracer trace.Tracer) *mo
 
 	mgr := mcp.NewServerProxyManager(map[string]mcp.ServerProxier{proxy.Name(): proxy}, tracer)
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitShort)
 		defer cancel()
 		require.NoError(t, mgr.Shutdown(ctx))
 	})
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 	require.NoError(t, mgr.Init(ctx))
 	require.NotEmpty(t, mgr.ListTools(), "mock MCP server should expose tools after init")

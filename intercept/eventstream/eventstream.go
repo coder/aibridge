@@ -239,7 +239,7 @@ func flush(w http.ResponseWriter) (err error) {
 	}
 
 	defer func() {
-		if r := recover(); r != nil { //nolint:revive // Intentionally swallowed; likely a broken connection.
+		if r := recover(); r != nil { //nolint:revive,staticcheck // Intentionally swallowed; likely a broken connection.
 		}
 	}()
 

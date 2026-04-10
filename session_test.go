@@ -205,7 +205,7 @@ func TestGuessSessionID(t *testing.T) {
 			t.Parallel()
 
 			body := tc.body
-			req, err := http.NewRequest(http.MethodPost, "http://localhost", strings.NewReader(body))
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost", strings.NewReader(body))
 			require.NoError(t, err)
 
 			for key, value := range tc.headers {
@@ -226,7 +226,7 @@ func TestGuessSessionID(t *testing.T) {
 func TestUnreadableBody(t *testing.T) {
 	t.Parallel()
 
-	req, err := http.NewRequest(http.MethodPost, "http://localhost", &errReader{})
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "http://localhost", &errReader{})
 	require.NoError(t, err)
 
 	got := guessSessionID(ClientClaudeCode, req)

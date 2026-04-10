@@ -11,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/intercept/apidump"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/provider"
 )
 
@@ -114,7 +114,7 @@ func TestAPIDump(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// Setup mock upstream server.
@@ -244,7 +244,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

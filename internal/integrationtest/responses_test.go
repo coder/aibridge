@@ -22,6 +22,7 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/utils"
@@ -335,7 +336,7 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
@@ -418,7 +419,7 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// request with Background mode should be rejected before it reaches upstream
@@ -551,7 +552,7 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", tc.name, streaming), func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, tc.fixture[i])
@@ -637,7 +638,7 @@ func TestClientAndConnectionError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// tc.addr may be an intentionally invalid URL; use withCustomProvider.
@@ -709,7 +710,7 @@ func TestUpstreamError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -890,7 +891,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// Setup mock server for multi-turn interaction.
@@ -917,7 +918,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 			// Wait for both requests to be made (inner agentic loop).
 			require.Eventually(t, func() bool {
 				return upstream.Calls.Load() == 2
-			}, time.Second*10, time.Millisecond*50)
+			}, testutil.WaitMedium, testutil.IntervalFast)
 
 			// Verify the injected tool was invoked via MCP.
 			invocations := mockMCP.getCallsByTool(tc.mcpToolName)
@@ -1037,7 +1038,7 @@ func TestResponsesModelThoughts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)

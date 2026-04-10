@@ -197,6 +197,8 @@ func TestAWSBedrockValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			base := &interceptionBase{}
 			opts, err := base.withAWSBedrockOptions(context.Background(), tt.cfg)
 
@@ -212,7 +214,10 @@ func TestAWSBedrockValidation(t *testing.T) {
 }
 
 func TestAccumulateUsage(t *testing.T) {
+	t.Parallel()
+
 	t.Run("Usage to Usage", func(t *testing.T) {
+		t.Parallel()
 		dest := &anthropic.Usage{
 			InputTokens:              10,
 			OutputTokens:             20,
@@ -253,6 +258,8 @@ func TestAccumulateUsage(t *testing.T) {
 	})
 
 	t.Run("MessageDeltaUsage to MessageDeltaUsage", func(t *testing.T) {
+		t.Parallel()
+
 		dest := &anthropic.MessageDeltaUsage{
 			InputTokens:              10,
 			OutputTokens:             20,
@@ -283,6 +290,8 @@ func TestAccumulateUsage(t *testing.T) {
 	})
 
 	t.Run("Usage to MessageDeltaUsage", func(t *testing.T) {
+		t.Parallel()
+
 		dest := &anthropic.MessageDeltaUsage{
 			InputTokens:              10,
 			OutputTokens:             20,
@@ -317,6 +326,8 @@ func TestAccumulateUsage(t *testing.T) {
 	})
 
 	t.Run("MessageDeltaUsage to Usage", func(t *testing.T) {
+		t.Parallel()
+
 		dest := &anthropic.Usage{
 			InputTokens:              10,
 			OutputTokens:             20,
@@ -354,6 +365,8 @@ func TestAccumulateUsage(t *testing.T) {
 	})
 
 	t.Run("Nil or unsupported types", func(t *testing.T) {
+		t.Parallel()
+
 		// Test with nil dest
 		var nilUsage *anthropic.Usage
 		source := anthropic.Usage{InputTokens: 10}

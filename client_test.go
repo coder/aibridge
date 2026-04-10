@@ -108,7 +108,7 @@ func TestGuessClient(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			req, err := http.NewRequest(http.MethodGet, "", nil)
+			req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "", nil)
 			require.NoError(t, err)
 
 			req.Header.Set("User-Agent", tt.userAgent)

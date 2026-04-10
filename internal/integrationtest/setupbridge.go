@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/sjson"
@@ -208,7 +207,7 @@ func setupInjectedToolTest(
 ) (*bridgeTestServer, *mockMCP, *http.Response) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixture)
@@ -242,7 +241,7 @@ func setupInjectedToolTest(
 	// Wait both requests (initial + tool call result)
 	require.Eventually(t, func() bool {
 		return upstream.Calls.Load() == 2
-	}, time.Second*10, time.Millisecond*50)
+	}, testutil.WaitMedium, testutil.IntervalFast)
 
 	return bridgeServer, mockMCP, resp
 }

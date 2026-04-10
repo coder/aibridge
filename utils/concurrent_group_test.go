@@ -18,11 +18,15 @@ func TestConcurrentGroup(t *testing.T) {
 	t.Parallel()
 
 	t.Run("no goroutines", func(t *testing.T) {
+		t.Parallel()
+
 		cg := utils.NewConcurrentGroup()
 		require.NoError(t, cg.Wait())
 	})
 
 	t.Run("multiple goroutines, all ok", func(t *testing.T) {
+		t.Parallel()
+
 		cg := utils.NewConcurrentGroup()
 		cg.Go(func() error {
 			return nil
@@ -34,6 +38,8 @@ func TestConcurrentGroup(t *testing.T) {
 	})
 
 	t.Run("multiple goroutines, one err", func(t *testing.T) {
+		t.Parallel()
+
 		cg := utils.NewConcurrentGroup()
 		oops := xerrors.New("oops")
 		cg.Go(func() error {
@@ -46,6 +52,8 @@ func TestConcurrentGroup(t *testing.T) {
 	})
 
 	t.Run("multiple goroutines, multiple errs", func(t *testing.T) {
+		t.Parallel()
+
 		cg := utils.NewConcurrentGroup()
 		oops := xerrors.New("oops")
 		eek := xerrors.New("eek")

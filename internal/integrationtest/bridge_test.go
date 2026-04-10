@@ -10,7 +10,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
@@ -29,6 +28,7 @@ import (
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/intercept"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
@@ -78,7 +78,7 @@ func TestAnthropicMessages(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
@@ -212,7 +212,7 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
@@ -246,7 +246,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 	t.Run("invalid config", func(t *testing.T) {
 		t.Parallel()
 
-		ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+		ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 		t.Cleanup(cancel)
 
 		// Invalid bedrock config - missing region & base url
@@ -278,7 +278,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", t.Name(), streaming), func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, fixtures.AntSingleBuiltinTool)
@@ -404,7 +404,7 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				t.Run(fmt.Sprintf("%s/streaming=%v", tc.name, streaming), func(t *testing.T) {
 					t.Parallel()
 
-					ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+					ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 					t.Cleanup(cancel)
 
 					fix := fixtures.Parse(t, fixtures.AntSimpleBedrock)
@@ -501,7 +501,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
@@ -577,7 +577,7 @@ func TestOpenAIChatCompletions(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 				t.Cleanup(cancel)
 
 				// Setup mock server for multi-turn interaction.
@@ -770,7 +770,7 @@ func TestSimple(t *testing.T) {
 				t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
 					t.Parallel()
 
-					ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+					ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 					t.Cleanup(cancel)
 
 					fix := fixtures.Parse(t, tc.fixture)
@@ -877,7 +877,7 @@ func TestSessionIDTracking(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
@@ -1256,6 +1256,8 @@ func TestErrorHandling(t *testing.T) {
 
 	// Tests that errors which occur *before* a streaming response begins, or in non-streaming requests, are handled as expected.
 	t.Run("non-stream error", func(t *testing.T) {
+		t.Parallel()
+
 		cases := []struct {
 			name              string
 			fixture           []byte
@@ -1298,7 +1300,7 @@ func TestErrorHandling(t *testing.T) {
 					t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
 						t.Parallel()
 
-						ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+						ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 						t.Cleanup(cancel)
 
 						// Setup mock server. Error fixtures contain raw HTTP
@@ -1371,7 +1373,7 @@ func TestErrorHandling(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 				t.Cleanup(cancel)
 
 				// Setup mock server.
@@ -1420,7 +1422,7 @@ func TestStableRequestEncoding(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// Setup MCP tools.
@@ -1685,7 +1687,7 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// Setup MCP tools conditionally.
@@ -1849,7 +1851,7 @@ func TestChatCompletionsParallelToolCallsDisabled(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", tc.name, streaming), func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, tc.fixture)
@@ -1904,7 +1906,7 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 		t.Run(fmt.Sprintf("streaming=%v", streaming), func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// Create a mock server that captures the request body sent upstream.
@@ -1969,7 +1971,7 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// NOTE: Cannot use t.Parallel() here because t.Setenv requires sequential execution.
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
@@ -2081,7 +2083,7 @@ func TestActorHeaders(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v/send-headers=%v", tc.name, tc.streaming, send), func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, tc.fixture)

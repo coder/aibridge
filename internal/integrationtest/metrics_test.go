@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
@@ -17,6 +16,7 @@ import (
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/metrics"
 )
 
@@ -143,7 +143,7 @@ func TestMetrics_Interception(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
@@ -175,7 +175,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 
 	fix := fixtures.Parse(t, fixtures.AntSimple)
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	blockCh := make(chan struct{})
@@ -210,7 +210,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 		return promtest.ToFloat64(
 			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 1
-	}, time.Second*10, time.Millisecond*50)
+	}, testutil.WaitMedium, testutil.IntervalFast)
 
 	// Unblock request, await completion.
 	close(blockCh)
@@ -225,7 +225,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 		return promtest.ToFloat64(
 			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 0
-	}, time.Second*10, time.Millisecond*50)
+	}, testutil.WaitMedium, testutil.IntervalFast)
 }
 
 func TestMetrics_PassthroughCount(t *testing.T) {
@@ -252,7 +252,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 func TestMetrics_PromptCount(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixtures.OaiChatSimple)
@@ -342,7 +342,7 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
@@ -369,7 +369,7 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 			require.Eventually(t, func() bool {
 				return promtest.ToFloat64(m.TokenUseCount.WithLabelValues(
 					tc.expectProvider, tc.expectModel, "input", defaultActorID, string(aibridge.ClientUnknown))) > 0
-			}, time.Second*10, time.Millisecond*50)
+			}, testutil.WaitMedium, testutil.IntervalFast)
 
 			for label, expected := range tc.expectedLabels {
 				require.Equal(t, expected, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(
@@ -383,7 +383,7 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
@@ -409,7 +409,7 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	// First request returns the tool invocation, the second returns the mocked response to the tool result.
@@ -436,7 +436,7 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	// Wait until full roundtrip has completed.
 	require.Eventually(t, func() bool {
 		return upstream.Calls.Load() == 2
-	}, time.Second*10, time.Millisecond*50)
+	}, testutil.WaitMedium, testutil.IntervalFast)
 
 	recorder := bridgeServer.Recorder
 	require.Len(t, recorder.ToolUsages(), 1)
