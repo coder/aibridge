@@ -1,4 +1,4 @@
-package provider
+package provider //nolint:testpackage // tests unexported internals
 
 import (
 	"bytes"

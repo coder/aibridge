@@ -1,4 +1,4 @@
-package intercept
+package intercept_test
 
 import (
 	"net/http"
@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/aibridge/intercept"
 )
 
 func TestPrepareClientHeaders(t *testing.T) {
@@ -14,7 +16,7 @@ func TestPrepareClientHeaders(t *testing.T) {
 	t.Run("nil input returns empty header", func(t *testing.T) {
 		t.Parallel()
 
-		result := PrepareClientHeaders(nil)
+		result := intercept.PrepareClientHeaders(nil)
 		require.Empty(t, result)
 	})
 
@@ -29,7 +31,7 @@ func TestPrepareClientHeaders(t *testing.T) {
 			"X-Custom":          {"preserved"},
 		}
 
-		result := PrepareClientHeaders(input)
+		result := intercept.PrepareClientHeaders(input)
 
 		assert.Empty(t, result.Get("Connection"))
 		assert.Empty(t, result.Get("Keep-Alive"))
@@ -48,7 +50,7 @@ func TestPrepareClientHeaders(t *testing.T) {
 			"X-Custom":        {"preserved"},
 		}
 
-		result := PrepareClientHeaders(input)
+		result := intercept.PrepareClientHeaders(input)
 
 		assert.Empty(t, result.Get("Host"))
 		assert.Empty(t, result.Get("Accept-Encoding"))
@@ -65,7 +67,7 @@ func TestPrepareClientHeaders(t *testing.T) {
 			"X-Custom":      {"preserved"},
 		}
 
-		result := PrepareClientHeaders(input)
+		result := intercept.PrepareClientHeaders(input)
 
 		assert.Empty(t, result.Get("Authorization"))
 		assert.Empty(t, result.Get("X-Api-Key"))
@@ -79,7 +81,7 @@ func TestPrepareClientHeaders(t *testing.T) {
 			"X-Custom": {"value-1", "value-2"},
 		}
 
-		result := PrepareClientHeaders(input)
+		result := intercept.PrepareClientHeaders(input)
 
 		require.Equal(t, []string{"value-1", "value-2"}, result["X-Custom"])
 	})
@@ -93,7 +95,7 @@ func TestPrepareClientHeaders(t *testing.T) {
 		}
 		originalCopy := input.Clone()
 
-		_ = PrepareClientHeaders(input)
+		_ = intercept.PrepareClientHeaders(input)
 
 		require.Equal(t, originalCopy, input)
 	})
@@ -113,7 +115,7 @@ func TestBuildUpstreamHeaders(t *testing.T) {
 			"User-Agent":    {"claude-code/1.0"},
 		}
 
-		result := BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
+		result := intercept.BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
 
 		assert.Equal(t, "Bearer sk-provider-key", result.Get("Authorization"))
 		assert.Equal(t, "claude-code/1.0", result.Get("User-Agent"))
@@ -131,7 +133,7 @@ func TestBuildUpstreamHeaders(t *testing.T) {
 			"Anthropic-Beta": {"prompt-caching-2024-07-31"},
 		}
 
-		result := BuildUpstreamHeaders(sdkHeader, clientHeaders, "X-Api-Key")
+		result := intercept.BuildUpstreamHeaders(sdkHeader, clientHeaders, "X-Api-Key")
 
 		assert.Equal(t, "sk-ant-provider-key", result.Get("X-Api-Key"))
 		assert.Empty(t, result.Get("Authorization"))
@@ -151,7 +153,7 @@ func TestBuildUpstreamHeaders(t *testing.T) {
 			"User-Agent":    {"claude-code/1.0"},
 		}
 
-		result := BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
+		result := intercept.BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
 
 		assert.Equal(t, "Bearer sk-key", result.Get("Authorization"))
 		assert.Equal(t, "user-123", result.Get("X-Ai-Bridge-Actor-Id"))
@@ -174,7 +176,7 @@ func TestBuildUpstreamHeaders(t *testing.T) {
 			"User-Agent":        {"claude-code/1.0"},
 		}
 
-		result := BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
+		result := intercept.BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
 
 		assert.Empty(t, result.Get("Connection"))
 		assert.Empty(t, result.Get("Host"))
@@ -192,7 +194,7 @@ func TestBuildUpstreamHeaders(t *testing.T) {
 			"User-Agent": {"claude-code/1.0"},
 		}
 
-		result := BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
+		result := intercept.BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
 
 		assert.Empty(t, result.Get("Authorization"))
 		assert.Equal(t, "claude-code/1.0", result.Get("User-Agent"))
@@ -211,7 +213,7 @@ func TestBuildUpstreamHeaders(t *testing.T) {
 		sdkCopy := sdkHeader.Clone()
 		clientCopy := clientHeaders.Clone()
 
-		_ = BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
+		_ = intercept.BuildUpstreamHeaders(sdkHeader, clientHeaders, "Authorization")
 
 		require.Equal(t, sdkCopy, sdkHeader)
 		require.Equal(t, clientCopy, clientHeaders)

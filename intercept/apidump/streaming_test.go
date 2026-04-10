@@ -1,4 +1,4 @@
-package apidump
+package apidump //nolint:testpackage // shares test helpers with apidump_test.go
 
 import (
 	"bytes"

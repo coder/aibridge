@@ -1,4 +1,4 @@
-package apidump
+package apidump //nolint:testpackage // tests unexported internals
 
 import (
 	"bytes"

@@ -14,10 +14,10 @@ import (
 
 var claudeCodePattern = regexp.MustCompile(`_session_(.+)$`) // Legacy format: save compilation on each call.
 
-// guessSessionID attempts to retrieve a session ID which may have been sent by
+// GuessSessionID attempts to retrieve a session ID which may have been sent by
 // the client. We only attempt to retrieve sessions using methods recognized for
 // the given client.
-func guessSessionID(client Client, r *http.Request) *string {
+func GuessSessionID(client Client, r *http.Request) *string {
 	switch client {
 	case ClientClaudeCode:
 		// Prefer the dedicated header (added in Claude Code v2.1.86+).

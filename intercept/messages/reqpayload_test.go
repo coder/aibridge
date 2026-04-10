@@ -1,4 +1,4 @@
-package messages
+package messages //nolint:testpackage // tests unexported internals
 
 import (
 	"testing"

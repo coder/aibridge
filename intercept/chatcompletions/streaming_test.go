@@ -1,4 +1,4 @@
-package chatcompletions
+package chatcompletions_test
 
 import (
 	"net/http"
@@ -16,6 +16,7 @@ import (
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
+	"github.com/coder/aibridge/intercept/chatcompletions"
 	"github.com/coder/aibridge/internal/testutil"
 )
 
@@ -73,7 +74,7 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 				Key:     "test-key",
 			}
 
-			req := &ChatCompletionNewParamsWrapper{
+			req := &chatcompletions.ChatCompletionNewParamsWrapper{
 				ChatCompletionNewParams: openai.ChatCompletionNewParams{
 					Model: "gpt-4",
 					Messages: []openai.ChatCompletionMessageParamUnion{
@@ -88,7 +89,7 @@ func TestStreamingInterception_RelaysUpstreamErrorToClient(t *testing.T) {
 			httpReq := httptest.NewRequest(http.MethodPost, "/chat/completions", nil)
 
 			tracer := otel.Tracer("test")
-			interceptor := NewStreamingInterceptor(uuid.New(), req, config.ProviderOpenAI, cfg, httpReq.Header, "Authorization", tracer, intercept.CredentialInfo{})
+			interceptor := chatcompletions.NewStreamingInterceptor(uuid.New(), req, config.ProviderOpenAI, cfg, httpReq.Header, "Authorization", tracer, intercept.CredentialInfo{})
 
 			logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)
