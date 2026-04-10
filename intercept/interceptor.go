@@ -17,7 +17,7 @@ type Interceptor interface {
 	ID() uuid.UUID
 	// Setup injects some required dependencies. This MUST be called before using the interceptor
 	// to process requests.
-	Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier)
+	Setup(logger slog.Logger, rec recorder.Recorder, mcpProxy mcp.ServerProxier)
 	// Model returns the model in use for this [Interceptor].
 	Model() string
 	// ProcessRequest handles the HTTP request.

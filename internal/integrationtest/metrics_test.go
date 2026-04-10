@@ -147,11 +147,11 @@ func TestMetrics_Interception(t *testing.T) {
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 			upstream.AllowOverflow = tc.allowOverflow
 
 			m := aibridge.NewMetrics(prometheus.NewRegistry())
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 				withMetrics(m),
 			)
 
@@ -185,7 +185,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
+	bridgeServer := newBridgeTestServer(ctx, t, srv.URL,
 		withMetrics(m),
 	)
 
@@ -233,7 +233,7 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	bridgeServer := newBridgeTestServer(t, t.Context(), upstream.URL,
+	bridgeServer := newBridgeTestServer(t.Context(), t, upstream.URL,
 		withMetrics(m),
 	)
 
@@ -252,10 +252,10 @@ func TestMetrics_PromptCount(t *testing.T) {
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixtures.OaiChatSimple)
-	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+	upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 		withMetrics(m),
 	)
 
@@ -340,10 +340,10 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 			m := aibridge.NewMetrics(prometheus.NewRegistry())
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 				withMetrics(m),
 			)
 
@@ -379,10 +379,10 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
-	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+	upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 		withMetrics(m),
 	)
 
@@ -404,14 +404,14 @@ func TestMetrics_InjectedToolUseCount(t *testing.T) {
 
 	// First request returns the tool invocation, the second returns the mocked response to the tool result.
 	fix := fixtures.Parse(t, fixtures.AntSingleInjectedTool)
-	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix))
+	upstream := newMockUpstream(ctx, t, newFixtureResponse(fix), newFixtureToolResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
 
 	// Setup mocked MCP server & tools.
 	mockMCP := setupMCPForTest(t, defaultTracer)
 
-	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 		withMetrics(m),
 		withMCP(mockMCP),
 	)

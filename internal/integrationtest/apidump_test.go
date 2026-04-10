@@ -119,12 +119,12 @@ func TestAPIDump(t *testing.T) {
 
 			// Setup mock upstream server.
 			fix := fixtures.Parse(t, tc.fixture)
-			srv := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			srv := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 			// Create temp dir for API dumps.
 			dumpDir := t.TempDir()
 
-			bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, srv.URL,
 				withCustomProvider(tc.providerFunc(srv.URL, dumpDir)),
 			)
 
@@ -252,7 +252,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 
 			dumpDir := t.TempDir()
 
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 				withCustomProvider(tc.providerFunc(upstream.URL, dumpDir)),
 			)
 

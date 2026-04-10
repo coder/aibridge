@@ -143,7 +143,7 @@ func TestTraceAnthropic(t *testing.T) {
 			sr, tracer := setupTracer(t)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 			opts := []bridgeOption{
 				withTracer(tracer),
@@ -151,7 +151,7 @@ func TestTraceAnthropic(t *testing.T) {
 			if tc.bedrock {
 				opts = append(opts, withProvider(providerBedrock))
 			}
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL, opts...)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
@@ -253,7 +253,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 			sr, tracer := setupTracer(t)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 			opts := []bridgeOption{
 				withTracer(tracer),
@@ -261,7 +261,7 @@ func TestTraceAnthropicErr(t *testing.T) {
 			if tc.bedrock {
 				opts = append(opts, withProvider(providerBedrock))
 			}
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL, opts...)
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
@@ -535,8 +535,8 @@ func TestTraceOpenAI(t *testing.T) {
 			sr, tracer := setupTracer(t)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 				withTracer(tracer),
 			)
 
@@ -689,9 +689,9 @@ func TestTraceOpenAIErr(t *testing.T) {
 
 			fix := fixtures.Parse(t, tc.fixture)
 
-			mockAPI := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			mockAPI := newMockUpstream(ctx, t, newFixtureResponse(fix))
 			mockAPI.AllowOverflow = tc.allowOverflow
-			bridgeServer := newBridgeTestServer(t, ctx, mockAPI.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, mockAPI.URL,
 				withTracer(tracer),
 			)
 
@@ -729,11 +729,11 @@ func TestTracePassthrough(t *testing.T) {
 
 	fix := fixtures.Parse(t, fixtures.OaiChatFallthrough)
 
-	upstream := newMockUpstream(t, t.Context(), newFixtureResponse(fix))
+	upstream := newMockUpstream(t.Context(), t, newFixtureResponse(fix))
 
 	sr, tracer := setupTracer(t)
 
-	bridgeServer := newBridgeTestServer(t, t.Context(), upstream.URL,
+	bridgeServer := newBridgeTestServer(t.Context(), t, upstream.URL,
 		withTracer(tracer),
 	)
 

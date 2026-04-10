@@ -51,8 +51,8 @@ func NewBlockingInterceptor(
 	}}
 }
 
-func (i *BlockingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	i.interceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+func (i *BlockingInterception) Setup(logger slog.Logger, rec recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	i.interceptionBase.Setup(logger.Named("blocking"), rec, mcpProxy)
 }
 
 func (*BlockingInterception) Streaming() bool {
