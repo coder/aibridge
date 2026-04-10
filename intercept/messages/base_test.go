@@ -812,7 +812,7 @@ func (m *mockServerProxier) GetTool(id string) *mcp.Tool {
 }
 
 func (*mockServerProxier) CallTool(context.Context, string, any) (*mcpgo.CallToolResult, error) {
-	return nil, nil
+	return nil, nil //nolint:nilnil // mock: no-op implementation
 }
 
 func TestFilterBedrockBetaFlags(t *testing.T) {

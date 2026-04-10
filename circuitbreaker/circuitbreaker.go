@@ -1,8 +1,10 @@
 package circuitbreaker
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
@@ -101,7 +103,8 @@ func (p *ProviderCircuitBreakers) Get(endpoint, model string) *gobreaker.Circuit
 }
 
 // statusCapturingWriter wraps http.ResponseWriter to capture the status code.
-// It also implements http.Flusher to support streaming responses.
+// It implements http.Flusher to support streaming and http.Hijacker to
+// satisfy the FullResponseWriter lint rule.
 type statusCapturingWriter struct {
 	http.ResponseWriter
 	statusCode    int
@@ -128,6 +131,14 @@ func (w *statusCapturingWriter) Flush() {
 	if f, ok := w.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
 	}
+}
+
+func (w *statusCapturingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, xerrors.New("upstream ResponseWriter does not support hijacking")
+	}
+	return h.Hijack()
 }
 
 // Unwrap returns the underlying ResponseWriter for interface checks.
