@@ -8,15 +8,17 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
+
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/chatcompletions"
 	"github.com/coder/aibridge/intercept/responses"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/aibridge/utils"
-	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -125,7 +127,7 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	case routeChatCompletions:
 		var req chatcompletions.ChatCompletionNewParamsWrapper
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			return nil, fmt.Errorf("unmarshal request body: %w", err)
+			return nil, xerrors.Errorf("unmarshal request body: %w", err)
 		}
 
 		if req.Stream {
@@ -137,11 +139,11 @@ func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, trace
 	case routeResponses:
 		payload, err := io.ReadAll(r.Body)
 		if err != nil {
-			return nil, fmt.Errorf("read body: %w", err)
+			return nil, xerrors.Errorf("read body: %w", err)
 		}
 		reqPayload, err := responses.NewResponsesRequestPayload(payload)
 		if err != nil {
-			return nil, fmt.Errorf("unmarshal request body: %w", err)
+			return nil, xerrors.Errorf("unmarshal request body: %w", err)
 		}
 		if reqPayload.Stream() {
 			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)

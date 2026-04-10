@@ -16,6 +16,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"golang.org/x/xerrors"
+
 	aibconfig "github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/intercept"
@@ -266,22 +268,22 @@ func (i *interceptionBase) withBody() option.RequestOption {
 
 func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("nil config given")
+		return nil, xerrors.New("nil config given")
 	}
 	if cfg.Region == "" && cfg.BaseURL == "" {
-		return nil, fmt.Errorf("region or base url required")
+		return nil, xerrors.New("region or base url required")
 	}
 	if cfg.AccessKey == "" {
-		return nil, fmt.Errorf("access key required")
+		return nil, xerrors.New("access key required")
 	}
 	if cfg.AccessKeySecret == "" {
-		return nil, fmt.Errorf("access key secret required")
+		return nil, xerrors.New("access key secret required")
 	}
 	if cfg.Model == "" {
-		return nil, fmt.Errorf("model required")
+		return nil, xerrors.New("model required")
 	}
 	if cfg.SmallFastModel == "" {
-		return nil, fmt.Errorf("small fast model required")
+		return nil, xerrors.New("small fast model required")
 	}
 
 	opts := []func(*config.LoadOptions) error{
@@ -297,7 +299,7 @@ func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibco
 
 	awsCfg, err := config.LoadDefaultConfig(ctx, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS Bedrock config: %w", err)
+		return nil, xerrors.Errorf("failed to load AWS Bedrock config: %w", err)
 	}
 
 	var out []option.RequestOption
@@ -369,9 +371,7 @@ func filterBedrockBetaFlags(headers http.Header, model string) {
 	// https://httpwg.org/specs/rfc9110.html#rfc.section.5.3
 	var flags []string
 	for _, v := range headers.Values("Anthropic-Beta") {
-		for _, flag := range strings.Split(v, ",") {
-			flags = append(flags, flag)
-		}
+		flags = append(flags, strings.Split(v, ",")...)
 	}
 
 	if len(flags) == 0 {

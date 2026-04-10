@@ -7,14 +7,16 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sony/gobreaker/v2"
+	"golang.org/x/xerrors"
+
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/metrics"
-	"github.com/sony/gobreaker/v2"
 )
 
 // ErrCircuitOpen is returned by Execute when the circuit breaker is open
 // and the request was rejected without calling the handler.
-var ErrCircuitOpen = errors.New("circuit breaker is open")
+var ErrCircuitOpen = xerrors.New("circuit breaker is open")
 
 // DefaultIsFailure returns true for standard HTTP status codes that typically
 // indicate upstream overload.
@@ -153,7 +155,7 @@ func (p *ProviderCircuitBreakers) Execute(endpoint, model string, w http.Respons
 	_, err := cb.Execute(func() (struct{}, error) {
 		handlerErr = handler(sw)
 		if p.isFailure(sw.statusCode) {
-			return struct{}{}, fmt.Errorf("upstream error: %d", sw.statusCode)
+			return struct{}{}, xerrors.Errorf("upstream error: %d", sw.statusCode)
 		}
 		return struct{}{}, nil
 	})

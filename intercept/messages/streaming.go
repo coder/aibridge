@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -14,6 +13,13 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+	"github.com/google/uuid"
+	mcplib "github.com/mark3labs/mcp-go/mcp"
+	"github.com/tidwall/sjson"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
+
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/intercept"
@@ -21,11 +27,6 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
-	"github.com/google/uuid"
-	mcplib "github.com/mark3labs/mcp-go/mcp"
-	"github.com/tidwall/sjson"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog/v3"
 )
@@ -91,7 +92,7 @@ func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.Key
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
 func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if len(i.reqPayload) == 0 {
-		return fmt.Errorf("developer error: request payload is empty")
+		return xerrors.New("developer error: request payload is empty")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -122,7 +123,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	}
 
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
-	defer streamCancel(errors.New("deferred"))
+	defer streamCancel(xerrors.New("deferred"))
 
 	// TODO(ssncferreira): inject actor headers directly in the client-header
 	//   middleware instead of using SDK options.
@@ -133,7 +134,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 	svc, err := i.newMessagesService(streamCtx, opts...)
 	if err != nil {
-		err = fmt.Errorf("create anthropic client: %w", err)
+		err = xerrors.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return err
 	}
@@ -156,7 +157,7 @@ newStream:
 	for {
 		// TODO add outer loop span (https://github.com/coder/aibridge/issues/67)
 		if err := streamCtx.Err(); err != nil {
-			lastErr = fmt.Errorf("stream exit: %w", err)
+			lastErr = xerrors.Errorf("stream exit: %w", err)
 			break
 		}
 
@@ -171,7 +172,7 @@ newStream:
 			event := stream.Current()
 			if err := message.Accumulate(event); err != nil {
 				logger.Warn(ctx, "failed to accumulate streaming events", slog.Error(err), slog.F("event", event), slog.F("msg", message.RawJSON()))
-				lastErr = fmt.Errorf("accumulate event: %w", err)
+				lastErr = xerrors.Errorf("accumulate event: %w", err)
 				break
 			}
 
@@ -422,7 +423,7 @@ newStream:
 					// sends the updated payload on the next iteration.
 					updatedPayload, syncErr := i.reqPayload.appendedMessages(loopMessages)
 					if syncErr != nil {
-						lastErr = fmt.Errorf("sync payload for agentic loop: %w", syncErr)
+						lastErr = xerrors.Errorf("sync payload for agentic loop: %w", syncErr)
 						break
 					}
 					i.reqPayload = updatedPayload
@@ -456,7 +457,7 @@ newStream:
 			payload, err := i.marshalEvent(event)
 			if err != nil {
 				logger.Warn(ctx, "failed to marshal event", slog.Error(err), slog.F("event", event.RawJSON()))
-				lastErr = fmt.Errorf("marshal event: %w", err)
+				lastErr = xerrors.Errorf("marshal event: %w", err)
 				break
 			}
 			if err := events.Send(streamCtx, payload); err != nil {
@@ -465,7 +466,7 @@ newStream:
 					break // Stop processing if client disconnected or context canceled.
 				} else {
 					logger.Warn(ctx, "failed to relay event", slog.Error(err))
-					lastErr = fmt.Errorf("relay event: %w", err)
+					lastErr = xerrors.Errorf("relay event: %w", err)
 					break
 				}
 			}
@@ -496,12 +497,12 @@ newStream:
 					// into known types (i.e. [shared.OverloadedError]).
 					// See https://github.com/anthropics/anthropic-sdk-go/blob/v1.12.0/packages/ssestream/ssestream.go#L172-L174
 					// All it does is wrap the payload in an error - which is all we can return, currently.
-					interceptionErr = newErrorResponse(fmt.Errorf("unknown stream error: %w", streamErr))
+					interceptionErr = newErrorResponse(xerrors.Errorf("unknown stream error: %w", streamErr))
 				}
 			} else if lastErr != nil {
 				// Otherwise check if any logical errors occurred during processing.
 				logger.Warn(ctx, "stream failed", slog.Error(lastErr))
-				interceptionErr = newErrorResponse(fmt.Errorf("processing error: %w", lastErr))
+				interceptionErr = newErrorResponse(xerrors.Errorf("processing error: %w", lastErr))
 			}
 
 			if interceptionErr != nil {
@@ -528,7 +529,7 @@ newStream:
 		if interceptionErr != nil {
 			streamCancel(interceptionErr)
 		} else {
-			streamCancel(errors.New("gracefully done"))
+			streamCancel(xerrors.New("gracefully done"))
 		}
 
 		break
@@ -540,12 +541,12 @@ newStream:
 func (s *StreamingInterception) marshalEvent(event anthropic.MessageStreamEventUnion) ([]byte, error) {
 	sj, err := sjson.Set(event.RawJSON(), "message.id", s.ID().String())
 	if err != nil {
-		return nil, fmt.Errorf("marshal event id failed: %w", err)
+		return nil, xerrors.Errorf("marshal event id failed: %w", err)
 	}
 
 	sj, err = sjson.Set(sj, "usage.output_tokens", event.Usage.OutputTokens)
 	if err != nil {
-		return nil, fmt.Errorf("marshal event usage failed: %w", err)
+		return nil, xerrors.Errorf("marshal event usage failed: %w", err)
 	}
 
 	return s.encodeForStream([]byte(sj), event.Type), nil
@@ -554,17 +555,17 @@ func (s *StreamingInterception) marshalEvent(event anthropic.MessageStreamEventU
 func (s *StreamingInterception) marshal(payload any) ([]byte, error) {
 	data, err := json.Marshal(payload)
 	if err != nil {
-		return nil, fmt.Errorf("marshal payload: %w", err)
+		return nil, xerrors.Errorf("marshal payload: %w", err)
 	}
 
 	var parsed map[string]any
 	if err := json.Unmarshal(data, &parsed); err != nil {
-		return nil, fmt.Errorf("unmarshal payload: %w", err)
+		return nil, xerrors.Errorf("unmarshal payload: %w", err)
 	}
 
 	eventType, ok := parsed["type"].(string)
 	if !ok || strings.TrimSpace(eventType) == "" {
-		return nil, fmt.Errorf("could not determine type from payload %q", data)
+		return nil, xerrors.Errorf("could not determine type from payload %q", data)
 	}
 
 	return s.encodeForStream(data, eventType), nil

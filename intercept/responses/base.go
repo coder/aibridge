@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -12,6 +11,15 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared/constant"
+	"github.com/tidwall/gjson"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
@@ -22,13 +30,6 @@ import (
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/quartz"
-	"github.com/google/uuid"
-	"github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/responses"
-	"github.com/openai/openai-go/v3/shared/constant"
-	"github.com/tidwall/gjson"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -115,7 +116,7 @@ func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streami
 
 func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.ResponseWriter) error {
 	if i.reqPayload.background() {
-		err := fmt.Errorf("background requests are currently not supported by AI Bridge")
+		err := xerrors.New("background requests are currently not supported by AI Bridge")
 		i.sendCustomErr(ctx, w, http.StatusNotImplemented, err)
 		return err
 	}
@@ -372,11 +373,11 @@ func (r *responseCopier) forwardResp(w http.ResponseWriter) error {
 
 	b, err := r.readAll()
 	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
+		return xerrors.Errorf("failed to read response body: %w", err)
 	}
 
 	if _, err := w.Write(b); err != nil {
-		return fmt.Errorf("failed to write response body: %w", err)
+		return xerrors.Errorf("failed to write response body: %w", err)
 	}
 	return nil
 }

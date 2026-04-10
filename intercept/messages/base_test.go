@@ -5,15 +5,16 @@ import (
 	"net/http"
 	"testing"
 
-	"cdr.dev/slog/v3"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/mcp"
-	"github.com/coder/aibridge/utils"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/utils"
 )
 
 func TestScanForCorrelatingToolCallID(t *testing.T) {

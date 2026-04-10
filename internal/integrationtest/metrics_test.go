@@ -9,14 +9,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/aibridge"
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/sjson"
+
+	"github.com/coder/aibridge"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/metrics"
 )
 
 func TestMetrics_Interception(t *testing.T) {

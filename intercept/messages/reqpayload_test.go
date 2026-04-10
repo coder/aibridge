@@ -5,9 +5,10 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
-	"github.com/coder/aibridge/utils"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
+	"github.com/coder/aibridge/utils"
 )
 
 func TestNewMessagesRequestPayload(t *testing.T) {

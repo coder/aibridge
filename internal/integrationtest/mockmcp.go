@@ -2,7 +2,6 @@ package integrationtest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,15 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
-	"github.com/coder/aibridge/mcp"
 	"github.com/mark3labs/mcp-go/client/transport"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+	"golang.org/x/xerrors"
+
+	"cdr.dev/slog/v3"
+	"cdr.dev/slog/v3/sloggers/slogtest"
+	"github.com/coder/aibridge/mcp"
 )
 
 // mockToolName is the primary mock tool name used in MCP tests.
@@ -143,7 +144,7 @@ func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
 		s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			acc.addCall(request.Params.Name, request.Params.Arguments)
 			if errMsg, ok := acc.getToolError(request.Params.Name); ok {
-				return nil, errors.New(errMsg)
+				return nil, xerrors.New(errMsg)
 			}
 			return mcplib.NewToolResultText("mock"), nil
 		})

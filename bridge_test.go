@@ -5,12 +5,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/provider"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestValidateProvider_Names(t *testing.T) {

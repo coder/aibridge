@@ -9,14 +9,15 @@ import (
 	"strings"
 	"testing"
 
-	"cdr.dev/slog/v3"
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/intercept"
-	"github.com/coder/aibridge/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace/noop"
 	"golang.org/x/sync/errgroup"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/intercept"
+	"github.com/coder/aibridge/internal/testutil"
 )
 
 const (

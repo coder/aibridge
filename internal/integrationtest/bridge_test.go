@@ -15,14 +15,6 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/packages/ssestream"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
-	"github.com/coder/aibridge"
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/intercept"
-	"github.com/coder/aibridge/mcp"
-	"github.com/coder/aibridge/provider"
-	"github.com/coder/aibridge/recorder"
-	"github.com/coder/aibridge/utils"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
 	oaissestream "github.com/openai/openai-go/v3/packages/ssestream"
@@ -31,6 +23,16 @@ import (
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 	"go.uber.org/goleak"
+	"golang.org/x/xerrors"
+
+	"github.com/coder/aibridge"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/intercept"
+	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/provider"
+	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/utils"
 )
 
 func TestMain(m *testing.M) {
@@ -628,23 +630,23 @@ func TestSimple(t *testing.T) {
 			for stream.Next() {
 				event := stream.Current()
 				if err := message.Accumulate(event); err != nil {
-					return "", fmt.Errorf("accumulate event: %w", err)
+					return "", xerrors.Errorf("accumulate event: %w", err)
 				}
 			}
 			if stream.Err() != nil {
-				return "", fmt.Errorf("stream error: %w", stream.Err())
+				return "", xerrors.Errorf("stream error: %w", stream.Err())
 			}
 			return message.ID, nil
 		}
 
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return "", fmt.Errorf("read body: %w", err)
+			return "", xerrors.Errorf("read body: %w", err)
 		}
 
 		var message anthropic.Message
 		if err := json.Unmarshal(body, &message); err != nil {
-			return "", fmt.Errorf("unmarshal response: %w", err)
+			return "", xerrors.Errorf("unmarshal response: %w", err)
 		}
 		return message.ID, nil
 	}
@@ -660,7 +662,7 @@ func TestSimple(t *testing.T) {
 				message.AddChunk(chunk)
 			}
 			if stream.Err() != nil {
-				return "", fmt.Errorf("stream error: %w", stream.Err())
+				return "", xerrors.Errorf("stream error: %w", stream.Err())
 			}
 			return message.ID, nil
 		}
@@ -668,12 +670,12 @@ func TestSimple(t *testing.T) {
 		// Parse & unmarshal the response.
 		body, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return "", fmt.Errorf("read body: %w", err)
+			return "", xerrors.Errorf("read body: %w", err)
 		}
 
 		var message openai.ChatCompletion
 		if err := json.Unmarshal(body, &message); err != nil {
-			return "", fmt.Errorf("unmarshal response: %w", err)
+			return "", xerrors.Errorf("unmarshal response: %w", err)
 		}
 		return message.ID, nil
 	}

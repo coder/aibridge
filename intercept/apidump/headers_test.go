@@ -7,9 +7,10 @@ import (
 
 	"cdr.dev/slog/v3"
 
-	"github.com/coder/quartz"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/quartz"
 )
 
 func TestSensitiveHeaderLists(t *testing.T) {

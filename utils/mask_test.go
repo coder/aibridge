@@ -3,8 +3,9 @@ package utils_test
 import (
 	"testing"
 
-	"github.com/coder/aibridge/utils"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/coder/aibridge/utils"
 )
 
 func TestMaskSecret(t *testing.T) {

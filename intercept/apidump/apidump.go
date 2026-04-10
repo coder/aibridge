@@ -12,12 +12,13 @@ import (
 	"slices"
 	"strings"
 
-	"cdr.dev/slog/v3"
-
-	"github.com/coder/aibridge/utils"
-	"github.com/coder/quartz"
 	"github.com/google/uuid"
 	"github.com/tidwall/pretty"
+	"golang.org/x/xerrors"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/utils"
+	"github.com/coder/quartz"
 )
 
 const (
@@ -72,7 +73,7 @@ type dumper struct {
 func (d *dumper) dumpRequest(req *http.Request) error {
 	dumpPath := d.dumpPath + SuffixRequest
 	if err := os.MkdirAll(filepath.Dir(dumpPath), 0o755); err != nil {
-		return fmt.Errorf("create dump dir: %w", err)
+		return xerrors.Errorf("create dump dir: %w", err)
 	}
 
 	// Read and restore body
@@ -81,7 +82,7 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 		var err error
 		bodyBytes, err = io.ReadAll(req.Body)
 		if err != nil {
-			return fmt.Errorf("read request body: %w", err)
+			return xerrors.Errorf("read request body: %w", err)
 		}
 		req.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 	}
@@ -92,18 +93,18 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 	var buf bytes.Buffer
 	_, err := fmt.Fprintf(&buf, "%s %s %s\r\n", req.Method, req.URL.RequestURI(), req.Proto)
 	if err != nil {
-		return fmt.Errorf("write request uri: %w", err)
+		return xerrors.Errorf("write request uri: %w", err)
 	}
 	err = d.writeRedactedHeaders(&buf, req.Header, sensitiveRequestHeaders, map[string]string{
 		"Content-Length": fmt.Sprintf("%d", len(prettyBody)),
 	})
 	if err != nil {
-		return fmt.Errorf("write request headers: %w", err)
+		return xerrors.Errorf("write request headers: %w", err)
 	}
 
 	_, err = fmt.Fprintf(&buf, "\r\n")
 	if err != nil {
-		return fmt.Errorf("write request header terminator: %w", err)
+		return xerrors.Errorf("write request header terminator: %w", err)
 	}
 	buf.Write(prettyBody)
 	buf.WriteByte('\n')
@@ -118,15 +119,15 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 	var headerBuf bytes.Buffer
 	_, err := fmt.Fprintf(&headerBuf, "%s %s\r\n", resp.Proto, resp.Status)
 	if err != nil {
-		return fmt.Errorf("write response status: %w", err)
+		return xerrors.Errorf("write response status: %w", err)
 	}
 	err = d.writeRedactedHeaders(&headerBuf, resp.Header, sensitiveResponseHeaders, nil)
 	if err != nil {
-		return fmt.Errorf("write response headers: %w", err)
+		return xerrors.Errorf("write response headers: %w", err)
 	}
 	_, err = fmt.Fprintf(&headerBuf, "\r\n")
 	if err != nil {
-		return fmt.Errorf("write response header terminator: %w", err)
+		return xerrors.Errorf("write response header terminator: %w", err)
 	}
 
 	// Wrap the response body to capture it as it streams
@@ -176,7 +177,7 @@ func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitiv
 			if override, ok := overrides[key]; ok {
 				_, err := fmt.Fprintf(w, "%s: %s\r\n", key, override)
 				if err != nil {
-					return fmt.Errorf("write response header override: %w", err)
+					return xerrors.Errorf("write response header override: %w", err)
 				}
 			}
 			continue
@@ -191,7 +192,7 @@ func (d *dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitiv
 			}
 			_, err := fmt.Fprintf(w, "%s: %s\r\n", key, value)
 			if err != nil {
-				return fmt.Errorf("write response headers: %w", err)
+				return xerrors.Errorf("write response headers: %w", err)
 			}
 		}
 	}

@@ -3,11 +3,12 @@ package intercept
 import (
 	"net/http"
 
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/attribute"
+
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
-	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/attribute"
 )
 
 // Interceptor describes a (potentially) stateful interaction with an AI provider.

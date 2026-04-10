@@ -3,10 +3,11 @@ package intercept
 import (
 	"testing"
 
-	"github.com/coder/aibridge/context"
-	"github.com/coder/aibridge/recorder"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/recorder"
 )
 
 func TestNilActor(t *testing.T) {

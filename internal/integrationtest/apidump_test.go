@@ -13,12 +13,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/provider"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAPIDump(t *testing.T) {

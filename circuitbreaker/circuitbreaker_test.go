@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/aibridge/config"
 	"github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/coder/aibridge/config"
 )
 
 func TestExecute_PerModelIsolation(t *testing.T) {

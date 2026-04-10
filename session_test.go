@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/coder/aibridge/utils"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/aibridge/utils"
 )
 
 func TestGuessSessionID(t *testing.T) {

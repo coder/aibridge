@@ -7,15 +7,17 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
+
 	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/messages"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/aibridge/utils"
-	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // anthropicForwardHeaders lists headers from incoming requests that should be
@@ -106,12 +108,12 @@ func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tr
 	case routeMessages:
 		payload, err := io.ReadAll(r.Body)
 		if err != nil {
-			return nil, fmt.Errorf("read body: %w", err)
+			return nil, xerrors.Errorf("read body: %w", err)
 		}
 
 		reqPayload, err := messages.NewMessagesRequestPayload(payload)
 		if err != nil {
-			return nil, fmt.Errorf("unmarshal request body: %w", err)
+			return nil, xerrors.Errorf("unmarshal request body: %w", err)
 		}
 
 		cfg := p.cfg

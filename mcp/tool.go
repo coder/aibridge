@@ -3,16 +3,17 @@ package mcp
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"regexp"
 	"strings"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"github.com/coder/aibridge/tracing"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/tracing"
 )
 
 const (
@@ -21,7 +22,7 @@ const (
 	injectedToolDelimiter = "_"
 )
 
-// ToolCaller is the narrowest interface which describes the behaviour required from [mcp.Client],
+// ToolCaller is the narrowest interface which describes the behavior required from [mcp.Client],
 // which will normally be passed into [Tool] for interaction with an MCP server.
 // TODO: don't expose github.com/mark3labs/mcp-go outside this package.
 type ToolCaller interface {
@@ -43,10 +44,10 @@ type Tool struct {
 
 func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp.CallToolResult, outErr error) {
 	if t == nil {
-		return nil, errors.New("nil tool")
+		return nil, xerrors.New("nil tool")
 	}
 	if t.Client == nil {
-		return nil, errors.New("nil client")
+		return nil, xerrors.New("nil client")
 	}
 
 	spanAttrs := append(
