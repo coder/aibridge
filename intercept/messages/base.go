@@ -405,7 +405,7 @@ func filterBedrockBetaFlags(headers http.Header, model string) {
 }
 
 // writeUpstreamError marshals and writes a given error.
-func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *ErrorResponse) {
+func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *messagesResponseError) {
 	if antErr == nil {
 		return
 	}
@@ -415,7 +415,7 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *Err
 
 	out, err := json.Marshal(antErr)
 	if err != nil {
-		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", slog.F("%+v", antErr)))
+		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", antErr))
 		// Response has to match expected format.
 		// See https://docs.claude.com/en/api/errors#error-shapes.
 		_, _ = w.Write([]byte(fmt.Sprintf(`{
@@ -487,7 +487,7 @@ func accumulateUsage(dest, src any) {
 	}
 }
 
-func getErrorResponse(err error) *ErrorResponse {
+func getErrorResponse(err error) *messagesResponseError {
 	var apierr *anthropic.Error
 	if !errors.As(err, &apierr) {
 		return nil
@@ -505,7 +505,7 @@ func getErrorResponse(err error) *ErrorResponse {
 		typ = string(detail.Type)
 	}
 
-	return &ErrorResponse{
+	return &messagesResponseError{
 		ErrorResponse: &anthropic.ErrorResponse{
 			Error: anthropic.ErrorObjectUnion{
 				Message: msg,
@@ -517,16 +517,16 @@ func getErrorResponse(err error) *ErrorResponse {
 	}
 }
 
-var _ error = &ErrorResponse{}
+var _ error = &messagesResponseError{}
 
-type ErrorResponse struct {
+type messagesResponseError struct {
 	*anthropic.ErrorResponse
 
 	StatusCode int `json:"-"`
 }
 
-func newErrorResponse(msg error) *ErrorResponse {
-	return &ErrorResponse{
+func newErrorResponse(msg error) *messagesResponseError {
+	return &messagesResponseError{
 		ErrorResponse: &shared.ErrorResponse{
 			Error: shared.ErrorObjectUnion{
 				Message: msg.Error(),
@@ -536,7 +536,7 @@ func newErrorResponse(msg error) *ErrorResponse {
 	}
 }
 
-func (a *ErrorResponse) Error() string {
+func (a *messagesResponseError) Error() string {
 	if a.ErrorResponse == nil {
 		return ""
 	}

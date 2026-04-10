@@ -132,7 +132,7 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := flush(w); err != nil {
-			s.logger.Warn(ctx, "failed to flush", slog.Error(err))
+			s.logger.Warn(ctx, "failed to flush event stream", slog.Error(err))
 			return
 		}
 

@@ -173,7 +173,7 @@ func (i *interceptionBase) unmarshalArgs(in string) (args recorder.ToolArgs) {
 }
 
 // writeUpstreamError marshals and writes a given error.
-func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *errorResponse) {
+func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *chatCompletionResponseError) {
 	if oaiErr == nil {
 		return
 	}
@@ -183,7 +183,7 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *err
 
 	out, err := json.Marshal(oaiErr)
 	if err != nil {
-		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", slog.F("%+v", oaiErr)))
+		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", oaiErr))
 		// Response has to match expected format.
 		_, _ = w.Write([]byte(`{
 	"error": {
@@ -228,13 +228,13 @@ func calculateActualInputTokenUsage(in openai.CompletionUsage) int64 {
 		in.PromptTokensDetails.CachedTokens /* The aggregated number of text input tokens that has been cached from previous requests. */
 }
 
-func getErrorResponse(err error) *errorResponse {
+func getErrorResponse(err error) *chatCompletionResponseError {
 	var apiErr *openai.Error
 	if !errors.As(err, &apiErr) {
 		return nil
 	}
 
-	return &errorResponse{
+	return &chatCompletionResponseError{
 		ErrorObject: &shared.ErrorObject{
 			Code:    apiErr.Code,
 			Message: apiErr.Message,
@@ -244,15 +244,15 @@ func getErrorResponse(err error) *errorResponse {
 	}
 }
 
-var _ error = &errorResponse{}
+var _ error = &chatCompletionResponseError{}
 
-type errorResponse struct {
+type chatCompletionResponseError struct {
 	ErrorObject *shared.ErrorObject `json:"error"`
 	StatusCode  int                 `json:"-"`
 }
 
-func newErrorResponse(msg error) *errorResponse {
-	return &errorResponse{
+func newErrorResponse(msg error) *chatCompletionResponseError {
+	return &chatCompletionResponseError{
 		ErrorObject: &shared.ErrorObject{
 			Code:    "error",
 			Message: msg.Error(),
@@ -261,7 +261,7 @@ func newErrorResponse(msg error) *errorResponse {
 	}
 }
 
-func (a *errorResponse) Error() string {
+func (a *chatCompletionResponseError) Error() string {
 	if a.ErrorObject == nil {
 		return ""
 	}
