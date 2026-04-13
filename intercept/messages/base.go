@@ -264,18 +264,18 @@ func (i *interceptionBase) withBody() option.RequestOption {
 	return option.WithRequestBody("application/json", []byte(i.reqPayload))
 }
 
+// withAWSBedrockOptions returns request options for authenticating with AWS Bedrock.
+//
+// When both AccessKey and AccessKeySecret are set in the aibridge config, they are
+// used directly as static credentials (with an optional SessionToken for temporary credentials).
+// Otherwise, the AWS SDK default credential chain resolves credentials (environment variables,
+// shared config/credentials files, IAM roles, IRSA, SSO, IMDS, etc.).
 func (*interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
 	if cfg == nil {
 		return nil, xerrors.New("nil config given")
 	}
 	if cfg.Region == "" && cfg.BaseURL == "" {
 		return nil, xerrors.New("region or base url required")
-	}
-	if cfg.AccessKey == "" {
-		return nil, xerrors.New("access key required")
-	}
-	if cfg.AccessKeySecret == "" {
-		return nil, xerrors.New("access key secret required")
 	}
 	if cfg.Model == "" {
 		return nil, xerrors.New("model required")
@@ -284,20 +284,38 @@ func (*interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconf
 		return nil, xerrors.New("small fast model required")
 	}
 
-	opts := []func(*config.LoadOptions) error{
+	loadOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
-		config.WithCredentialsProvider(
+	}
+
+	// Use static credentials when explicitly provided, otherwise fall back to the SDK default credential chain.
+	switch {
+	// Both set: use static credentials directly.
+	case cfg.AccessKey != "" && cfg.AccessKeySecret != "":
+		loadOpts = append(loadOpts, config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(
 				cfg.AccessKey,
 				cfg.AccessKeySecret,
-				"",
+				cfg.SessionToken, // optional
 			),
-		),
+		))
+	// Only one set: misconfiguration.
+	case cfg.AccessKey != "" || cfg.AccessKeySecret != "":
+		return nil, xerrors.New("both access key and access key secret must be provided together")
+	// Neither set: SDK default credential chain resolves credentials.
+	default:
 	}
 
-	awsCfg, err := config.LoadDefaultConfig(ctx, opts...)
+	awsCfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
 	if err != nil {
 		return nil, xerrors.Errorf("failed to load AWS Bedrock config: %w", err)
+	}
+
+	// Fail fast: ensure credentials can be resolved before making any requests.
+	// awsCfg already carries the credentials provider, and the Bedrock middleware
+	// will call Retrieve on it when signing each request.
+	if _, err := awsCfg.Credentials.Retrieve(ctx); err != nil {
+		return nil, xerrors.Errorf("no AWS credentials found: %w", err)
 	}
 
 	var out []option.RequestOption

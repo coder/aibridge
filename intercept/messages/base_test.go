@@ -84,9 +84,9 @@ func TestAWSBedrockValidation(t *testing.T) {
 		expectError bool
 		errorMsg    string
 	}{
-		// Valid cases.
+		// Valid cases: static credentials.
 		{
-			name: "valid with region",
+			name: "static credentials with region",
 			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
@@ -96,7 +96,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "valid with base url",
+			name: "static credentials with base url",
 			cfg: &config.AWSBedrock{
 				BaseURL:         "http://bedrock.internal",
 				AccessKey:       "test-key",
@@ -111,11 +111,22 @@ func TestAWSBedrockValidation(t *testing.T) {
 			// which is internal to the anthropic SDK.
 			//
 			// See TestAWSBedrockIntegration which validates this.
-			name: "valid with base url & region",
+			name: "static credentials with base url & region",
 			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
 				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+		},
+		{
+			name: "static credentials with session token",
+			cfg: &config.AWSBedrock{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				SessionToken:    "test-session-token",
 				Model:           "test-model",
 				SmallFastModel:  "test-small-model",
 			},
@@ -137,13 +148,12 @@ func TestAWSBedrockValidation(t *testing.T) {
 			name: "missing access key",
 			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
-				AccessKey:       "",
 				AccessKeySecret: "test-secret",
 				Model:           "test-model",
 				SmallFastModel:  "test-small-model",
 			},
 			expectError: true,
-			errorMsg:    "access key required",
+			errorMsg:    "both access key and access key secret must be provided together",
 		},
 		{
 			name: "missing access key secret",
@@ -155,7 +165,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 				SmallFastModel:  "test-small-model",
 			},
 			expectError: true,
-			errorMsg:    "access key secret required",
+			errorMsg:    "both access key and access key secret must be provided together",
 		},
 		{
 			name: "missing model",
@@ -199,6 +209,82 @@ func TestAWSBedrockValidation(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
+			base := &interceptionBase{}
+			opts, err := base.withAWSBedrockOptions(context.Background(), tt.cfg)
+
+			if tt.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NotEmpty(t, opts)
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestAWSBedrockCredentialChain tests credential resolution via the AWS SDK default credential chain.
+// NOTE: Cannot use t.Parallel() here because subtests use t.Setenv which requires sequential execution.
+func TestAWSBedrockCredentialChain(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         *config.AWSBedrock
+		envVars     map[string]string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "temporary credentials via env",
+			cfg: &config.AWSBedrock{
+				Region:         "us-east-1",
+				Model:          "test-model",
+				SmallFastModel: "test-small-model",
+			},
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":     "test-key",
+				"AWS_SECRET_ACCESS_KEY": "test-secret",
+			},
+		},
+		{
+			name: "temporary credentials with session token via env",
+			cfg: &config.AWSBedrock{
+				Region:         "us-east-1",
+				Model:          "test-model",
+				SmallFastModel: "test-small-model",
+			},
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":     "test-key",
+				"AWS_SECRET_ACCESS_KEY": "test-secret",
+				"AWS_SESSION_TOKEN":     "test-session-token",
+			},
+		},
+		{
+			// When static credentials are not provided and no environment credentials are set,
+			// the SDK default credential chain fails to resolve credentials.
+			name: "error when no credential source is configured",
+			cfg: &config.AWSBedrock{
+				Region:         "us-east-1",
+				Model:          "test-model",
+				SmallFastModel: "test-small-model",
+			},
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":           "",
+				"AWS_SECRET_ACCESS_KEY":       "",
+				"AWS_SESSION_TOKEN":           "",
+				"AWS_PROFILE":                 "",
+				"AWS_SHARED_CREDENTIALS_FILE": "/dev/null",
+				"AWS_CONFIG_FILE":             "/dev/null",
+			},
+			expectError: true,
+			errorMsg:    "no AWS credentials found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for key, val := range tt.envVars {
+				t.Setenv(key, val)
+			}
 			base := &interceptionBase{}
 			opts, err := base.withAWSBedrockOptions(context.Background(), tt.cfg)
 
