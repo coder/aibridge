@@ -136,26 +136,28 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 				withActor("test-user-id", nil),
 			)
 
-			doRequest := func() *http.Response {
-				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
-				_, err := io.ReadAll(resp.Body)
+			doRequest := func() int {
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
 				require.NoError(t, err)
-				return resp
+				_, err = io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				require.NoError(t, resp.Body.Close())
+				return resp.StatusCode
 			}
 
 			// Phase 1: Trip the circuit breaker
 			// First FailureThreshold requests hit upstream, get 429
 			for i := uint32(0); i < cbConfig.FailureThreshold; i++ {
-				resp := doRequest()
-				assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+				status := doRequest()
+				assert.Equal(t, http.StatusTooManyRequests, status)
 			}
 			//nolint:gosec // G115: test constant, no overflow risk
 			assert.Equal(t, int32(cbConfig.FailureThreshold), upstreamCalls.Load())
 
 			// Phase 2: Verify circuit is open
 			// Request should be blocked by circuit breaker (no upstream call)
-			resp := doRequest()
-			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+			status := doRequest()
+			assert.Equal(t, http.StatusServiceUnavailable, status)
 			//nolint:gosec // G115: test constant, no overflow risk
 			assert.Equal(t, int32(cbConfig.FailureThreshold), upstreamCalls.Load(), "No new upstream call when circuit is open")
 
@@ -177,8 +179,8 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 
 			// Phase 4: Recovery - request in half-open state should succeed and close circuit
 			upstreamCallsBefore := upstreamCalls.Load()
-			resp = doRequest()
-			assert.Equal(t, http.StatusOK, resp.StatusCode, "Request should succeed in half-open state")
+			status = doRequest()
+			assert.Equal(t, http.StatusOK, status, "Request should succeed in half-open state")
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should reach upstream in half-open state")
 
 			// Verify circuit is now closed
@@ -188,8 +190,8 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			// Phase 5: Verify circuit is fully functional again
 			// Multiple requests should all succeed and reach upstream
 			for i := 0; i < 3; i++ {
-				resp = doRequest()
-				assert.Equal(t, http.StatusOK, resp.StatusCode, "Request should succeed after circuit closes")
+				status = doRequest()
+				assert.Equal(t, http.StatusOK, status, "Request should succeed after circuit closes")
 			}
 
 			// All requests should have reached upstream
@@ -291,22 +293,24 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 				withActor("test-user-id", nil),
 			)
 
-			doRequest := func() *http.Response {
-				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
-				_, err := io.ReadAll(resp.Body)
+			doRequest := func() int {
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
 				require.NoError(t, err)
-				return resp
+				_, err = io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				require.NoError(t, resp.Body.Close())
+				return resp.StatusCode
 			}
 
 			// Phase 1: Trip the circuit
 			for i := uint32(0); i < cbConfig.FailureThreshold; i++ {
-				resp := doRequest()
-				assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+				status := doRequest()
+				assert.Equal(t, http.StatusTooManyRequests, status)
 			}
 
 			// Verify circuit is open
-			resp := doRequest()
-			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+			status := doRequest()
+			assert.Equal(t, http.StatusServiceUnavailable, status)
 
 			trips := promtest.ToFloat64(m.CircuitBreakerTrips.WithLabelValues(tc.expectProvider, tc.expectEndpoint, tc.expectModel))
 			assert.Equal(t, 1.0, trips, "CircuitBreakerTrips should be 1")
@@ -316,13 +320,13 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 
 			// Phase 3: Request in half-open state fails, circuit should re-open
 			upstreamCallsBefore := upstreamCalls.Load()
-			resp = doRequest()
-			assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode, "Request should fail in half-open state")
+			status = doRequest()
+			assert.Equal(t, http.StatusTooManyRequests, status, "Request should fail in half-open state")
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should reach upstream in half-open state")
 
 			// Circuit should be open again - next request should be rejected immediately
-			resp = doRequest()
-			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, "Circuit should be open again after half-open failure")
+			status = doRequest()
+			assert.Equal(t, http.StatusServiceUnavailable, status, "Circuit should be open again after half-open failure")
 			assert.Equal(t, upstreamCallsBefore+1, upstreamCalls.Load(), "Request should NOT reach upstream when circuit re-opens")
 
 			// Verify metrics: trips should be 2 now (tripped twice)
@@ -437,22 +441,24 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				withActor("test-user-id", nil),
 			)
 
-			doRequest := func() *http.Response {
-				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
-				_, err := io.ReadAll(resp.Body)
+			doRequest := func() int {
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, []byte(tc.requestBody), tc.headers)
 				require.NoError(t, err)
-				return resp
+				_, err = io.ReadAll(resp.Body)
+				require.NoError(t, err)
+				require.NoError(t, resp.Body.Close())
+				return resp.StatusCode
 			}
 
 			// Phase 1: Trip the circuit
 			for i := uint32(0); i < cbConfig.FailureThreshold; i++ {
-				resp := doRequest()
-				assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+				status := doRequest()
+				assert.Equal(t, http.StatusTooManyRequests, status)
 			}
 
 			// Verify circuit is open
-			resp := doRequest()
-			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+			status := doRequest()
+			assert.Equal(t, http.StatusServiceUnavailable, status)
 
 			// Phase 2: Wait for half-open state and switch upstream to success
 			time.Sleep(cbConfig.Timeout + 10*time.Millisecond)
@@ -468,8 +474,8 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 				wg.Add(1)
 				go func() {
 					defer wg.Done()
-					resp := doRequest()
-					responses <- resp.StatusCode
+					status := doRequest()
+					responses <- status
 				}()
 			}
 
@@ -556,28 +562,30 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 		withActor("test-user-id", nil),
 	)
 
-	doRequest := func(model string) *http.Response {
+	doRequest := func(model string) int {
 		body := fmt.Sprintf(`{"model":%q,"max_tokens":1024,"messages":[{"role":"user","content":"hi"}]}`, model)
-		resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, []byte(body), http.Header{
+		resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, []byte(body), http.Header{
 			"x-api-key":         {"test"},
 			"anthropic-version": {"2023-06-01"},
 		})
-		_, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		return resp
+		_, err = io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		return resp.StatusCode
 	}
 
 	// Phase 1: Trip the circuit for sonnet model
 	for i := uint32(0); i < cbConfig.FailureThreshold; i++ {
-		resp := doRequest("claude-sonnet-4-20250514")
-		assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
+		status := doRequest("claude-sonnet-4-20250514")
+		assert.Equal(t, http.StatusTooManyRequests, status)
 	}
 	//nolint:gosec // G115: test constant, no overflow risk
 	assert.Equal(t, int32(cbConfig.FailureThreshold), sonnetCalls.Load())
 
 	// Verify sonnet circuit is open
-	resp := doRequest("claude-sonnet-4-20250514")
-	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, "Sonnet circuit should be open")
+	status := doRequest("claude-sonnet-4-20250514")
+	assert.Equal(t, http.StatusServiceUnavailable, status, "Sonnet circuit should be open")
 	//nolint:gosec // G115: test constant, no overflow risk
 	assert.Equal(t, int32(cbConfig.FailureThreshold), sonnetCalls.Load(), "No new sonnet calls when circuit is open")
 
@@ -589,14 +597,14 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	assert.Equal(t, 1.0, sonnetState, "Sonnet CircuitBreakerState should be 1 (open)")
 
 	// Phase 2: Haiku model should still work (independent circuit)
-	resp = doRequest("claude-3-5-haiku-20241022")
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "Haiku should succeed while sonnet circuit is open")
+	status = doRequest("claude-3-5-haiku-20241022")
+	assert.Equal(t, http.StatusOK, status, "Haiku should succeed while sonnet circuit is open")
 	assert.Equal(t, int32(1), haikuCalls.Load(), "Haiku call should reach upstream")
 
 	// Make multiple haiku requests - all should succeed
 	for i := 0; i < 3; i++ {
-		resp = doRequest("claude-3-5-haiku-20241022")
-		assert.Equal(t, http.StatusOK, resp.StatusCode, "Haiku should continue to succeed")
+		status = doRequest("claude-3-5-haiku-20241022")
+		assert.Equal(t, http.StatusOK, status, "Haiku should continue to succeed")
 	}
 	assert.Equal(t, int32(4), haikuCalls.Load(), "All haiku calls should reach upstream")
 
@@ -611,8 +619,8 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 	time.Sleep(cbConfig.Timeout + 10*time.Millisecond)
 	sonnetShouldFail.Store(false)
 
-	resp = doRequest("claude-sonnet-4-20250514")
-	assert.Equal(t, http.StatusOK, resp.StatusCode, "Sonnet should recover after timeout")
+	status = doRequest("claude-sonnet-4-20250514")
+	assert.Equal(t, http.StatusOK, status, "Sonnet should recover after timeout")
 
 	// Verify sonnet circuit is now closed
 	sonnetState = promtest.ToFloat64(m.CircuitBreakerState.WithLabelValues(config.ProviderAnthropic, "/v1/messages", "claude-sonnet-4-20250514"))

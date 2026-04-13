@@ -343,7 +343,9 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 
 			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request(), http.Header{"User-Agent": {tc.userAgent}})
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request(), http.Header{"User-Agent": {tc.userAgent}})
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			got, err := io.ReadAll(resp.Body)
 
@@ -430,7 +432,9 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 
 			// Create a request with background mode enabled
 			reqBytes := responsesRequestBytes(t, tc.streaming, keyVal{"background", true})
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
 			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 			require.Equal(t, http.StatusNotImplemented, resp.StatusCode)
@@ -568,7 +572,9 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 					require.NoError(t, err)
 				}
 
-				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBody)
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBody)
+				require.NoError(t, err)
+				defer resp.Body.Close()
 				_, err = io.ReadAll(resp.Body)
 				require.NoError(t, err)
 
@@ -638,7 +644,9 @@ func TestClientAndConnectionError(t *testing.T) {
 			bridgeServer := newBridgeTestServer(ctx, t, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))))
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
 			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 			require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
@@ -715,7 +723,9 @@ func TestUpstreamError(t *testing.T) {
 			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
 			require.Equal(t, tc.statusCode, resp.StatusCode)
 			require.Equal(t, tc.contentType, resp.Header.Get("Content-Type"))
@@ -896,7 +906,9 @@ func TestResponsesInjectedTool(t *testing.T) {
 
 			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL, withMCP(mockMCP))
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			body, err := io.ReadAll(resp.Body)
@@ -1033,10 +1045,12 @@ func TestResponsesModelThoughts(t *testing.T) {
 
 			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
-			_, err := io.ReadAll(resp.Body)
+			_, err = io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
 			bridgeServer.Recorder.VerifyModelThoughtsRecorded(t, tc.expectedThoughts)

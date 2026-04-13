@@ -89,7 +89,9 @@ func TestAnthropicMessages(t *testing.T) {
 				// Make API call to aibridge for Anthropic /v1/messages
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
-				resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+				require.NoError(t, err)
+				defer resp.Body.Close()
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 
 				// Response-specific checks.
@@ -220,7 +222,9 @@ func TestAnthropicMessagesModelThoughts(t *testing.T) {
 
 			reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 			require.NoError(t, err)
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			if tc.streaming {
@@ -258,7 +262,9 @@ func TestAWSBedrockIntegration(t *testing.T) {
 			withCustomProvider(provider.NewAnthropic(anthropicCfg("http://unused", apiKey), bedrockCfg)),
 		)
 
-		resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fixtures.Request(t, fixtures.AntSingleBuiltinTool))
+		resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fixtures.Request(t, fixtures.AntSingleBuiltinTool))
+		require.NoError(t, err)
+		defer resp.Body.Close()
 
 		require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
 		body, err := io.ReadAll(resp.Body)
@@ -296,7 +302,9 @@ func TestAWSBedrockIntegration(t *testing.T) {
 				// We override the AWS Bedrock client to route requests through our mock server.
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 				require.NoError(t, err)
-				resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+				require.NoError(t, err)
+				defer resp.Body.Close()
 
 				// For streaming responses, consume the body to allow the stream to complete.
 				if streaming {
@@ -419,9 +427,11 @@ func TestAWSBedrockIntegration(t *testing.T) {
 					require.NoError(t, err)
 
 					// Send with Anthropic-Beta header containing flags that should be filtered.
-					resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody, http.Header{
+					resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody, http.Header{
 						"Anthropic-Beta": {"interleaved-thinking-2025-05-14,effort-2025-11-24,context-management-2025-06-27,prompt-caching-scope-2026-01-05"},
 					})
+					require.NoError(t, err)
+					defer resp.Body.Close()
 					require.Equal(t, http.StatusOK, resp.StatusCode)
 					_, err = io.ReadAll(resp.Body)
 					require.NoError(t, err)
@@ -502,7 +512,9 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				// Make API call to aibridge for OpenAI /v1/chat/completions
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
-				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
+				require.NoError(t, err)
+				defer resp.Body.Close()
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 
 				// Response-specific checks.
@@ -583,7 +595,9 @@ func TestOpenAIChatCompletions(t *testing.T) {
 				// Add the stream param to the request.
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", true)
 				require.NoError(t, err)
-				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
+				require.NoError(t, err)
+				defer resp.Body.Close()
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 
 				// Verify SSE headers are sent correctly
@@ -767,7 +781,9 @@ func TestSimple(t *testing.T) {
 					// When: calling the "API server" with the fixture's request body.
 					reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 					require.NoError(t, err)
-					resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody, http.Header{"User-Agent": {tc.userAgent}})
+					resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody, http.Header{"User-Agent": {tc.userAgent}})
+					require.NoError(t, err)
+					defer resp.Body.Close()
 					require.Equal(t, http.StatusOK, resp.StatusCode)
 
 					// Then: I expect the upstream request to have the correct path.
@@ -875,11 +891,13 @@ func TestSessionIDTracking(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody, tc.header)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody, tc.header)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			// Drain the body to let the stream complete.
-			_, err := io.ReadAll(resp.Body)
+			_, err = io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
 			interceptions := bridgeServer.Recorder.RecordedInterceptions()
@@ -951,7 +969,9 @@ func TestFallthrough(t *testing.T) {
 			upstream := newMockUpstream(t.Context(), t, newFixtureResponse(fix))
 			bridgeServer := newBridgeTestServer(t.Context(), t, upstream.URL+tc.basePath)
 
-			resp := bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
+			resp, err := bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
@@ -984,6 +1004,7 @@ func TestAnthropicInjectedTools(t *testing.T) {
 
 			// Build the requirements & make the assertions which are common to all providers.
 			bridgeServer, mockMCP, resp := setupInjectedToolTest(t, fixtures.AntSingleInjectedTool, streaming, defaultTracer, pathAnthropicMessages, anthropicToolResultValidator(t))
+			defer resp.Body.Close()
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := bridgeServer.Recorder.RecordedToolUsages()
@@ -1067,6 +1088,7 @@ func TestOpenAIInjectedTools(t *testing.T) {
 
 			// Build the requirements & make the assertions which are common to all providers.
 			bridgeServer, mockMCP, resp := setupInjectedToolTest(t, fixtures.OaiChatSingleInjectedTool, streaming, defaultTracer, pathOpenAIChatCompletions, openaiChatToolResultValidator(t))
+			defer resp.Body.Close()
 
 			// Ensure expected tool was invoked with expected input.
 			toolUsages := bridgeServer.Recorder.RecordedToolUsages()
@@ -1290,7 +1312,9 @@ func TestErrorHandling(t *testing.T) {
 						reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 						require.NoError(t, err)
 
-						resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
+						resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
+						require.NoError(t, err)
+						defer resp.Body.Close()
 
 						tc.responseHandlerFn(resp)
 						bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
@@ -1357,7 +1381,9 @@ func TestErrorHandling(t *testing.T) {
 
 				bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
 
-				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
+				require.NoError(t, err)
+				defer resp.Body.Close()
 
 				tc.responseHandlerFn(resp)
 				bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
@@ -1416,7 +1442,9 @@ func TestStableRequestEncoding(t *testing.T) {
 
 			// Make multiple requests and verify they all have identical payloads.
 			for range count {
-				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
+				require.NoError(t, err)
+				defer resp.Body.Close()
 				require.Equal(t, http.StatusOK, resp.StatusCode)
 			}
 
@@ -1679,7 +1707,9 @@ func TestAnthropicToolChoiceParallelDisabled(t *testing.T) {
 			reqBody, err := sjson.SetBytes(fix.Request(), "tool_choice", tc.toolChoice)
 			require.NoError(t, err)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			// Verify tool_choice in the upstream request.
@@ -1842,7 +1872,9 @@ func TestChatCompletionsParallelToolCallsDisabled(t *testing.T) {
 				reqBody, err = sjson.SetBytes(reqBody, "stream", streaming)
 				require.NoError(t, err)
 
-				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, reqBody)
+				require.NoError(t, err)
+				defer resp.Body.Close()
 				_, err = io.ReadAll(resp.Body)
 				require.NoError(t, err)
 
@@ -1886,7 +1918,9 @@ func TestThinkingAdaptiveIsPreserved(t *testing.T) {
 			reqBody, err = sjson.SetBytes(reqBody, "stream", streaming)
 			require.NoError(t, err)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, reqBody)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			_, err = io.ReadAll(resp.Body)
 			require.NoError(t, err)
@@ -1949,7 +1983,9 @@ func TestEnvironmentDoNotLeak(t *testing.T) {
 
 			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request())
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			// Verify that environment values did not leak.
@@ -2063,7 +2099,9 @@ func TestActorHeaders(t *testing.T) {
 				reqBody, err := sjson.SetBytes(fix.Request(), "stream", tc.streaming)
 				require.NoError(t, err)
 
-				resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, reqBody)
+				require.NoError(t, err)
+				defer resp.Body.Close()
 				// Drain the body so streaming responses complete without
 				// a "connection reset" error in the mock upstream.
 				_, err = io.ReadAll(resp.Body)

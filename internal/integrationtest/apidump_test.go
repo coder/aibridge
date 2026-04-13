@@ -128,9 +128,11 @@ func TestAPIDump(t *testing.T) {
 				withCustomProvider(tc.providerFunc(srv.URL, dumpDir)),
 			)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			_, err := io.ReadAll(resp.Body)
+			_, err = io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
 			// Verify dump files were created.
@@ -187,6 +189,7 @@ func TestAPIDump(t *testing.T) {
 			// Parse the dumped HTTP response.
 			dumpResp, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(respDumpData)), nil)
 			require.NoError(t, err)
+			defer dumpResp.Body.Close()
 			require.Equal(t, http.StatusOK, dumpResp.StatusCode)
 			dumpRespBody, err := io.ReadAll(dumpResp.Body)
 			require.NoError(t, err)
@@ -256,12 +259,14 @@ func TestAPIDumpPassthrough(t *testing.T) {
 				withCustomProvider(tc.providerFunc(upstream.URL, dumpDir)),
 			)
 
-			bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
+			resp, err := bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
 			// Find dump files in the passthrough directory.
 			passthroughDir := filepath.Join(dumpDir, tc.name, "passthrough")
 			var reqDumpFile, respDumpFile string
-			err := filepath.Walk(passthroughDir, func(path string, info os.FileInfo, err error) error {
+			err = filepath.Walk(passthroughDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}
@@ -299,6 +304,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 			require.NoError(t, err)
 			dumpResp, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(respDumpData)), nil)
 			require.NoError(t, err)
+			defer dumpResp.Body.Close()
 			require.Equal(t, http.StatusOK, dumpResp.StatusCode)
 			dumpRespBody, err := io.ReadAll(dumpResp.Body)
 			require.NoError(t, err)
