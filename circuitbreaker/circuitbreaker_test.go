@@ -1,4 +1,4 @@
-package circuitbreaker
+package circuitbreaker_test
 
 import (
 	"errors"
@@ -11,6 +11,7 @@ import (
 	"github.com/sony/gobreaker/v2"
 	"github.com/stretchr/testify/assert"
 
+	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
 )
 
@@ -20,7 +21,7 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 	sonnetCalls := atomic.Int32{}
 	haikuCalls := atomic.Int32{}
 
-	cbs := NewProviderCircuitBreakers("test", &config.CircuitBreaker{
+	cbs := circuitbreaker.NewProviderCircuitBreakers("test", &config.CircuitBreaker{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
@@ -48,7 +49,7 @@ func TestExecute_PerModelIsolation(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 		return nil
 	})
-	assert.True(t, errors.Is(err, ErrCircuitOpen))
+	assert.True(t, errors.Is(err, circuitbreaker.ErrCircuitOpen))
 	assert.Equal(t, int32(1), sonnetCalls.Load()) // No new call
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
@@ -69,7 +70,7 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 	messagesCalls := atomic.Int32{}
 	completionsCalls := atomic.Int32{}
 
-	cbs := NewProviderCircuitBreakers("test", &config.CircuitBreaker{
+	cbs := circuitbreaker.NewProviderCircuitBreakers("test", &config.CircuitBreaker{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
@@ -95,7 +96,7 @@ func TestExecute_PerEndpointIsolation(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 		return nil
 	})
-	assert.True(t, errors.Is(err, ErrCircuitOpen))
+	assert.True(t, errors.Is(err, circuitbreaker.ErrCircuitOpen))
 	assert.Equal(t, int32(1), messagesCalls.Load()) // No new call
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 
@@ -116,7 +117,7 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 	var calls atomic.Int32
 
 	// Custom IsFailure that treats 502 as failure
-	cbs := NewProviderCircuitBreakers("test", &config.CircuitBreaker{
+	cbs := circuitbreaker.NewProviderCircuitBreakers("test", &config.CircuitBreaker{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
@@ -143,7 +144,7 @@ func TestExecute_CustomIsFailure(t *testing.T) {
 		rw.WriteHeader(http.StatusOK)
 		return nil
 	})
-	assert.True(t, errors.Is(err, ErrCircuitOpen))
+	assert.True(t, errors.Is(err, circuitbreaker.ErrCircuitOpen))
 	assert.Equal(t, int32(1), calls.Load()) // No new call
 	assert.Equal(t, http.StatusServiceUnavailable, w.Code)
 }
@@ -158,7 +159,7 @@ func TestExecute_OnStateChange(t *testing.T) {
 		to       gobreaker.State
 	}
 
-	cbs := NewProviderCircuitBreakers("test", &config.CircuitBreaker{
+	cbs := circuitbreaker.NewProviderCircuitBreakers("test", &config.CircuitBreaker{
 		FailureThreshold: 1,
 		Interval:         time.Minute,
 		Timeout:          time.Minute,
@@ -209,14 +210,14 @@ func TestDefaultIsFailure(t *testing.T) {
 	}
 
 	for _, tt := range tests {
-		assert.Equal(t, tt.isFailure, DefaultIsFailure(tt.statusCode), "status code %d", tt.statusCode)
+		assert.Equal(t, tt.isFailure, circuitbreaker.DefaultIsFailure(tt.statusCode), "status code %d", tt.statusCode)
 	}
 }
 
 func TestStateToGaugeValue(t *testing.T) {
 	t.Parallel()
 
-	assert.Equal(t, float64(0), StateToGaugeValue(gobreaker.StateClosed))
-	assert.Equal(t, float64(0.5), StateToGaugeValue(gobreaker.StateHalfOpen))
-	assert.Equal(t, float64(1), StateToGaugeValue(gobreaker.StateOpen))
+	assert.Equal(t, float64(0), circuitbreaker.StateToGaugeValue(gobreaker.StateClosed))
+	assert.Equal(t, float64(0.5), circuitbreaker.StateToGaugeValue(gobreaker.StateHalfOpen))
+	assert.Equal(t, float64(1), circuitbreaker.StateToGaugeValue(gobreaker.StateOpen))
 }

@@ -1,4 +1,4 @@
-package responses
+package responses //nolint:testpackage // tests unexported internals
 
 import (
 	"encoding/json"

@@ -1,4 +1,4 @@
-package aibridge
+package aibridge //nolint:testpackage // tests unexported newPassthroughRouter
 
 import (
 	"net/http"

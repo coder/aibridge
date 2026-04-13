@@ -1,4 +1,4 @@
-package chatcompletions
+package chatcompletions //nolint:testpackage // tests unexported internals
 
 import (
 	"fmt"

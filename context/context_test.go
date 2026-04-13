@@ -1,4 +1,4 @@
-package context
+package context_test
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/recorder"
 )
 
@@ -17,10 +18,10 @@ func TestAsActor(t *testing.T) {
 	metadata := recorder.Metadata{"key": "value"}
 
 	// When: storing an actor in the context
-	ctx := AsActor(context.Background(), "actor-123", metadata)
+	ctx := aibcontext.AsActor(context.Background(), "actor-123", metadata)
 
 	// Then: the actor should be retrievable with correct ID and metadata
-	actor := ActorFromContext(ctx)
+	actor := aibcontext.ActorFromContext(ctx)
 	require.NotNil(t, actor)
 	assert.Equal(t, "actor-123", actor.ID)
 	assert.Equal(t, "value", actor.Metadata["key"])
@@ -33,10 +34,10 @@ func TestActorFromContext(t *testing.T) {
 		t.Parallel()
 
 		// Given: a context with an actor
-		ctx := AsActor(context.Background(), "test-id", recorder.Metadata{})
+		ctx := aibcontext.AsActor(context.Background(), "test-id", recorder.Metadata{})
 
 		// When: extracting the actor from context
-		actor := ActorFromContext(ctx)
+		actor := aibcontext.ActorFromContext(ctx)
 
 		// Then: the actor should be returned with correct ID
 		require.NotNil(t, actor)
@@ -50,7 +51,7 @@ func TestActorFromContext(t *testing.T) {
 		ctx := context.Background()
 
 		// When: extracting the actor from context
-		actor := ActorFromContext(ctx)
+		actor := aibcontext.ActorFromContext(ctx)
 
 		// Then: nil should be returned
 		assert.Nil(t, actor)
@@ -64,10 +65,10 @@ func TestActorIDFromContext(t *testing.T) {
 		t.Parallel()
 
 		// Given: a context with an actor
-		ctx := AsActor(context.Background(), "test-actor-id", recorder.Metadata{})
+		ctx := aibcontext.AsActor(context.Background(), "test-actor-id", recorder.Metadata{})
 
 		// When: extracting the actor ID from context
-		got := ActorIDFromContext(ctx)
+		got := aibcontext.ActorIDFromContext(ctx)
 
 		// Then: the actor ID should be returned
 		assert.Equal(t, "test-actor-id", got)
@@ -80,7 +81,7 @@ func TestActorIDFromContext(t *testing.T) {
 		ctx := context.Background()
 
 		// When: extracting the actor ID from context
-		got := ActorIDFromContext(ctx)
+		got := aibcontext.ActorIDFromContext(ctx)
 
 		// Then: an empty string should be returned
 		assert.Empty(t, got)
