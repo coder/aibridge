@@ -109,7 +109,7 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 	buf.Write(prettyBody)
 	buf.WriteByte('\n')
 
-	return os.WriteFile(dumpPath, buf.Bytes(), 0o600)
+	return os.WriteFile(dumpPath, buf.Bytes(), 0o644) //nolint:gosec // https://github.com/coder/aibridge/pull/256#discussion_r3072143983
 }
 
 func (d *dumper) dumpResponse(resp *http.Response) error {
@@ -132,7 +132,7 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 
 	if resp.Body == nil {
 		// No body, just write headers
-		return os.WriteFile(dumpPath, headerBuf.Bytes(), 0o600)
+		return os.WriteFile(dumpPath, headerBuf.Bytes(), 0o644) //nolint:gosec // https://github.com/coder/aibridge/pull/256#discussion_r3072143983
 	}
 
 	// Wrap the response body to capture it as it streams
