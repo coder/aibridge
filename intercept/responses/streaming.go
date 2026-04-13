@@ -3,9 +3,17 @@ package responses
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/ssestream"
+	"github.com/openai/openai-go/v3/responses"
+	oaiconst "github.com/openai/openai-go/v3/shared/constant"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
@@ -15,13 +23,6 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
-	"github.com/google/uuid"
-	"github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/packages/ssestream"
-	"github.com/openai/openai-go/v3/responses"
-	oaiconst "github.com/openai/openai-go/v3/shared/constant"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -162,7 +163,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 				// This is needed to keep consistency between response.id and response.previous_response_id fields.
 				if i.mcpProxy == nil {
 					if err := events.Send(ctx, respCopy.buff.readDelta()); err != nil {
-						err = fmt.Errorf("failed to relay chunk: %w", err)
+						err = xerrors.Errorf("failed to relay chunk: %w", err)
 						return err
 					}
 				}
@@ -203,7 +204,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	b, err := respCopy.readAll()
 	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
+		return xerrors.Errorf("failed to read response body: %w", err)
 	}
 
 	err = events.Send(ctx, b)

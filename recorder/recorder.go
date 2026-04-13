@@ -2,15 +2,17 @@ package recorder
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	"cdr.dev/slog/v3"
+
+	"go.opentelemetry.io/otel/trace"
 
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/tracing"
-	"go.opentelemetry.io/otel/trace"
 )
 
 var (
@@ -32,7 +34,7 @@ func (r *RecorderWrapper) RecordInterception(ctx context.Context, req *Intercept
 
 	client, err := r.clientFn()
 	if err != nil {
-		return fmt.Errorf("acquire client: %w", err)
+		return xerrors.Errorf("acquire client: %w", err)
 	}
 
 	req.StartedAt = time.Now()
@@ -50,7 +52,7 @@ func (r *RecorderWrapper) RecordInterceptionEnded(ctx context.Context, req *Inte
 
 	client, err := r.clientFn()
 	if err != nil {
-		return fmt.Errorf("acquire client: %w", err)
+		return xerrors.Errorf("acquire client: %w", err)
 	}
 
 	req.EndedAt = time.Now().UTC()
@@ -68,7 +70,7 @@ func (r *RecorderWrapper) RecordPromptUsage(ctx context.Context, req *PromptUsag
 
 	client, err := r.clientFn()
 	if err != nil {
-		return fmt.Errorf("acquire client: %w", err)
+		return xerrors.Errorf("acquire client: %w", err)
 	}
 
 	req.CreatedAt = time.Now()
@@ -86,7 +88,7 @@ func (r *RecorderWrapper) RecordTokenUsage(ctx context.Context, req *TokenUsageR
 
 	client, err := r.clientFn()
 	if err != nil {
-		return fmt.Errorf("acquire client: %w", err)
+		return xerrors.Errorf("acquire client: %w", err)
 	}
 
 	req.CreatedAt = time.Now()
@@ -104,7 +106,7 @@ func (r *RecorderWrapper) RecordToolUsage(ctx context.Context, req *ToolUsageRec
 
 	client, err := r.clientFn()
 	if err != nil {
-		return fmt.Errorf("acquire client: %w", err)
+		return xerrors.Errorf("acquire client: %w", err)
 	}
 
 	req.CreatedAt = time.Now()
@@ -122,7 +124,7 @@ func (r *RecorderWrapper) RecordModelThought(ctx context.Context, req *ModelThou
 
 	client, err := r.clientFn()
 	if err != nil {
-		return fmt.Errorf("acquire client: %w", err)
+		return xerrors.Errorf("acquire client: %w", err)
 	}
 
 	req.CreatedAt = time.Now()

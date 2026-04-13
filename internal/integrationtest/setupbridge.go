@@ -9,6 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
+
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
@@ -19,10 +24,6 @@ import (
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/sjson"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (

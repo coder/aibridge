@@ -3,8 +3,9 @@ package buildinfo_test
 import (
 	"testing"
 
-	"github.com/coder/aibridge/buildinfo"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/coder/aibridge/buildinfo"
 )
 
 func TestBuildInfo(t *testing.T) {

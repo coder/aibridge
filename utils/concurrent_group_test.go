@@ -1,12 +1,13 @@
 package utils_test
 
 import (
-	"errors"
 	"testing"
 
-	"github.com/coder/aibridge/utils"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/goleak"
+	"golang.org/x/xerrors"
+
+	"github.com/coder/aibridge/utils"
 )
 
 func TestMain(m *testing.M) {
@@ -34,7 +35,7 @@ func TestConcurrentGroup(t *testing.T) {
 
 	t.Run("multiple goroutines, one err", func(t *testing.T) {
 		cg := utils.NewConcurrentGroup()
-		oops := errors.New("oops")
+		oops := xerrors.New("oops")
 		cg.Go(func() error {
 			return oops
 		})
@@ -46,8 +47,8 @@ func TestConcurrentGroup(t *testing.T) {
 
 	t.Run("multiple goroutines, multiple errs", func(t *testing.T) {
 		cg := utils.NewConcurrentGroup()
-		oops := errors.New("oops")
-		eek := errors.New("eek")
+		oops := xerrors.New("oops")
+		eek := xerrors.New("eek")
 		cg.Go(func() error {
 			return oops
 		})

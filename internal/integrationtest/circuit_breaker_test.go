@@ -11,13 +11,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/metrics"
-	"github.com/coder/aibridge/provider"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/metrics"
+	"github.com/coder/aibridge/provider"
 )
 
 // Common response bodies for circuit breaker tests.

@@ -6,16 +6,17 @@ import (
 	"strconv"
 	"testing"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/intercept"
-	"github.com/coder/aibridge/internal/testutil"
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+
+	"cdr.dev/slog/v3"
+	"cdr.dev/slog/v3/sloggers/slogtest"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/intercept"
+	"github.com/coder/aibridge/internal/testutil"
 )
 
 // Test that when the upstream provider returns an error before streaming starts,

@@ -5,14 +5,15 @@ import (
 	"fmt"
 	"testing"
 
-	"cdr.dev/slog/v3"
-	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/utils"
 )
 
 func TestNewResponsesRequestPayload(t *testing.T) {

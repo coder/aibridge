@@ -3,9 +3,15 @@ package responses
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/http"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
@@ -14,11 +20,6 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
-	"github.com/google/uuid"
-	"github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/responses"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type BlockingResponsesInterceptor struct {
@@ -127,7 +128,7 @@ func (i *BlockingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r *
 	if upstreamErr != nil && !respCopy.responseReceived.Load() {
 		// no response received from upstream, return custom error
 		i.sendCustomErr(ctx, w, http.StatusInternalServerError, upstreamErr)
-		return fmt.Errorf("failed to connect to upstream: %w", upstreamErr)
+		return xerrors.Errorf("failed to connect to upstream: %w", upstreamErr)
 	}
 
 	err = respCopy.forwardResp(w)

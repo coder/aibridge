@@ -11,14 +11,16 @@ import (
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
 	"go.opentelemetry.io/otel"
 	"go.uber.org/goleak"
 
-	"github.com/coder/aibridge/mcp"
+	"cdr.dev/slog/v3"
+	"cdr.dev/slog/v3/sloggers/slogtest"
+
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/aibridge/mcp"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 )

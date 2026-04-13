@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"strings"
 
-	"cdr.dev/slog/v3"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared/constant"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"golang.org/x/xerrors"
+
+	"cdr.dev/slog/v3"
 )
 
 const (
@@ -43,10 +45,10 @@ type ResponsesRequestPayload []byte
 
 func NewResponsesRequestPayload(raw []byte) (ResponsesRequestPayload, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return nil, fmt.Errorf("empty request body")
+		return nil, xerrors.New("empty request body")
 	}
 	if !json.Valid(raw) {
-		return nil, fmt.Errorf("invalid JSON payload")
+		return nil, xerrors.New("invalid JSON payload")
 	}
 
 	return ResponsesRequestPayload(raw), nil
@@ -108,7 +110,7 @@ func (p ResponsesRequestPayload) lastUserPrompt(ctx context.Context, logger slog
 
 	// Array variant: checking only the last input item
 	if !inputItems.IsArray() {
-		return "", false, fmt.Errorf("unexpected input type: %s", inputItems.Type)
+		return "", false, xerrors.Errorf("unexpected input type: %s", inputItems.Type)
 	}
 
 	inputItemsArr := inputItems.Array()
@@ -135,7 +137,7 @@ func (p ResponsesRequestPayload) lastUserPrompt(ctx context.Context, logger slog
 	}
 
 	if !content.IsArray() {
-		return "", false, fmt.Errorf("unexpected input content type: %s", content.Type)
+		return "", false, xerrors.Errorf("unexpected input content type: %s", content.Type)
 	}
 
 	var sb strings.Builder
@@ -173,7 +175,7 @@ func (p ResponsesRequestPayload) injectTools(injected []responses.ToolUnionParam
 
 	existing, err := p.toolItems()
 	if err != nil {
-		return p, fmt.Errorf("failed to get existing tools: %w", err)
+		return p, xerrors.Errorf("failed to get existing tools: %w", err)
 	}
 
 	allTools := make([]any, 0, len(existing)+len(injected))
@@ -198,7 +200,7 @@ func (p ResponsesRequestPayload) appendInputItems(items []responses.ResponseInpu
 
 	existing, err := p.inputItems()
 	if err != nil {
-		return p, fmt.Errorf("failed to get existing 'input' items: %w", err)
+		return p, xerrors.Errorf("failed to get existing 'input' items: %w", err)
 	}
 
 	allInput := make([]any, 0, len(existing)+len(items))
@@ -221,7 +223,7 @@ func (p ResponsesRequestPayload) inputItems() ([]any, error) {
 	}
 
 	if !input.IsArray() {
-		return nil, fmt.Errorf("unsupported 'input' type: %s", input.Type)
+		return nil, xerrors.Errorf("unsupported 'input' type: %s", input.Type)
 	}
 
 	items := input.Array()
@@ -239,7 +241,7 @@ func (p ResponsesRequestPayload) toolItems() ([]json.RawMessage, error) {
 		return nil, nil
 	}
 	if !tools.IsArray() {
-		return nil, fmt.Errorf("unsupported 'tools' type: %s", tools.Type)
+		return nil, xerrors.Errorf("unsupported 'tools' type: %s", tools.Type)
 	}
 
 	items := tools.Array()
@@ -254,7 +256,7 @@ func (p ResponsesRequestPayload) toolItems() ([]json.RawMessage, error) {
 func (p ResponsesRequestPayload) set(path string, value any) (ResponsesRequestPayload, error) {
 	updated, err := sjson.SetBytes(p, path, value)
 	if err != nil {
-		return p, fmt.Errorf("failed to set value at path %s: %w", path, err)
+		return p, xerrors.Errorf("failed to set value at path %s: %w", path, err)
 	}
 	return updated, nil
 }

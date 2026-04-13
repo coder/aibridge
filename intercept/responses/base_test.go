@@ -5,12 +5,13 @@ import (
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"github.com/coder/aibridge/internal/testutil"
-	"github.com/coder/aibridge/recorder"
 	"github.com/google/uuid"
 	oairesponses "github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/require"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/internal/testutil"
+	"github.com/coder/aibridge/recorder"
 )
 
 func TestRecordPrompt(t *testing.T) {

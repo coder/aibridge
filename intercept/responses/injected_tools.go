@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"strings"
 
-	"cdr.dev/slog/v3"
-	"github.com/coder/aibridge/recorder"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared/constant"
+	"golang.org/x/xerrors"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/recorder"
 )
 
 func (i *responsesInterceptionBase) injectTools() {
@@ -80,7 +82,7 @@ func (i *responsesInterceptionBase) handleInnerAgenticLoop(ctx context.Context, 
 	// See https://platform.openai.com/docs/guides/function-calling
 	results, err := i.handleInjectedToolCalls(ctx, pending, response)
 	if err != nil {
-		return false, fmt.Errorf("failed to handle injected tool calls: %w", err)
+		return false, xerrors.Errorf("failed to handle injected tool calls: %w", err)
 	}
 
 	// No tool results means no tools were invocable, so the flow is complete.
@@ -99,7 +101,7 @@ func (i *responsesInterceptionBase) handleInnerAgenticLoop(ctx context.Context, 
 // Returns a list of tool call results.
 func (i *responsesInterceptionBase) handleInjectedToolCalls(ctx context.Context, pending []responses.ResponseFunctionToolCall, response *responses.Response) ([]responses.ResponseInputItemUnionParam, error) {
 	if response == nil {
-		return nil, fmt.Errorf("empty response")
+		return nil, xerrors.New("empty response")
 	}
 
 	// MCP proxy has not been configured; no way to handle injected functions.
@@ -133,7 +135,7 @@ func (i *responsesInterceptionBase) prepareRequestForAgenticLoop(ctx context.Con
 	updated, err := i.reqPayload.appendInputItems(newItems)
 	if err != nil {
 		i.logger.Error(ctx, "failed to rewrite input in inner agentic loop", slog.Error(err))
-		return fmt.Errorf("failed to rewrite input: %w", err)
+		return xerrors.Errorf("failed to rewrite input: %w", err)
 	}
 	i.reqPayload = updated
 

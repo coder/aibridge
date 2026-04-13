@@ -2,14 +2,15 @@ package testutil
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
 	"testing"
 
-	"github.com/coder/aibridge/recorder"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/xerrors"
+
+	"github.com/coder/aibridge/recorder"
 )
 
 // MockRecorder is a test implementation of aibridge.Recorder that
@@ -39,7 +40,7 @@ func (m *MockRecorder) RecordInterceptionEnded(ctx context.Context, req *recorde
 		m.interceptionsEnd = make(map[string]*recorder.InterceptionRecordEnded)
 	}
 	if !slices.ContainsFunc(m.interceptions, func(intc *recorder.InterceptionRecord) bool { return intc.ID == req.ID }) {
-		return fmt.Errorf("id not found")
+		return xerrors.New("id not found")
 	}
 	m.interceptionsEnd[req.ID] = req
 	return nil

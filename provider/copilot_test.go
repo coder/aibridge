@@ -6,10 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"cdr.dev/slog/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+
+	"cdr.dev/slog/v3"
 
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/internal/testutil"

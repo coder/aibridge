@@ -11,6 +11,12 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/go-multierror"
+	"github.com/sony/gobreaker/v2"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
+
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/circuitbreaker"
 	aibcontext "github.com/coder/aibridge/context"
@@ -19,10 +25,6 @@ import (
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
-	"github.com/hashicorp/go-multierror"
-	"github.com/sony/gobreaker/v2"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -67,10 +69,10 @@ func validateProviders(providers []provider.Provider) error {
 	for _, prov := range providers {
 		name := prov.Name()
 		if !validProviderName.MatchString(name) {
-			return fmt.Errorf("invalid provider name %q: must contain only lowercase alphanumeric characters and hyphens", name)
+			return xerrors.Errorf("invalid provider name %q: must contain only lowercase alphanumeric characters and hyphens", name)
 		}
 		if names[name] {
-			return fmt.Errorf("duplicate provider name: %q", name)
+			return xerrors.Errorf("duplicate provider name: %q", name)
 		}
 		names[name] = true
 	}
@@ -125,7 +127,7 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 					slog.F("prefix", prov.RoutePrefix()),
 					slog.F("path", path),
 				)
-				return nil, fmt.Errorf("failed to configure provider '%v': failed to join bridged path: %w", providerName, err)
+				return nil, xerrors.Errorf("failed to configure provider '%v': failed to join bridged path: %w", providerName, err)
 			}
 			mux.Handle(route, handler)
 		}
@@ -144,7 +146,7 @@ func NewRequestBridge(ctx context.Context, providers []provider.Provider, rec re
 					slog.F("prefix", prov.RoutePrefix()),
 					slog.F("path", path),
 				)
-				return nil, fmt.Errorf("failed to configure provider '%v': failed to join passed through path: %w", providerName, err)
+				return nil, xerrors.Errorf("failed to configure provider '%v': failed to join passed through path: %w", providerName, err)
 			}
 			mux.Handle(route, http.StripPrefix(prov.RoutePrefix(), ftr))
 		}
@@ -325,7 +327,7 @@ func (b *RequestBridge) Shutdown(ctx context.Context) error {
 		select {
 		case <-ctx.Done():
 			// Cancel all inflight requests, if any are still running.
-			b.logger.Debug(ctx, "shutdown context canceled; cancelling inflight requests", slog.Error(ctx.Err()))
+			b.logger.Debug(ctx, "shutdown context canceled; canceling inflight requests", slog.Error(ctx.Err()))
 			b.inflightCancel()
 			<-done
 			err = ctx.Err()
@@ -347,8 +349,8 @@ func (b *RequestBridge) InflightRequests() int32 {
 	return b.inflightReqs.Load()
 }
 
-// mergeContexts merges two contexts together, so that if either is cancelled
-// the returned context is cancelled. The context values will only be used from
+// mergeContexts merges two contexts together, so that if either is canceled
+// the returned context is canceled. The context values will only be used from
 // the first context.
 func mergeContexts(base, other context.Context) context.Context {
 	ctx, cancel := context.WithCancel(base)

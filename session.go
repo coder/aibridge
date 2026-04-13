@@ -7,8 +7,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/coder/aibridge/utils"
 	"github.com/tidwall/gjson"
+
+	"github.com/coder/aibridge/utils"
 )
 
 var claudeCodePattern = regexp.MustCompile(`_session_(.+)$`) // Legacy format: save compilation on each call.

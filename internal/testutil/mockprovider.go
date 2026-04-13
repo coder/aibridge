@@ -4,9 +4,10 @@ import (
 	"fmt"
 	"net/http"
 
+	"go.opentelemetry.io/otel/trace"
+
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
-	"go.opentelemetry.io/otel/trace"
 )
 
 type MockProvider struct {

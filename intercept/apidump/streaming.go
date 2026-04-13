@@ -1,11 +1,12 @@
 package apidump
 
 import (
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"golang.org/x/xerrors"
 )
 
 // streamingBodyDumper wraps an io.ReadCloser and writes all data to a dump file
@@ -24,18 +25,18 @@ type streamingBodyDumper struct {
 func (s *streamingBodyDumper) init() {
 	s.once.Do(func() {
 		if err := os.MkdirAll(filepath.Dir(s.dumpPath), 0o755); err != nil {
-			s.initErr = fmt.Errorf("create dump dir: %w", err)
+			s.initErr = xerrors.Errorf("create dump dir: %w", err)
 			return
 		}
 		f, err := os.Create(s.dumpPath)
 		if err != nil {
-			s.initErr = fmt.Errorf("create dump file: %w", err)
+			s.initErr = xerrors.Errorf("create dump file: %w", err)
 			return
 		}
 		s.file = f
 		// Write headers first.
 		if _, err := s.file.Write(s.headerData); err != nil {
-			s.initErr = fmt.Errorf("write headers: %w", err)
+			s.initErr = xerrors.Errorf("write headers: %w", err)
 			s.file.Close()
 			s.file = nil
 		}

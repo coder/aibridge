@@ -3,8 +3,9 @@ package mcp_test
 import (
 	"testing"
 
-	"github.com/coder/aibridge/mcp"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/coder/aibridge/mcp"
 )
 
 func TestGetClientInfo(t *testing.T) {
