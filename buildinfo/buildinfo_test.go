@@ -9,7 +9,10 @@ import (
 )
 
 func TestBuildInfo(t *testing.T) {
+	t.Parallel()
+
 	t.Run("Version", func(t *testing.T) {
+		t.Parallel()
 		// Should return a non-empty version
 		version := buildinfo.Version()
 		assert.NotEmpty(t, version)

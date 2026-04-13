@@ -6,7 +6,6 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +19,7 @@ import (
 
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/tracing"
 )
 
@@ -43,6 +43,8 @@ func setupTracer(t *testing.T) (*tracetest.SpanRecorder, oteltrace.Tracer) {
 }
 
 func TestTraceAnthropic(t *testing.T) {
+	t.Parallel()
+
 	expectNonStreaming := []expectTrace{
 		{"Intercept", 1, codes.Unset},
 		{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -137,7 +139,9 @@ func TestTraceAnthropic(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			sr, tracer := setupTracer(t)
@@ -191,6 +195,8 @@ func TestTraceAnthropic(t *testing.T) {
 }
 
 func TestTraceAnthropicErr(t *testing.T) {
+	t.Parallel()
+
 	expectNonStream := []expectTrace{
 		{"Intercept", 1, codes.Error},
 		{"Intercept.CreateInterceptor", 1, codes.Unset},
@@ -249,7 +255,9 @@ func TestTraceAnthropicErr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			sr, tracer := setupTracer(t)
@@ -422,6 +430,8 @@ func TestInjectedToolsTrace(t *testing.T) {
 }
 
 func TestTraceOpenAI(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name      string
 		fixture   []byte
@@ -534,7 +544,9 @@ func TestTraceOpenAI(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			sr, tracer := setupTracer(t)
@@ -576,6 +588,8 @@ func TestTraceOpenAI(t *testing.T) {
 }
 
 func TestTraceOpenAIErr(t *testing.T) {
+	t.Parallel()
+
 	cases := []struct {
 		name          string
 		fixture       []byte
@@ -689,7 +703,9 @@ func TestTraceOpenAIErr(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			t.Parallel()
+
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			sr, tracer := setupTracer(t)
@@ -766,6 +782,8 @@ func TestTracePassthrough(t *testing.T) {
 }
 
 func TestNewServerProxyManagerTraces(t *testing.T) {
+	t.Parallel()
+
 	sr, tracer := setupTracer(t)
 
 	serverName := "serverName"

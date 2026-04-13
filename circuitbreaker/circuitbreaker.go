@@ -65,8 +65,8 @@ func (p *ProviderCircuitBreakers) isFailure(statusCode int) bool {
 	return DefaultIsFailure(statusCode)
 }
 
-// openErrorResponse returns the error response body when the circuit is open.
-func (p *ProviderCircuitBreakers) openErrorResponse() []byte {
+// openErrBody returns the error response body when the circuit is open.
+func (p *ProviderCircuitBreakers) openErrBody() []byte {
 	if p.config.OpenErrorResponse != nil {
 		return p.config.OpenErrorResponse()
 	}
@@ -167,7 +167,7 @@ func (p *ProviderCircuitBreakers) Execute(endpoint, model string, w http.Respons
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", int64(p.config.Timeout.Seconds())))
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write(p.openErrorResponse())
+		_, _ = w.Write(p.openErrBody())
 		return ErrCircuitOpen
 	}
 
@@ -187,7 +187,7 @@ func (p *ProviderCircuitBreakers) Provider() string {
 // OpenErrorResponse returns the error response body when the circuit is open.
 // This is exposed for handlers to use when responding to rejected requests.
 func (p *ProviderCircuitBreakers) OpenErrorResponse() []byte {
-	return p.openErrorResponse()
+	return p.openErrBody()
 }
 
 // StateToGaugeValue converts gobreaker.State to a gauge value.

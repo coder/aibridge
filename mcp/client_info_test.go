@@ -9,6 +9,8 @@ import (
 )
 
 func TestGetClientInfo(t *testing.T) {
+	t.Parallel()
+
 	info := mcp.GetClientInfo()
 
 	assert.Equal(t, "coder/aibridge", info.Name)

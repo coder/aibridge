@@ -28,7 +28,7 @@ func TestMiddleware_StreamingResponse(t *testing.T) {
 	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
-	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 
 	// Simulate a streaming response with multiple chunks
@@ -106,7 +106,7 @@ func TestMiddleware_PreservesResponseBody(t *testing.T) {
 	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
-	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 
 	originalRespBody := `{"choices": [{"message": {"content": "hi"}}]}`

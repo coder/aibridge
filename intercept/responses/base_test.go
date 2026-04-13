@@ -359,6 +359,8 @@ func (mrw *mockResponseWriter) WriteHeader(statusCode int) {
 }
 
 func TestResponseCopierDoesntSendIfNoResponseReceived(t *testing.T) {
+	t.Parallel()
+
 	mrw := mockResponseWriter{}
 
 	respCopy := responseCopier{}

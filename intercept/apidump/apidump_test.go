@@ -39,7 +39,7 @@ func TestBridgedMiddleware_RedactsSensitiveRequestHeaders(t *testing.T) {
 	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
-	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{"test": true}`)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{"test": true}`)))
 	require.NoError(t, err)
 
 	// Add sensitive headers that should be redacted
@@ -97,7 +97,7 @@ func TestBridgedMiddleware_RedactsSensitiveResponseHeaders(t *testing.T) {
 	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
-	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 
 	// Call middleware with a response containing sensitive headers
@@ -167,7 +167,7 @@ func TestBridgedMiddleware_PreservesRequestBody(t *testing.T) {
 	require.NotNil(t, middleware)
 
 	originalBody := `{"messages": [{"role": "user", "content": "hello"}]}`
-	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(originalBody)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(originalBody)))
 	require.NoError(t, err)
 
 	var capturedBody []byte
@@ -201,7 +201,7 @@ func TestBridgedMiddleware_ModelWithSlash(t *testing.T) {
 	middleware := NewBridgeMiddleware(tmpDir, "google", "gemini/1.5-pro", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
-	req, err := http.NewRequest(http.MethodPost, "https://api.google.com/v1/chat", bytes.NewReader([]byte(`{}`)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.google.com/v1/chat", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 
 	resp3, err := middleware(req, func(r *http.Request) (*http.Response, error) {
@@ -281,7 +281,7 @@ func TestBridgedMiddleware_AllSensitiveRequestHeaders(t *testing.T) {
 	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
-	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 
 	// Set all sensitive headers
@@ -359,7 +359,7 @@ func TestPassthroughMiddleware(t *testing.T) {
 
 		rt := NewPassthroughMiddleware(inner, tmpDir, "openai", logger, clk)
 
-		req, err := http.NewRequest(http.MethodGet, "https://api.openai.com/v1/models", nil)
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "https://api.openai.com/v1/models", nil)
 		require.NoError(t, err)
 
 		resp, err := rt.RoundTrip(req) //nolint:bodyclose // resp is nil on error
@@ -403,7 +403,7 @@ func TestPassthroughMiddleware(t *testing.T) {
 
 		rt := NewPassthroughMiddleware(inner, tmpDir, "openai", logger, clk)
 
-		req, err := http.NewRequest(http.MethodPost, "/v1/models", bytes.NewReader([]byte(req1Body)))
+		req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/models", bytes.NewReader([]byte(req1Body)))
 		require.NoError(t, err)
 		req.Header.Set("Authorization", "Bearer sk-secret-key-12345")
 		resp, err := rt.RoundTrip(req)
@@ -413,7 +413,7 @@ func TestPassthroughMiddleware(t *testing.T) {
 		require.NoError(t, resp.Body.Close())
 
 		// Second request should create new req/resp files
-		req2, err := http.NewRequest(http.MethodPost, "/v1/conversations", bytes.NewReader([]byte(req2Body)))
+		req2, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "/v1/conversations", bytes.NewReader([]byte(req2Body)))
 		require.NoError(t, err)
 		resp2, err := rt.RoundTrip(req2)
 		require.NoError(t, err)
