@@ -133,8 +133,8 @@ func withActor(id string, md recorder.Metadata) bridgeOption {
 //   - defaultTracer (unless withTracer)
 //   - defaultActorID (unless withActor)
 func newBridgeTestServer(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	upstreamURL string,
 	opts ...bridgeOption,
 ) *bridgeTestServer {
@@ -220,7 +220,7 @@ func setupInjectedToolTest(
 	firstResp := newFixtureResponse(fix)
 	toolResp := newFixtureToolResponse(fix)
 	toolResp.OnRequest = toolRequestValidatorFn
-	upstream := newMockUpstream(t, ctx, firstResp, toolResp)
+	upstream := newMockUpstream(ctx, t, firstResp, toolResp)
 
 	mockMCP := setupMCPForTest(t, tracer)
 
@@ -230,7 +230,7 @@ func setupInjectedToolTest(
 		withActor(defaultActorID, nil),
 	}
 	allOpts = append(allOpts, opts...)
-	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, allOpts...)
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL, allOpts...)
 
 	// Add the stream param to the request.
 	reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)

@@ -59,8 +59,8 @@ func NewStreamingInterceptor(
 	}}
 }
 
-func (i *StreamingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	i.interceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
+func (i *StreamingInterception) Setup(logger slog.Logger, rec recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	i.interceptionBase.Setup(logger.Named("streaming"), rec, mcpProxy)
 }
 
 func (*StreamingInterception) Streaming() bool {

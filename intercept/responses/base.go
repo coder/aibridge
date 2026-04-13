@@ -89,9 +89,9 @@ func (i *responsesInterceptionBase) Credential() intercept.CredentialInfo {
 	return i.credential
 }
 
-func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+func (i *responsesInterceptionBase) Setup(logger slog.Logger, rec recorder.Recorder, mcpProxy mcp.ServerProxier) {
 	i.logger = logger.With(slog.F("model", i.Model()))
-	i.recorder = recorder
+	i.recorder = rec
 	i.mcpProxy = mcpProxy
 }
 

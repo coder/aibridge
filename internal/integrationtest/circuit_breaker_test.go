@@ -130,7 +130,7 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 			}
 
 			ctx := t.Context()
-			bridgeServer := newBridgeTestServer(t, ctx, mockUpstream.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, mockUpstream.URL,
 				withCustomProvider(tc.createProvider(mockUpstream.URL, cbConfig)),
 				withMetrics(m),
 				withActor("test-user-id", nil),
@@ -283,7 +283,7 @@ func TestCircuitBreaker_HalfOpenFailure(t *testing.T) {
 			}
 
 			ctx := t.Context()
-			bridgeServer := newBridgeTestServer(t, ctx, mockUpstream.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, mockUpstream.URL,
 				withCustomProvider(tc.createProvider(mockUpstream.URL, cbConfig)),
 				withMetrics(m),
 				withActor("test-user-id", nil),
@@ -429,7 +429,7 @@ func TestCircuitBreaker_HalfOpenMaxRequests(t *testing.T) {
 			}
 
 			ctx := t.Context()
-			bridgeServer := newBridgeTestServer(t, ctx, mockUpstream.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, mockUpstream.URL,
 				withCustomProvider(tc.createProvider(mockUpstream.URL, cbConfig)),
 				withMetrics(m),
 				withActor("test-user-id", nil),
@@ -544,7 +544,7 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 		MaxRequests:      1,
 	}
 	ctx := t.Context()
-	bridgeServer := newBridgeTestServer(t, ctx, mockUpstream.URL,
+	bridgeServer := newBridgeTestServer(ctx, t, mockUpstream.URL,
 		withCustomProvider(provider.NewAnthropic(config.Anthropic{
 			BaseURL:        mockUpstream.URL,
 			Key:            "test-key",

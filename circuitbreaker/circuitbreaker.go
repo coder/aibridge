@@ -77,7 +77,7 @@ func (p *ProviderCircuitBreakers) openErrorResponse() []byte {
 func (p *ProviderCircuitBreakers) Get(endpoint, model string) *gobreaker.CircuitBreaker[struct{}] {
 	key := endpoint + ":" + model
 	if v, ok := p.breakers.Load(key); ok {
-		return v.(*gobreaker.CircuitBreaker[struct{}])
+		return v.(*gobreaker.CircuitBreaker[struct{}]) //nolint:forcetypeassert // sync.Map always stores this type
 	}
 
 	settings := gobreaker.Settings{
@@ -97,7 +97,7 @@ func (p *ProviderCircuitBreakers) Get(endpoint, model string) *gobreaker.Circuit
 
 	cb := gobreaker.NewCircuitBreaker[struct{}](settings)
 	actual, _ := p.breakers.LoadOrStore(key, cb)
-	return actual.(*gobreaker.CircuitBreaker[struct{}])
+	return actual.(*gobreaker.CircuitBreaker[struct{}]) //nolint:forcetypeassert // sync.Map always stores this type
 }
 
 // statusCapturingWriter wraps http.ResponseWriter to capture the status code.
