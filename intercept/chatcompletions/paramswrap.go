@@ -52,7 +52,7 @@ func (c *ChatCompletionNewParamsWrapper) lastUserPrompt() (*string, error) {
 	// We only care if the last message was issued by a user.
 	msg := c.Messages[len(c.Messages)-1]
 	if msg.OfUser == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // no user prompt found is not an error
 	}
 
 	if msg.OfUser.Content.OfString.String() != "" {
@@ -69,5 +69,5 @@ func (c *ChatCompletionNewParamsWrapper) lastUserPrompt() (*string, error) {
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil // no text content found is not an error
 }

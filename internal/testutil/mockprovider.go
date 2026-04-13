@@ -32,5 +32,5 @@ func (m *MockProvider) CreateInterceptor(w http.ResponseWriter, r *http.Request,
 	if m.InterceptorFunc != nil {
 		return m.InterceptorFunc(w, r, tracer)
 	}
-	return nil, nil
+	return nil, nil //nolint:nilnil // mock: no interceptor configured is not an error
 }

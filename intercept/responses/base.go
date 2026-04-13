@@ -127,7 +127,13 @@ func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.
 // sendCustomErr sends custom responses.Error error to the client
 // it should only be called before any data is sent back to the client
 func (i *responsesInterceptionBase) sendCustomErr(ctx context.Context, w http.ResponseWriter, code int, err error) {
-	respErr := responses.Error{
+	// Same JSON shape as responses.Error but using a plain struct because
+	// responses.Error embeds *http.Request whose GetBody func field
+	// is not JSON-marshalable (SA1026).
+	respErr := struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}{
 		Code:    strconv.Itoa(code),
 		Message: err.Error(),
 	}

@@ -515,11 +515,11 @@ newStream:
 		}
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, time.Second*30)
-		defer shutdownCancel()
 		// Give the events stream 30 seconds (TODO: configurable) to gracefully shutdown.
 		if err := events.Shutdown(shutdownCtx); err != nil {
 			logger.Warn(ctx, "event stream shutdown", slog.Error(err))
 		}
+		shutdownCancel()
 
 		// Cancel the stream context, we're now done.
 		if interceptionErr != nil {
