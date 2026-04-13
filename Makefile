@@ -17,13 +17,31 @@ SHELL_SRC_FILES := $(shell find . -type f -name '*.sh' -not -path '*/.git/*')
 GOLANGCI_LINT_VERSION ?= 1.64.8
 PARALLELTESTCTX_VERSION ?= 0.0.1
 
-lint: lint/shellcheck lint/go
+lint: lint/shellcheck lint/go lint/typos
 .PHONY: lint
 
 lint/go:
 	go run github.com/golangci/golangci-lint/cmd/golangci-lint@v$(GOLANGCI_LINT_VERSION) run
 	go run github.com/coder/paralleltestctx/cmd/paralleltestctx@v$(PARALLELTESTCTX_VERSION) -custom-funcs="testutil.Context" ./...
 .PHONY: lint/go
+
+TYPOS_VERSION := $(shell grep -oP 'crate-ci/typos@\S+\s+\#\s+v\K[0-9.]+' .github/workflows/ci.yml)
+TYPOS_ARCH := $(shell uname -m)
+ifeq ($(shell uname -s),Darwin)
+TYPOS_OS := apple-darwin
+else
+TYPOS_OS := unknown-linux-musl
+endif
+
+build/typos-$(TYPOS_VERSION):
+	mkdir -p build/
+	curl -sSfL "https://github.com/crate-ci/typos/releases/download/v$(TYPOS_VERSION)/typos-v$(TYPOS_VERSION)-$(TYPOS_ARCH)-$(TYPOS_OS).tar.gz" \
+		| tar -xzf - -C build/ ./typos
+	mv build/typos "$@"
+
+lint/typos: build/typos-$(TYPOS_VERSION)
+	build/typos-$(TYPOS_VERSION) --config .github/workflows/typos.toml
+.PHONY: lint/typos
 
 lint/shellcheck:
 	if test -n "$(strip $(SHELL_SRC_FILES))"; then \
