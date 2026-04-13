@@ -152,7 +152,7 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 // writeRedactedHeaders writes HTTP headers in wire format (Key: Value\r\n) to w,
 // redacting sensitive values and applying any overrides. Headers are sorted by key
 // for deterministic output.
-// `sensitive` and `overrides` must both supply keys in canoncialized form.
+// `sensitive` and `overrides` must both supply keys in canonicalized form.
 // See [textproto.MIMEHeader].
 func (*dumper) writeRedactedHeaders(w io.Writer, headers http.Header, sensitive map[string]struct{}, overrides map[string]string) error {
 	// Collect all header keys including overrides.

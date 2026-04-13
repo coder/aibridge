@@ -118,7 +118,7 @@ See [example/](example/) for a complete runnable example with SQLite persistence
 5. **Test with Claude Code**:
    Claude Code allows a base URL override via `ANTHROPIC_BASE_URL`.
 
-   ![image with cloude code example](example/claude-code.png)
+   ![image with claude code example](example/claude-code.png)
 
 ## Supported Routes
 
