@@ -26,14 +26,14 @@ type MockRecorder struct {
 	interceptionsEnd map[string]*recorder.InterceptionRecordEnded
 }
 
-func (m *MockRecorder) RecordInterception(ctx context.Context, req *recorder.InterceptionRecord) error {
+func (m *MockRecorder) RecordInterception(_ context.Context, req *recorder.InterceptionRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.interceptions = append(m.interceptions, req)
 	return nil
 }
 
-func (m *MockRecorder) RecordInterceptionEnded(ctx context.Context, req *recorder.InterceptionRecordEnded) error {
+func (m *MockRecorder) RecordInterceptionEnded(_ context.Context, req *recorder.InterceptionRecordEnded) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.interceptionsEnd == nil {
@@ -46,28 +46,28 @@ func (m *MockRecorder) RecordInterceptionEnded(ctx context.Context, req *recorde
 	return nil
 }
 
-func (m *MockRecorder) RecordPromptUsage(ctx context.Context, req *recorder.PromptUsageRecord) error {
+func (m *MockRecorder) RecordPromptUsage(_ context.Context, req *recorder.PromptUsageRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.userPrompts = append(m.userPrompts, req)
 	return nil
 }
 
-func (m *MockRecorder) RecordTokenUsage(ctx context.Context, req *recorder.TokenUsageRecord) error {
+func (m *MockRecorder) RecordTokenUsage(_ context.Context, req *recorder.TokenUsageRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.tokenUsages = append(m.tokenUsages, req)
 	return nil
 }
 
-func (m *MockRecorder) RecordToolUsage(ctx context.Context, req *recorder.ToolUsageRecord) error {
+func (m *MockRecorder) RecordToolUsage(_ context.Context, req *recorder.ToolUsageRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.toolUsages = append(m.toolUsages, req)
 	return nil
 }
 
-func (m *MockRecorder) RecordModelThought(ctx context.Context, req *recorder.ModelThoughtRecord) error {
+func (m *MockRecorder) RecordModelThought(_ context.Context, req *recorder.ModelThoughtRecord) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.modelThoughts = append(m.modelThoughts, req)

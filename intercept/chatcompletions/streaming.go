@@ -59,12 +59,12 @@ func (i *StreamingInterception) Setup(logger slog.Logger, recorder recorder.Reco
 	i.interceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
-func (i *StreamingInterception) Streaming() bool {
+func (*StreamingInterception) Streaming() bool {
 	return true
 }
 
-func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.interceptionBase.baseTraceAttributes(r, true)
+func (i *StreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return i.interceptionBase.baseTraceAttributes(r, true)
 }
 
 // ProcessRequest handles a request to /v1/chat/completions.
@@ -389,7 +389,7 @@ func (i *StreamingInterception) marshalErr(err error) ([]byte, error) {
 	return i.encodeForStream(data), nil
 }
 
-func (i *StreamingInterception) encodeForStream(payload []byte) []byte {
+func (*StreamingInterception) encodeForStream(payload []byte) []byte {
 	var buf bytes.Buffer
 	buf.WriteString("data: ")
 	buf.Write(payload)

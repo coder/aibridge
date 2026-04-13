@@ -118,15 +118,15 @@ func (i *interceptionBase) Model() string {
 	return i.reqPayload.model()
 }
 
-func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
+func (i *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),
-		attribute.String(tracing.InterceptionID, s.id.String()),
+		attribute.String(tracing.InterceptionID, i.id.String()),
 		attribute.String(tracing.InitiatorID, aibcontext.ActorIDFromContext(r.Context())),
-		attribute.String(tracing.Provider, s.providerName),
-		attribute.String(tracing.Model, s.Model()),
+		attribute.String(tracing.Provider, i.providerName),
+		attribute.String(tracing.Model, i.Model()),
 		attribute.Bool(tracing.Streaming, streaming),
-		attribute.Bool(tracing.IsBedrock, s.bedrockCfg != nil),
+		attribute.Bool(tracing.IsBedrock, i.bedrockCfg != nil),
 	}
 }
 
@@ -176,7 +176,7 @@ func (i *interceptionBase) disableParallelToolCalls() {
 }
 
 // extractModelThoughts returns any thinking blocks that were returned in the response.
-func (i *interceptionBase) extractModelThoughts(msg *anthropic.Message) []*recorder.ModelThoughtRecord {
+func (*interceptionBase) extractModelThoughts(msg *anthropic.Message) []*recorder.ModelThoughtRecord {
 	if msg == nil {
 		return nil
 	}
@@ -264,7 +264,7 @@ func (i *interceptionBase) withBody() option.RequestOption {
 	return option.WithRequestBody("application/json", []byte(i.reqPayload))
 }
 
-func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
+func (*interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
 	if cfg == nil {
 		return nil, xerrors.New("nil config given")
 	}

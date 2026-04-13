@@ -61,7 +61,7 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	}
 }
 
-func (p *OpenAI) Type() string {
+func (*OpenAI) Type() string {
 	return config.ProviderOpenAI
 }
 
@@ -75,7 +75,7 @@ func (p *OpenAI) RoutePrefix() string {
 	return fmt.Sprintf("/%s/v1", p.Name())
 }
 
-func (p *OpenAI) BridgedRoutes() []string {
+func (*OpenAI) BridgedRoutes() []string {
 	return []string{
 		routeChatCompletions,
 		routeResponses,
@@ -86,7 +86,7 @@ func (p *OpenAI) BridgedRoutes() []string {
 // but must be passed through to the upstream.
 // The /v1/completions legacy API is deprecated and will not be passed through.
 // See https://platform.openai.com/docs/api-reference/completions.
-func (p *OpenAI) PassthroughRoutes() []string {
+func (*OpenAI) PassthroughRoutes() []string {
 	return []string{
 		// See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux.
 		// but without non trailing slash route requests to `/v1/conversations` are going to catch all
@@ -98,7 +98,7 @@ func (p *OpenAI) PassthroughRoutes() []string {
 	}
 }
 
-func (p *OpenAI) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ intercept.Interceptor, outErr error) {
+func (p *OpenAI) CreateInterceptor(_ http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ intercept.Interceptor, outErr error) {
 	id := uuid.New()
 
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
@@ -163,7 +163,7 @@ func (p *OpenAI) BaseURL() string {
 	return p.cfg.BaseURL
 }
 
-func (p *OpenAI) AuthHeader() string {
+func (*OpenAI) AuthHeader() string {
 	return "Authorization"
 }
 

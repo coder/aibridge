@@ -187,7 +187,7 @@ func (a *AsyncRecorder) WithClient(client string) {
 
 // RecordInterception must NOT be called asynchronously.
 // If an interception cannot be recorded, the whole request should fail.
-func (a *AsyncRecorder) RecordInterception(ctx context.Context, req *InterceptionRecord) error {
+func (a *AsyncRecorder) RecordInterception(_ context.Context, _ *InterceptionRecord) error {
 	panic("RecordInterception must not be called asynchronously")
 }
 

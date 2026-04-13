@@ -264,7 +264,7 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 // extractModelThoughts extracts model thoughts from response output items.
 // It captures both reasoning summary items and commentary messages (message
 // output items with "phase": "commentary") as model thoughts.
-func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Response) []*recorder.ModelThoughtRecord {
+func (*responsesInterceptionBase) extractModelThoughts(response *responses.Response) []*recorder.ModelThoughtRecord {
 	if response == nil {
 		return nil
 	}

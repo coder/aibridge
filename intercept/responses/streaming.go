@@ -61,7 +61,7 @@ func (i *StreamingResponsesInterceptor) Setup(logger slog.Logger, recorder recor
 	i.responsesInterceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
 }
 
-func (i *StreamingResponsesInterceptor) Streaming() bool {
+func (*StreamingResponsesInterceptor) Streaming() bool {
 	return true
 }
 

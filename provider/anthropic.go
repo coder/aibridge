@@ -73,7 +73,7 @@ func NewAnthropic(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) *Anthropi
 	}
 }
 
-func (p *Anthropic) Type() string {
+func (*Anthropic) Type() string {
 	return config.ProviderAnthropic
 }
 
@@ -85,11 +85,11 @@ func (p *Anthropic) RoutePrefix() string {
 	return fmt.Sprintf("/%s", p.Name())
 }
 
-func (p *Anthropic) BridgedRoutes() []string {
+func (*Anthropic) BridgedRoutes() []string {
 	return []string{routeMessages}
 }
 
-func (p *Anthropic) PassthroughRoutes() []string {
+func (*Anthropic) PassthroughRoutes() []string {
 	return []string{
 		"/v1/models",
 		"/v1/models/", // See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux.
@@ -98,7 +98,7 @@ func (p *Anthropic) PassthroughRoutes() []string {
 	}
 }
 
-func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ intercept.Interceptor, outErr error) {
+func (p *Anthropic) CreateInterceptor(_ http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ intercept.Interceptor, outErr error) {
 	id := uuid.New()
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
 	defer tracing.EndSpanErr(span, &outErr)
@@ -167,7 +167,7 @@ func (p *Anthropic) BaseURL() string {
 	return p.cfg.BaseURL
 }
 
-func (p *Anthropic) AuthHeader() string {
+func (*Anthropic) AuthHeader() string {
 	return "X-Api-Key"
 }
 

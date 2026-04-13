@@ -72,7 +72,7 @@ func NewCopilot(cfg config.Copilot) *Copilot {
 	}
 }
 
-func (p *Copilot) Type() string {
+func (*Copilot) Type() string {
 	return config.ProviderCopilot
 }
 
@@ -88,14 +88,14 @@ func (p *Copilot) RoutePrefix() string {
 	return fmt.Sprintf("/%s", p.Name())
 }
 
-func (p *Copilot) BridgedRoutes() []string {
+func (*Copilot) BridgedRoutes() []string {
 	return []string{
 		routeCopilotChatCompletions,
 		routeCopilotResponses,
 	}
 }
 
-func (p *Copilot) PassthroughRoutes() []string {
+func (*Copilot) PassthroughRoutes() []string {
 	return []string{
 		"/models",
 		"/models/",
@@ -105,7 +105,7 @@ func (p *Copilot) PassthroughRoutes() []string {
 	}
 }
 
-func (p *Copilot) AuthHeader() string {
+func (*Copilot) AuthHeader() string {
 	return "Authorization"
 }
 
@@ -113,7 +113,7 @@ func (p *Copilot) AuthHeader() string {
 // Copilot uses per-user tokens passed in the original Authorization header,
 // rather than a global key configured at the provider level.
 // The original Authorization header flows through untouched from the client.
-func (p *Copilot) InjectAuthHeader(_ *http.Header) {}
+func (*Copilot) InjectAuthHeader(_ *http.Header) {}
 
 func (p *Copilot) CircuitBreakerConfig() *config.CircuitBreaker {
 	return p.circuitBreaker

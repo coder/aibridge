@@ -313,7 +313,7 @@ func (p MessagesRequestPayload) tools() ([]json.RawMessage, error) {
 	return p.resultToRawMessage(tools.Array()), nil
 }
 
-func (p MessagesRequestPayload) resultToRawMessage(items []gjson.Result) []json.RawMessage {
+func (MessagesRequestPayload) resultToRawMessage(items []gjson.Result) []json.RawMessage {
 	// gjson.Result conversion to json.RawMessage is needed because
 	// gjson.Result does not implement json.Marshaler — would
 	// serialize its struct fields instead of the raw JSON it represents.

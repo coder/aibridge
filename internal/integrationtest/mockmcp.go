@@ -141,7 +141,7 @@ func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
 		tool := mcplib.NewTool(name,
 			mcplib.WithDescription(fmt.Sprintf("Mock of the %s tool", name)),
 		)
-		s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		s.AddTool(tool, func(_ context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			acc.addCall(request.Params.Name, request.Params.Arguments)
 			if errMsg, ok := acc.getToolError(request.Params.Name); ok {
 				return nil, xerrors.New(errMsg)

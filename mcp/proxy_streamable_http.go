@@ -161,7 +161,7 @@ func (p *StreamableHTTPServerProxy) fetchTools(ctx context.Context) (_ map[strin
 	return out, nil
 }
 
-func (p *StreamableHTTPServerProxy) Shutdown(ctx context.Context) error {
+func (p *StreamableHTTPServerProxy) Shutdown(_ context.Context) error {
 	if p.client == nil {
 		return nil
 	}
