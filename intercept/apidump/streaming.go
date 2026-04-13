@@ -37,7 +37,7 @@ func (s *streamingBodyDumper) init() {
 		// Write headers first.
 		if _, err := s.file.Write(s.headerData); err != nil {
 			s.initErr = xerrors.Errorf("write headers: %w", err)
-			s.file.Close()
+			_ = s.file.Close() // best-effort cleanup on header write failure
 			s.file = nil
 		}
 	})

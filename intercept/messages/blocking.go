@@ -32,7 +32,7 @@ type BlockingInterception struct {
 
 func NewBlockingInterceptor(
 	id uuid.UUID,
-	reqPayload MessagesRequestPayload,
+	reqPayload RequestPayload,
 	providerName string,
 	cfg config.Anthropic,
 	bedrockCfg *config.AWSBedrock,

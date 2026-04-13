@@ -62,5 +62,5 @@ func NewMetrics(reg prometheus.Registerer) *metrics.Metrics {
 }
 
 func NewRecorder(logger slog.Logger, tracer trace.Tracer, clientFn func() (Recorder, error)) Recorder {
-	return recorder.NewRecorder(logger, tracer, clientFn)
+	return recorder.NewWrappedRecorder(logger, tracer, clientFn)
 }

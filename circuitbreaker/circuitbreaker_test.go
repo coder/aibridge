@@ -177,10 +177,11 @@ func TestExecute_OnStateChange(t *testing.T) {
 
 	// Trip circuit
 	w := httptest.NewRecorder()
-	cbs.Execute(endpoint, model, w, func(rw http.ResponseWriter) error {
+	err := cbs.Execute(endpoint, model, w, func(rw http.ResponseWriter) error {
 		rw.WriteHeader(http.StatusTooManyRequests)
 		return nil
 	})
+	assert.NoError(t, err)
 
 	// Verify state change callback was called with correct parameters
 	assert.Len(t, stateChanges, 1)

@@ -106,8 +106,9 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 	if err != nil {
 		return xerrors.Errorf("write request header terminator: %w", err)
 	}
-	buf.Write(prettyBody)
-	buf.WriteByte('\n')
+	// bytes.Buffer writes to in-memory storage and never return errors.
+	_, _ = buf.Write(prettyBody)
+	_ = buf.WriteByte('\n')
 
 	return os.WriteFile(dumpPath, buf.Bytes(), 0o644) //nolint:gosec // https://github.com/coder/aibridge/pull/256#discussion_r3072143983
 }

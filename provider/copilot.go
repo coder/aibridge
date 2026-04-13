@@ -170,7 +170,7 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		if err != nil {
 			return nil, xerrors.Errorf("read body: %w", err)
 		}
-		reqPayload, err := responses.NewResponsesRequestPayload(payload)
+		reqPayload, err := responses.NewRequestPayload(payload)
 		if err != nil {
 			return nil, xerrors.Errorf("unmarshal request body: %w", err)
 		}

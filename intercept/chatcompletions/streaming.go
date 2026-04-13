@@ -391,10 +391,11 @@ func (i *StreamingInterception) marshalErr(err error) ([]byte, error) {
 }
 
 func (*StreamingInterception) encodeForStream(payload []byte) []byte {
+	// bytes.Buffer writes to in-memory storage and never return errors.
 	var buf bytes.Buffer
-	buf.WriteString("data: ")
-	buf.Write(payload)
-	buf.WriteString("\n\n")
+	_, _ = buf.WriteString("data: ")
+	_, _ = buf.Write(payload)
+	_, _ = buf.WriteString("\n\n")
 	return buf.Bytes()
 }
 

@@ -763,10 +763,10 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 	}
 }
 
-func mustMessagesPayload(t *testing.T, requestBody string) MessagesRequestPayload {
+func mustMessagesPayload(t *testing.T, requestBody string) RequestPayload {
 	t.Helper()
 
-	payload, err := NewMessagesRequestPayload([]byte(requestBody))
+	payload, err := NewRequestPayload([]byte(requestBody))
 	require.NoError(t, err)
 
 	return payload

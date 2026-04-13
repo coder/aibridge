@@ -42,7 +42,7 @@ type responsesInterceptionBase struct {
 	// clientHeaders are the original HTTP headers from the client request.
 	clientHeaders  http.Header
 	authHeaderName string
-	reqPayload     ResponsesRequestPayload
+	reqPayload     RequestPayload
 
 	cfg      config.OpenAI
 	recorder recorder.Recorder

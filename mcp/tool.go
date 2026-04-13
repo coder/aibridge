@@ -106,12 +106,13 @@ func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp
 // - https://community.openai.com/t/function-call-description-max-length/529902
 // - https://github.com/anthropics/claude-code/issues/2326
 func EncodeToolID(server, tool string) string {
+	// strings.Builder writes to in-memory storage and never return errors.
 	var sb strings.Builder
-	sb.WriteString(injectedToolPrefix)
-	sb.WriteString(injectedToolDelimiter)
-	sb.WriteString(server)
-	sb.WriteString(injectedToolDelimiter)
-	sb.WriteString(tool)
+	_, _ = sb.WriteString(injectedToolPrefix)
+	_, _ = sb.WriteString(injectedToolDelimiter)
+	_, _ = sb.WriteString(server)
+	_, _ = sb.WriteString(injectedToolDelimiter)
+	_, _ = sb.WriteString(tool)
 	return sb.String()
 }
 
