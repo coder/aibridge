@@ -183,7 +183,7 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 
 	default:
 		span.SetStatus(codes.Error, "unknown route: "+r.URL.Path)
-		return nil, UnknownRoute
+		return nil, ErrUnknownRoute
 	}
 
 	span.SetAttributes(interceptor.TraceAttributes(r)...)

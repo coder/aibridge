@@ -44,7 +44,7 @@ func newPassthroughRouter(prov provider.Provider, logger slog.Logger, m *metrics
 		// Append the request path to the upstream base path.
 		reqPath, err := url.JoinPath(upURL.Path, r.URL.Path)
 		if err != nil {
-			logger.Warn(ctx, "failed to join upstream path", slog.Error(err), slog.F("upstreamPath", upURL.Path), slog.F("requestPath", r.URL.Path))
+			logger.Warn(ctx, "failed to join upstream path", slog.Error(err), slog.F("upstream_path", upURL.Path), slog.F("request_path", r.URL.Path))
 			http.Error(w, "failed to join upstream path", http.StatusInternalServerError)
 			span.SetStatus(codes.Error, "failed to join upstream path: "+err.Error())
 			return

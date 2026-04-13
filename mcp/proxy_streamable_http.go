@@ -87,7 +87,7 @@ func (p *StreamableHTTPServerProxy) Init(ctx context.Context) (outErr error) {
 		return xerrors.Errorf("MCP version negotiation failed; requested %q, accepts %q, received %q", version, strings.Join(mcp.ValidProtocolVersions, ","), result.ProtocolVersion)
 	}
 
-	p.logger.Debug(ctx, "MCP client initialized", slog.F("name", result.ServerInfo.Name), slog.F("server_version", result.ServerInfo.Version))
+	p.logger.Debug(ctx, "mcp client initialized", slog.F("name", result.ServerInfo.Name), slog.F("server_version", result.ServerInfo.Version))
 
 	tools, err := p.fetchTools(ctx)
 	if err != nil {

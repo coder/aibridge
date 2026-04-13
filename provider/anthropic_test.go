@@ -147,7 +147,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		assert.Empty(t, receivedHeaders.Get("Authorization"), "client Authorization header must not reach upstream")
 	})
 
-	t.Run("UnknownRoute", func(t *testing.T) {
+	t.Run("ErrUnknownRoute", func(t *testing.T) {
 		t.Parallel()
 
 		body := `{"model": "claude-opus-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "hello"}]}`
@@ -156,7 +156,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 
 		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
 
-		require.ErrorIs(t, err, UnknownRoute)
+		require.ErrorIs(t, err, ErrUnknownRoute)
 		require.Nil(t, interceptor)
 	})
 }

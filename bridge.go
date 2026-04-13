@@ -276,7 +276,7 @@ func newInterceptionProcessor(p provider.Provider, cbs *circuitbreaker.ProviderC
 			log.Debug(ctx, "interception ended")
 		}
 
-		asyncRecorder.RecordInterceptionEnded(ctx, &recorder.InterceptionRecordEnded{ID: interceptor.ID().String()})
+		_ = asyncRecorder.RecordInterceptionEnded(ctx, &recorder.InterceptionRecordEnded{ID: interceptor.ID().String()})
 
 		// Ensure all recording have completed before completing request.
 		asyncRecorder.Wait()

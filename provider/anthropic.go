@@ -106,7 +106,7 @@ func (p *Anthropic) CreateInterceptor(_ http.ResponseWriter, r *http.Request, tr
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
 	if path != routeMessages {
 		span.SetStatus(codes.Error, "unknown route: "+r.URL.Path)
-		return nil, UnknownRoute
+		return nil, ErrUnknownRoute
 	}
 
 	payload, err := io.ReadAll(r.Body)

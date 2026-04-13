@@ -149,12 +149,14 @@ func TestCircuitBreaker_FullRecoveryCycle(t *testing.T) {
 				resp := doRequest()
 				assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 			}
+			//nolint:gosec // G115: test constant, no overflow risk
 			assert.Equal(t, int32(cbConfig.FailureThreshold), upstreamCalls.Load())
 
 			// Phase 2: Verify circuit is open
 			// Request should be blocked by circuit breaker (no upstream call)
 			resp := doRequest()
 			assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode)
+			//nolint:gosec // G115: test constant, no overflow risk
 			assert.Equal(t, int32(cbConfig.FailureThreshold), upstreamCalls.Load(), "No new upstream call when circuit is open")
 
 			// Verify metrics show circuit is open
@@ -570,11 +572,13 @@ func TestCircuitBreaker_PerModelIsolation(t *testing.T) {
 		resp := doRequest("claude-sonnet-4-20250514")
 		assert.Equal(t, http.StatusTooManyRequests, resp.StatusCode)
 	}
+	//nolint:gosec // G115: test constant, no overflow risk
 	assert.Equal(t, int32(cbConfig.FailureThreshold), sonnetCalls.Load())
 
 	// Verify sonnet circuit is open
 	resp := doRequest("claude-sonnet-4-20250514")
 	assert.Equal(t, http.StatusServiceUnavailable, resp.StatusCode, "Sonnet circuit should be open")
+	//nolint:gosec // G115: test constant, no overflow risk
 	assert.Equal(t, int32(cbConfig.FailureThreshold), sonnetCalls.Load(), "No new sonnet calls when circuit is open")
 
 	// Verify sonnet metrics show circuit is open
