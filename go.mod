@@ -12,6 +12,7 @@ require (
 	github.com/hashicorp/go-multierror v1.1.1
 	github.com/mark3labs/mcp-go v0.38.0
 	github.com/prometheus/client_golang v1.23.2
+	github.com/quasilyte/go-ruleguard/dsl v0.3.23
 	github.com/sony/gobreaker/v2 v2.3.0
 	github.com/stretchr/testify v1.11.1
 	github.com/tidwall/gjson v1.18.0
@@ -38,8 +39,6 @@ require (
 	go.opentelemetry.io/otel/sdk v1.40.0
 	go.opentelemetry.io/otel/trace v1.40.0
 )
-
-require github.com/quasilyte/go-ruleguard/dsl v0.3.23
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.30.3 // indirect
