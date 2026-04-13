@@ -405,7 +405,7 @@ func filterBedrockBetaFlags(headers http.Header, model string) {
 }
 
 // writeUpstreamError marshals and writes a given error.
-func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *messagesResponseError) {
+func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *responseError) {
 	if antErr == nil {
 		return
 	}
@@ -487,7 +487,7 @@ func accumulateUsage(dest, src any) {
 	}
 }
 
-func getErrorResponse(err error) *messagesResponseError {
+func getErrorResponse(err error) *responseError {
 	var apierr *anthropic.Error
 	if !errors.As(err, &apierr) {
 		return nil
@@ -505,7 +505,7 @@ func getErrorResponse(err error) *messagesResponseError {
 		typ = string(detail.Type)
 	}
 
-	return &messagesResponseError{
+	return &responseError{
 		ErrorResponse: &anthropic.ErrorResponse{
 			Error: anthropic.ErrorObjectUnion{
 				Message: msg,
@@ -517,16 +517,16 @@ func getErrorResponse(err error) *messagesResponseError {
 	}
 }
 
-var _ error = &messagesResponseError{}
+var _ error = &responseError{}
 
-type messagesResponseError struct {
+type responseError struct {
 	*anthropic.ErrorResponse
 
 	StatusCode int `json:"-"`
 }
 
-func newErrorResponse(msg error) *messagesResponseError {
-	return &messagesResponseError{
+func newErrorResponse(msg error) *responseError {
+	return &responseError{
 		ErrorResponse: &shared.ErrorResponse{
 			Error: shared.ErrorObjectUnion{
 				Message: msg.Error(),
@@ -536,7 +536,7 @@ func newErrorResponse(msg error) *messagesResponseError {
 	}
 }
 
-func (a *messagesResponseError) Error() string {
+func (a *responseError) Error() string {
 	if a.ErrorResponse == nil {
 		return ""
 	}

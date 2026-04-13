@@ -174,7 +174,7 @@ func (i *interceptionBase) unmarshalArgs(in string) (args recorder.ToolArgs) {
 }
 
 // writeUpstreamError marshals and writes a given error.
-func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *chatCompletionResponseError) {
+func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *responseError) {
 	if oaiErr == nil {
 		return
 	}
@@ -229,13 +229,13 @@ func calculateActualInputTokenUsage(in openai.CompletionUsage) int64 {
 		in.PromptTokensDetails.CachedTokens /* The aggregated number of text input tokens that has been cached from previous requests. */
 }
 
-func getErrorResponse(err error) *chatCompletionResponseError {
+func getErrorResponse(err error) *responseError {
 	var apiErr *openai.Error
 	if !errors.As(err, &apiErr) {
 		return nil
 	}
 
-	return &chatCompletionResponseError{
+	return &responseError{
 		ErrorObject: &shared.ErrorObject{
 			Code:    apiErr.Code,
 			Message: apiErr.Message,
@@ -245,15 +245,15 @@ func getErrorResponse(err error) *chatCompletionResponseError {
 	}
 }
 
-var _ error = &chatCompletionResponseError{}
+var _ error = &responseError{}
 
-type chatCompletionResponseError struct {
+type responseError struct {
 	ErrorObject *shared.ErrorObject `json:"error"`
 	StatusCode  int                 `json:"-"`
 }
 
-func newErrorResponse(msg error) *chatCompletionResponseError {
-	return &chatCompletionResponseError{
+func newErrorResponse(msg error) *responseError {
+	return &responseError{
 		ErrorObject: &shared.ErrorObject{
 			Code:    "error",
 			Message: msg.Error(),
@@ -262,7 +262,7 @@ func newErrorResponse(msg error) *chatCompletionResponseError {
 	}
 }
 
-func (a *chatCompletionResponseError) Error() string {
+func (a *responseError) Error() string {
 	if a.ErrorObject == nil {
 		return ""
 	}
