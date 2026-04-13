@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -245,7 +246,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 				logger.Warn(ctx, "openai stream error", slog.Error(streamErr))
 				interceptionErr = oaiErr
 			} else {
-				logger.Warn(ctx, "unknown stream error encountered", slog.Error(streamErr))
+				logger.Warn(ctx, "unknown stream error", slog.Error(streamErr))
 				// Unfortunately, the OpenAI SDK does not support parsing errors received in the stream
 				// into known types (i.e. [shared.OverloadedError]).
 				// See https://github.com/openai/openai-go/blob/v2.7.0/packages/ssestream/ssestream.go#L171
@@ -261,7 +262,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 		if interceptionErr != nil {
 			payload, err := i.marshalErr(interceptionErr)
 			if err != nil {
-				logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", interceptionErr))
+				logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", fmt.Sprintf("%+v", interceptionErr)))
 			} else if err := events.Send(streamCtx, payload); err != nil {
 				logger.Warn(ctx, "failed to relay error", slog.Error(err), slog.F("payload", payload))
 			}

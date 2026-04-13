@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -183,7 +184,7 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, oaiErr *cha
 
 	out, err := json.Marshal(oaiErr)
 	if err != nil {
-		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", oaiErr))
+		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", fmt.Sprintf("%+v", oaiErr)))
 		// Response has to match expected format.
 		_, _ = w.Write([]byte(`{
 	"error": {

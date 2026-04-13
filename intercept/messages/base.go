@@ -415,7 +415,7 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *mes
 
 	out, err := json.Marshal(antErr)
 	if err != nil {
-		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", antErr))
+		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", fmt.Sprintf("%+v", antErr)))
 		// Response has to match expected format.
 		// See https://docs.claude.com/en/api/errors#error-shapes.
 		_, _ = w.Write([]byte(fmt.Sprintf(`{

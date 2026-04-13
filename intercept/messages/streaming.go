@@ -488,7 +488,7 @@ newStream:
 					logger.Warn(ctx, "anthropic stream error", slog.Error(streamErr))
 					interceptionErr = antErr
 				} else {
-					logger.Warn(ctx, "unknown stream error encountered", slog.Error(streamErr))
+					logger.Warn(ctx, "unknown stream error", slog.Error(streamErr))
 					// Unfortunately, the Anthropic SDK does not support parsing errors received in the stream
 					// into known types (i.e. [shared.OverloadedError]).
 					// See https://github.com/anthropics/anthropic-sdk-go/blob/v1.12.0/packages/ssestream/ssestream.go#L172-L174
@@ -504,7 +504,7 @@ newStream:
 			if interceptionErr != nil {
 				payload, err := i.marshal(interceptionErr)
 				if err != nil {
-					logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", interceptionErr))
+					logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", fmt.Sprintf("%+v", interceptionErr)))
 				} else if err := events.Send(streamCtx, payload); err != nil {
 					logger.Warn(ctx, "failed to relay error", slog.Error(err), slog.F("payload", payload))
 				}
