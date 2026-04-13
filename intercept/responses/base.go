@@ -222,15 +222,15 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 
 func (i *responsesInterceptionBase) parseFunctionCallJSONArgs(ctx context.Context, raw string) recorder.ToolArgs {
 	trimmed := strings.TrimSpace(raw)
-	if trimmed != "" {
-		var args recorder.ToolArgs
-		if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
-			i.logger.Warn(ctx, "failed to unmarshal tool args", slog.Error(err))
-		} else {
-			return args
-		}
+	if trimmed == "" {
+		return trimmed
 	}
-	return trimmed
+	var args recorder.ToolArgs
+	if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
+		i.logger.Warn(ctx, "failed to unmarshal tool args", slog.Error(err))
+		return trimmed
+	}
+	return args
 }
 
 func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, response *responses.Response) {

@@ -11,17 +11,17 @@ import (
 )
 
 type MockProvider struct {
-	Name_           string
+	NameStr         string
 	URL             string
 	Bridged         []string
 	Passthrough     []string
 	InterceptorFunc func(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (intercept.Interceptor, error)
 }
 
-func (m *MockProvider) Type() string                                 { return m.Name_ }
-func (m *MockProvider) Name() string                                 { return m.Name_ }
+func (m *MockProvider) Type() string                                 { return m.NameStr }
+func (m *MockProvider) Name() string                                 { return m.NameStr }
 func (m *MockProvider) BaseURL() string                              { return m.URL }
-func (m *MockProvider) RoutePrefix() string                          { return fmt.Sprintf("/%s", m.Name_) }
+func (m *MockProvider) RoutePrefix() string                          { return fmt.Sprintf("/%s", m.NameStr) }
 func (m *MockProvider) BridgedRoutes() []string                      { return m.Bridged }
 func (m *MockProvider) PassthroughRoutes() []string                  { return m.Passthrough }
 func (m *MockProvider) AuthHeader() string                           { return "Authorization" }

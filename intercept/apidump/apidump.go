@@ -130,19 +130,19 @@ func (d *dumper) dumpResponse(resp *http.Response) error {
 		return xerrors.Errorf("write response header terminator: %w", err)
 	}
 
-	// Wrap the response body to capture it as it streams
-	if resp.Body != nil {
-		resp.Body = &streamingBodyDumper{
-			body:       resp.Body,
-			dumpPath:   dumpPath,
-			headerData: headerBuf.Bytes(),
-			logger: func(err error) {
-				d.logger.Named("apidump").Warn(context.Background(), "failed to initialize response dump", slog.Error(err))
-			},
-		}
-	} else {
+	if resp.Body == nil {
 		// No body, just write headers
 		return os.WriteFile(dumpPath, headerBuf.Bytes(), 0o644)
+	}
+
+	// Wrap the response body to capture it as it streams
+	resp.Body = &streamingBodyDumper{
+		body:       resp.Body,
+		dumpPath:   dumpPath,
+		headerData: headerBuf.Bytes(),
+		logger: func(err error) {
+			d.logger.Named("apidump").Warn(context.Background(), "failed to initialize response dump", slog.Error(err))
+		},
 	}
 
 	return nil

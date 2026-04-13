@@ -179,8 +179,7 @@ newStream:
 			// Tool-related handling.
 			switch event.Type {
 			case string(constant.ValueOf[constant.ContentBlockStart]()):
-				switch block := event.AsContentBlockStart().ContentBlock.AsAny().(type) {
-				case anthropic.ToolUseBlock:
+				if block, ok := event.AsContentBlockStart().ContentBlock.AsAny().(anthropic.ToolUseBlock); ok {
 					lastToolName = block.Name
 
 					if i.mcpProxy != nil && i.mcpProxy.GetTool(block.Name) != nil {
@@ -307,8 +306,7 @@ newStream:
 							foundTools int
 						)
 						for _, block := range message.Content {
-							switch variant := block.AsAny().(type) {
-							case anthropic.ToolUseBlock:
+							if variant, ok := block.AsAny().(anthropic.ToolUseBlock); ok {
 								foundTools++
 								if variant.Name == name {
 									input = variant.Input
@@ -431,24 +429,23 @@ newStream:
 					// Causes a new stream to be run with updated messages.
 					isFirst = false
 					continue newStream
-				} else {
-					// Find all the non-injected tools and track their uses.
-					for _, block := range message.Content {
-						switch variant := block.AsAny().(type) {
-						case anthropic.ToolUseBlock:
-							if i.mcpProxy != nil && i.mcpProxy.GetTool(variant.Name) != nil {
-								continue
-							}
+				}
 
-							_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
-								InterceptionID: i.ID().String(),
-								MsgID:          message.ID,
-								ToolCallID:     variant.ID,
-								Tool:           variant.Name,
-								Args:           variant.Input,
-								Injected:       false,
-							})
+				// Find all the non-injected tools and track their uses.
+				for _, block := range message.Content {
+					if variant, ok := block.AsAny().(anthropic.ToolUseBlock); ok {
+						if i.mcpProxy != nil && i.mcpProxy.GetTool(variant.Name) != nil {
+							continue
 						}
+
+						_ = i.recorder.RecordToolUsage(streamCtx, &recorder.ToolUsageRecord{
+							InterceptionID: i.ID().String(),
+							MsgID:          message.ID,
+							ToolCallID:     variant.ID,
+							Tool:           variant.Name,
+							Args:           variant.Input,
+							Injected:       false,
+						})
 					}
 				}
 			}
@@ -464,11 +461,10 @@ newStream:
 				if eventstream.IsUnrecoverableError(err) {
 					logger.Debug(ctx, "processing terminated", slog.Error(err))
 					break // Stop processing if client disconnected or context canceled.
-				} else {
-					logger.Warn(ctx, "failed to relay event", slog.Error(err))
-					lastErr = xerrors.Errorf("relay event: %w", err)
-					break
 				}
+				logger.Warn(ctx, "failed to relay event", slog.Error(err))
+				lastErr = xerrors.Errorf("relay event: %w", err)
+				break
 			}
 		}
 

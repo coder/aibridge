@@ -144,7 +144,7 @@ func generatePayload(messageCount int) []byte {
 		}
 		// Use realistic message content size
 		content := fmt.Sprintf("This is message number %d with some realistic content that might appear in a conversation.", i+1)
-		messages = append(messages, fmt.Sprintf(`{"role": "%s", "content": "%s"}`, role, content))
+		messages = append(messages, fmt.Sprintf(`{"role": %q, "content": %q}`, role, content))
 	}
 
 	return []byte(fmt.Sprintf(`{

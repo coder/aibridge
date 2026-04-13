@@ -5,7 +5,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-var baseLabels []string = []string{"provider", "model"}
+var baseLabels = []string{"provider", "model"}
 
 const (
 	InterceptionCountStatusFailed    = "failed"

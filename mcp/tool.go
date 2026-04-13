@@ -59,15 +59,15 @@ func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp
 	ctx, span := tracer.Start(ctx, "Intercept.ProcessRequest.ToolCall", trace.WithAttributes(spanAttrs...))
 	defer tracing.EndSpanErr(span, &outErr)
 
-	inputJson, err := json.Marshal(input)
+	inputJSON, err := json.Marshal(input)
 	if err != nil {
 		t.Logger.Warn(ctx, "failed to marshal tool input, will be omitted from span attrs", slog.Error(err))
 	} else {
-		strJson := string(inputJson)
-		if len(strJson) > maxSpanInputAttrLen {
-			strJson = strJson[:maxSpanInputAttrLen]
+		strJSON := string(inputJSON)
+		if len(strJSON) > maxSpanInputAttrLen {
+			strJSON = strJSON[:maxSpanInputAttrLen]
 		}
-		span.SetAttributes(attribute.String(tracing.MCPInput, strJson))
+		span.SetAttributes(attribute.String(tracing.MCPInput, strJSON))
 	}
 
 	start := time.Now()
@@ -88,7 +88,7 @@ func (t *Tool) Call(ctx context.Context, input any, tracer trace.Tracer) (_ *mcp
 	logFn(ctx, "injected tool invoked",
 		slog.F("name", t.Name),
 		slog.F("server", t.ServerName),
-		slog.F("input", inputJson),
+		slog.F("input", inputJSON),
 		slog.F("duration_sec", time.Since(start).Seconds()),
 		slog.Error(outErr),
 	)
