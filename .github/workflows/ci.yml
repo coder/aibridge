@@ -21,6 +21,9 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Lint
+        run: make lint
+
       - name: Run tests
         run: make test
 
