@@ -1,6 +1,7 @@
 package aibridge
 
 import (
+	"context"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -58,10 +59,7 @@ func newPassthroughRouter(prov provider.Provider, logger slog.Logger, m *metrics
 			m.PassthroughCount.WithLabelValues(prov.Name(), r.URL.Path, r.Method).Add(1)
 		}
 
-		ctx, span := tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
-			attribute.String(tracing.PassthroughURL, r.URL.String()),
-			attribute.String(tracing.PassthroughMethod, r.Method),
-		))
+		ctx, span := startSpan(r, tracer)
 		defer span.End()
 
 		proxy.ServeHTTP(w, r.WithContext(ctx))
@@ -73,6 +71,10 @@ func newPassthroughRouter(prov provider.Provider, logger slog.Logger, m *metrics
 func rewritePassthroughRequest(pr *httputil.ProxyRequest, provBaseURL *url.URL, prov provider.Provider) {
 	pr.SetURL(provBaseURL)
 
+	// Rewrite sets "X-Forwarded-For" to just last hop (clients IP address).
+	// To preserve old Director behavior pr.In "X-Forwarded-For" header
+	// values need to be copied manually.
+	// https://pkg.go.dev/net/http/httputil#ProxyRequest.SetXForwarded
 	if prior, ok := pr.In.Header["X-Forwarded-For"]; ok {
 		pr.Out.Header["X-Forwarded-For"] = append([]string(nil), prior...)
 	}
@@ -90,22 +92,26 @@ func rewritePassthroughRequest(pr *httputil.ProxyRequest, provBaseURL *url.URL, 
 	prov.InjectAuthHeader(&pr.Out.Header)
 }
 
-// newInvalidBaseURLHandler returns a handler that always returns 502 because
-// the provider's base URL is invalid.
+// newInvalidBaseURLHandler returns a handler that always returns 502
+// when the provider's base URL is invalid.
 func newInvalidBaseURLHandler(prov provider.Provider, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer, baseURLErr error) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := startSpan(r, tracer)
+		defer span.End()
+
 		if m != nil {
 			m.PassthroughCount.WithLabelValues(prov.Name(), r.URL.Path, r.Method).Add(1)
 		}
-
-		ctx, span := tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
-			attribute.String(tracing.PassthroughURL, r.URL.String()),
-			attribute.String(tracing.PassthroughMethod, r.Method),
-		))
-		defer span.End()
 
 		logger.Warn(ctx, "invalid provider base URL", slog.Error(baseURLErr))
 		http.Error(w, "invalid provider base URL", http.StatusBadGateway)
 		span.SetStatus(codes.Error, "invalid provider base URL: "+baseURLErr.Error())
 	}
+}
+
+func startSpan(r *http.Request, tracer trace.Tracer) (context.Context, trace.Span) {
+	return tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
+		attribute.String(tracing.PassthroughURL, r.URL.String()),
+		attribute.String(tracing.PassthroughMethod, r.Method),
+	))
 }
