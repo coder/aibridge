@@ -26,6 +26,7 @@ type Anthropic struct {
 type AWSBedrock struct {
 	Region                     string
 	AccessKey, AccessKeySecret string
+	SessionToken               string
 	Model, SmallFastModel      string
 	// If set, requests will be sent to this URL instead of the default AWS Bedrock endpoint
 	// (https://bedrock-runtime.{region}.amazonaws.com).
