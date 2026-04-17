@@ -34,6 +34,10 @@ import (
 
 const (
 	requestTimeout = time.Second * 600
+
+	// computerCall is defined locally because the OpenAI Go SDK does
+	// not export a typed constant for the "computer_call" output item.
+	computerCall = "computer_call"
 )
 
 type responsesInterceptionBase struct {
@@ -210,7 +214,6 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 			callID   string
 		)
 
-		//nolint:goconst // tool type string values are clearer inline.
 		switch item.Type {
 		case string(constant.ValueOf[constant.FunctionCall]()):
 			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments)
@@ -222,26 +225,32 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 			toolName = item.Name
 			callID = item.CallID
 
-		case "web_search_call",
-			"computer_call",
-			"file_search_call",
-			"code_interpreter_call",
-			"image_generation_call",
-			"mcp_call",
-			"local_shell_call",
-			"shell_call",
-			"apply_patch_call":
-			// For these tool types, use the type as the tool name
-			// when there is no explicit name, and prefer call_id
-			// but fall back to the item id.
+		// Agentic tools: the client sends a corresponding *_output
+		// item correlated by call_id.
+		case computerCall,
+			string(constant.ValueOf[constant.LocalShellCall]()),
+			string(constant.ValueOf[constant.ShellCall]()),
+			string(constant.ValueOf[constant.ApplyPatchCall]()):
 			toolName = item.Name
 			if toolName == "" {
 				toolName = item.Type
 			}
 			callID = item.CallID
-			if callID == "" {
-				callID = item.ID
+
+		// Hosted tools: executed server-side, these output items
+		// carry only an id field — not call_id. The client never
+		// submits output for them.
+		// https://platform.openai.com/docs/api-reference/responses/create
+		case string(constant.ValueOf[constant.WebSearchCall]()),
+			string(constant.ValueOf[constant.FileSearchCall]()),
+			string(constant.ValueOf[constant.CodeInterpreterCall]()),
+			string(constant.ValueOf[constant.ImageGenerationCall]()),
+			string(constant.ValueOf[constant.McpCall]()):
+			toolName = item.Name
+			if toolName == "" {
+				toolName = item.Type
 			}
+			callID = item.ID
 
 		default:
 			continue
