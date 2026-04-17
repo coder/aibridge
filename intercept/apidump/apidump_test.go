@@ -151,7 +151,7 @@ func TestBridgedMiddleware_WritesErrorFile_WhenNextFails(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
-	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: true}).Leveled(slog.LevelDebug)
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
 	clk := quartz.NewMock(t)
 	interceptionID := uuid.New()
 
