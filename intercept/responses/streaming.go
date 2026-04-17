@@ -23,6 +23,7 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/quartz"
 )
 
 const (
@@ -83,7 +84,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	i.injectTools()
 
-	events := eventstream.NewEventStream(ctx, i.logger.Named("sse-sender"), nil)
+	events := eventstream.NewEventStream(ctx, i.logger.Named("sse-sender"), nil, quartz.NewReal())
 	go events.Start(w, r)
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, streamShutdownTimeout)
