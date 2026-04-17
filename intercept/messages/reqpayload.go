@@ -144,10 +144,10 @@ func (p RequestPayload) correlatingToolCallID() *string {
 	return nil
 }
 
-// lastUserPrompt returns the prompt text from the last user message. If no prompt
+// LastUserPrompt returns the prompt text from the last user message. If no prompt
 // is found, it returns empty string, false, nil. Unexpected shapes are treated as
 // unsupported and do not fail the request path.
-func (p RequestPayload) lastUserPrompt() (string, bool, error) {
+func (p RequestPayload) LastUserPrompt() (string, bool, error) {
 	messages := gjson.GetBytes(p, messagesReqPathMessages)
 	if !messages.Exists() || messages.Type == gjson.Null {
 		return "", false, nil

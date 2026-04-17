@@ -163,6 +163,29 @@ var (
 	OaiResponsesStreamingWrongResponseFormat []byte
 )
 
+// Bedrock fixtures are binary (eventstream) and cannot use the txtar format.
+// Each fixture is a pair: .req.json (request body) and .resp.bin (raw
+// eventstream response).
+var (
+	//go:embed bedrock/simple.req.json
+	BedrockSimpleReq []byte
+
+	//go:embed bedrock/simple.resp.bin
+	BedrockSimpleResp []byte
+
+	//go:embed bedrock/single_builtin_tool.req.json
+	BedrockSingleBuiltinToolReq []byte
+
+	//go:embed bedrock/single_builtin_tool.resp.bin
+	BedrockSingleBuiltinToolResp []byte
+)
+
+// BedrockFixture holds a request/response pair for a Bedrock test case.
+type BedrockFixture struct {
+	Request  []byte
+	Response []byte
+}
+
 // Section name constants matching the file names used in txtar fixtures.
 const (
 	fileRequest              = "request"

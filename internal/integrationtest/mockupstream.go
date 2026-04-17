@@ -171,6 +171,10 @@ func (ms *mockUpstream) handle(w http.ResponseWriter, r *http.Request) {
 			ms.writeRawHTTPResponse(w, r, resp.Streaming)
 			return
 		}
+		if isBedrockPath(r.URL.Path) {
+			ms.writeEventStream(w, resp.Streaming)
+			return
+		}
 		ms.writeSSE(w, resp.Streaming)
 		return
 	}
@@ -226,6 +230,20 @@ func (ms *mockUpstream) writeSSE(w http.ResponseWriter, data []byte) {
 		flusher.Flush()
 	}
 	require.NoError(ms.t, scanner.Err())
+}
+
+// isBedrockPath returns true if the URL path looks like a Bedrock invoke path.
+func isBedrockPath(path string) bool {
+	return strings.Contains(path, "/model/") && (strings.HasSuffix(path, "/invoke") || strings.HasSuffix(path, "/invoke-with-response-stream"))
+}
+
+// writeEventStream writes raw binary eventstream data as-is.
+func (ms *mockUpstream) writeEventStream(w http.ResponseWriter, data []byte) {
+	ms.t.Helper()
+	w.Header().Set("Content-Type", "application/vnd.amazon.eventstream")
+	w.WriteHeader(http.StatusOK)
+	_, err := w.Write(data)
+	require.NoError(ms.t, err)
 }
 
 // isRawHTTPResponse returns true if data starts with "HTTP/", indicating

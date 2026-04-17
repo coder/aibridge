@@ -6,6 +6,7 @@ const (
 	ProviderAnthropic = "anthropic"
 	ProviderOpenAI    = "openai"
 	ProviderCopilot   = "copilot"
+	ProviderBedrock   = "bedrock"
 )
 
 type Anthropic struct {
@@ -32,6 +33,17 @@ type AWSBedrock struct {
 	// (https://bedrock-runtime.{region}.amazonaws.com).
 	// This is useful for routing requests through a proxy or for testing.
 	BaseURL string
+}
+
+// Bedrock is a standalone Bedrock provider configuration. It acts as a
+// SigV4-signing reverse proxy, forwarding native Bedrock API requests
+// to AWS and adding centralized AWS credentials.
+type Bedrock struct {
+	// Name is the provider instance name. If empty, defaults to "bedrock".
+	Name           string
+	APIDumpDir     string
+	CircuitBreaker *CircuitBreaker
+	AWSBedrock     // Region, AccessKey, AccessKeySecret, SessionToken, Model, SmallFastModel, BaseURL
 }
 
 type OpenAI struct {

@@ -216,7 +216,7 @@ func TestRequestPayloadLastUserPrompt(t *testing.T) {
 			t.Parallel()
 
 			payload := mustMessagesPayload(t, testCase.requestBody)
-			prompt, found, err := payload.lastUserPrompt()
+			prompt, found, err := payload.LastUserPrompt()
 			if testCase.expectError {
 				require.Error(t, err)
 				return

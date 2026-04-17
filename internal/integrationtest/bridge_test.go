@@ -2132,3 +2132,113 @@ func TestActorHeaders(t *testing.T) {
 		}
 	}
 }
+
+// Native Bedrock tests use the AWS EventStream binary protocol
+// (application/vnd.amazon.eventstream) instead of Anthropic's SSE format.
+// The provider acts as a SigV4-signing reverse proxy.
+func TestNativeBedrockSimple(t *testing.T) {
+	t.Parallel()
+
+	const bedrockModel = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
+	t.Cleanup(cancel)
+
+	fix := fixtures.BedrockFixture{
+		Request:  fixtures.BedrockSimpleReq,
+		Response: fixtures.BedrockSimpleResp,
+	}
+
+	upstream := newMockUpstream(ctx, t, upstreamResponse{
+		Streaming: fix.Response,
+	})
+
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
+
+	path := "/bedrock/model/" + bedrockModel + "/invoke-with-response-stream"
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, path, fix.Request)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Verify non-empty response was forwarded to client.
+	bodyBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.NotEmpty(t, bodyBytes, "should have received response body")
+
+	// Verify the upstream received the request at the correct path.
+	received := upstream.receivedRequests()
+	require.Len(t, received, 1)
+	assert.Equal(t, "/model/"+bedrockModel+"/invoke-with-response-stream", received[0].Path)
+
+	// Verify prompt was recorded.
+	promptUsages := bridgeServer.Recorder.RecordedPromptUsages()
+	require.NotEmpty(t, promptUsages, "no prompts tracked")
+	assert.Contains(t, promptUsages[0].Prompt, "how many angels can dance on the head of a pin")
+
+	// Streaming produces 2 token records: message_start + message_delta.
+	tokenUsages := bridgeServer.Recorder.RecordedTokenUsages()
+	require.Len(t, tokenUsages, 2)
+	assert.EqualValues(t, 18, bridgeServer.Recorder.TotalInputTokens(), "input tokens")
+	// message_start reports output_tokens=1, message_delta reports output_tokens=50.
+	assert.EqualValues(t, 51, bridgeServer.Recorder.TotalOutputTokens(), "output tokens")
+
+	// Verify interception lifecycle.
+	bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
+}
+
+func TestNativeBedrockSingleBuiltinTool(t *testing.T) {
+	t.Parallel()
+
+	const bedrockModel = "us.anthropic.claude-sonnet-4-5-20250929-v1:0"
+
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
+	t.Cleanup(cancel)
+
+	fix := fixtures.BedrockFixture{
+		Request:  fixtures.BedrockSingleBuiltinToolReq,
+		Response: fixtures.BedrockSingleBuiltinToolResp,
+	}
+
+	upstream := newMockUpstream(ctx, t, upstreamResponse{
+		Streaming: fix.Response,
+	})
+
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
+
+	path := "/bedrock/model/" + bedrockModel + "/invoke-with-response-stream"
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, path, fix.Request)
+	require.NoError(t, err)
+	defer resp.Body.Close()
+	require.Equal(t, http.StatusOK, resp.StatusCode)
+
+	// Verify non-empty response.
+	bodyBytes, err := io.ReadAll(resp.Body)
+	require.NoError(t, err)
+	assert.NotEmpty(t, bodyBytes)
+
+	// Verify token usage: message_start (input=583, output=1) + message_delta (output=56).
+	tokenUsages := bridgeServer.Recorder.RecordedTokenUsages()
+	require.Len(t, tokenUsages, 2)
+	assert.EqualValues(t, 583, bridgeServer.Recorder.TotalInputTokens(), "input tokens")
+	assert.EqualValues(t, 57, bridgeServer.Recorder.TotalOutputTokens(), "output tokens (1 + 56)")
+
+	// Verify tool usage.
+	toolUsages := bridgeServer.Recorder.RecordedToolUsages()
+	require.Len(t, toolUsages, 1)
+	assert.Equal(t, "Read", toolUsages[0].Tool)
+	assert.Equal(t, "toolu_bdrk_01K3c5nvHfTPbUTdKyt2XdiD", toolUsages[0].ToolCallID)
+	require.IsType(t, json.RawMessage{}, toolUsages[0].Args)
+	var args map[string]any
+	require.NoError(t, json.Unmarshal(toolUsages[0].Args.(json.RawMessage), &args))
+	require.Contains(t, args, "file_path")
+	assert.Equal(t, "/tmp/foo", args["file_path"])
+
+	// Verify prompt.
+	promptUsages := bridgeServer.Recorder.RecordedPromptUsages()
+	require.Len(t, promptUsages, 1)
+	assert.Equal(t, "read the /tmp/foo file", promptUsages[0].Prompt)
+
+	// Verify interception lifecycle.
+	bridgeServer.Recorder.VerifyAllInterceptionsEnded(t)
+}

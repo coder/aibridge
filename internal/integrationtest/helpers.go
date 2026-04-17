@@ -35,6 +35,20 @@ func bedrockCfg(url string) *config.AWSBedrock {
 	}
 }
 
+// standaloneBedrockCfg creates a Bedrock provider config for testing.
+// The BaseURL points at the mock upstream so no real AWS calls are made.
+func standaloneBedrockCfg(url string) config.Bedrock {
+	return config.Bedrock{
+		Name: config.ProviderBedrock,
+		AWSBedrock: config.AWSBedrock{
+			Region:          "us-east-1",
+			AccessKey:       "test-access-key",
+			AccessKeySecret: "test-secret-key",
+			BaseURL:         url,
+		},
+	}
+}
+
 // openAICfg creates a minimal OpenAI config for testing.
 func openAICfg(url string, key string) config.OpenAI {
 	return config.OpenAI{
