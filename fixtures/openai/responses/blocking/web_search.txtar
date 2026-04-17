@@ -5,11 +5,11 @@
       "content": "What is the current weather in San Francisco?"
     }
   ],
-  "model": "gpt-4.1",
+  "model": "gpt-5",
   "stream": false,
   "tools": [
     {
-      "type": "web_search_preview"
+      "type": "web_search"
     }
   ]
 }
@@ -30,7 +30,7 @@
   "instructions": null,
   "max_output_tokens": null,
   "max_tool_calls": null,
-  "model": "gpt-4.1-2025-04-14",
+  "model": "gpt-5-0806",
   "output": [
     {
       "id": "ws_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9d0e1",
@@ -80,7 +80,7 @@
   "tool_choice": "auto",
   "tools": [
     {
-      "type": "web_search_preview"
+      "type": "web_search"
     }
   ],
   "top_logprobs": 0,
