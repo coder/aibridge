@@ -147,6 +147,34 @@ func TestBridgedMiddleware_RedactsSensitiveResponseHeaders(t *testing.T) {
 	require.Contains(t, content, "X-Request-Id: req-123")
 }
 
+func TestBridgedMiddleware_WritesErrorFile_WhenNextFails(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	logger := slogtest.Make(t, &slogtest.Options{IgnoreErrors: false}).Leveled(slog.LevelDebug)
+	clk := quartz.NewMock(t)
+	interceptionID := uuid.New()
+
+	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
+	require.NotNil(t, middleware)
+
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
+	require.NoError(t, err)
+
+	upstreamErr := io.ErrUnexpectedEOF
+	resp, err := middleware(req, func(_ *http.Request) (*http.Response, error) { //nolint:bodyclose // resp is nil on error
+		return nil, upstreamErr
+	})
+	require.ErrorIs(t, err, upstreamErr)
+	require.Nil(t, resp)
+
+	modelDir := filepath.Join(tmpDir, "openai", "gpt-4")
+	errDumpPath := findDumpFile(t, modelDir, SuffixError)
+	content, readErr := os.ReadFile(errDumpPath)
+	require.NoError(t, readErr)
+	require.Contains(t, string(content), upstreamErr.Error())
+}
+
 func TestBridgedMiddleware_EmptyBaseDir_ReturnsNil(t *testing.T) {
 	t.Parallel()
 
@@ -365,6 +393,12 @@ func TestPassthroughMiddleware(t *testing.T) {
 		resp, err := rt.RoundTrip(req) //nolint:bodyclose // resp is nil on error
 		require.ErrorIs(t, err, innerErr)
 		require.Nil(t, resp)
+
+		passthroughDir := filepath.Join(tmpDir, "openai", "passthrough")
+		errDumpPath := findDumpFile(t, passthroughDir, SuffixError)
+		content, readErr := os.ReadFile(errDumpPath)
+		require.NoError(t, readErr)
+		require.Contains(t, string(content), innerErr.Error())
 	})
 
 	t.Run("dumps_request_and_response", func(t *testing.T) {

@@ -3,6 +3,9 @@
 .idea
 **/*.swp
 
+# AI tools
+.claude
+
 # Project specific
 example/aibridge.db
 AGENTS.local.md
