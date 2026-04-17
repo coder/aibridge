@@ -26,6 +26,9 @@ jobs:
         with:
           config: .github/workflows/typos.toml
 
+      - name: Build example app
+        run: make build-example
+
       - name: Lint
         run: make lint
 

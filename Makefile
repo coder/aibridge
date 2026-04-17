@@ -50,6 +50,10 @@ lint/shellcheck:
 	fi
 .PHONY: lint/shellcheck
 
+build-example:
+	cd example && go build -o /dev/null .
+.PHONY: build-example
+
 test:
 	go test -count=1 ./...
 
