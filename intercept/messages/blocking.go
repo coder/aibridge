@@ -8,6 +8,13 @@ import (
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
+	"github.com/google/uuid"
+	mcplib "github.com/mark3labs/mcp-go/mcp"
+	"github.com/tidwall/sjson"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
+
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/intercept"
@@ -15,11 +22,6 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
-	"github.com/google/uuid"
-	mcplib "github.com/mark3labs/mcp-go/mcp"
-	"github.com/tidwall/sjson"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog/v3"
 )
@@ -30,13 +32,14 @@ type BlockingInterception struct {
 
 func NewBlockingInterceptor(
 	id uuid.UUID,
-	reqPayload MessagesRequestPayload,
+	reqPayload RequestPayload,
 	providerName string,
 	cfg config.Anthropic,
 	bedrockCfg *config.AWSBedrock,
 	clientHeaders http.Header,
 	authHeaderName string,
 	tracer trace.Tracer,
+	cred intercept.CredentialInfo,
 ) *BlockingInterception {
 	return &BlockingInterception{interceptionBase: interceptionBase{
 		id:             id,
@@ -47,24 +50,25 @@ func NewBlockingInterceptor(
 		clientHeaders:  clientHeaders,
 		authHeaderName: authHeaderName,
 		tracer:         tracer,
+		credential:     cred,
 	}}
 }
 
-func (i *BlockingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	i.interceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+func (i *BlockingInterception) Setup(logger slog.Logger, rec recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	i.interceptionBase.Setup(logger.Named("blocking"), rec, mcpProxy)
 }
 
 func (i *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
 	return i.interceptionBase.baseTraceAttributes(r, false)
 }
 
-func (s *BlockingInterception) Streaming() bool {
+func (*BlockingInterception) Streaming() bool {
 	return false
 }
 
 func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if len(i.reqPayload) == 0 {
-		return fmt.Errorf("developer error: request payload is empty")
+		return xerrors.New("developer error: request payload is empty")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -89,7 +93,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 
 	svc, err := i.newMessagesService(ctx, opts...)
 	if err != nil {
-		err = fmt.Errorf("create anthropic client: %w", err)
+		err = xerrors.Errorf("create anthropic client: %w", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return err
 	}
@@ -106,16 +110,16 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		if err != nil {
 			if eventstream.IsConnError(err) {
 				// Can't write a response, just error out.
-				return fmt.Errorf("upstream connection closed: %w", err)
+				return xerrors.Errorf("upstream connection closed: %w", err)
 			}
 
 			if antErr := getErrorResponse(err); antErr != nil {
 				i.writeUpstreamError(w, antErr)
-				return fmt.Errorf("anthropic API error: %w", err)
+				return xerrors.Errorf("anthropic API error: %w", err)
 			}
 
 			http.Error(w, "internal error", http.StatusInternalServerError)
-			return fmt.Errorf("internal error: %w", err)
+			return xerrors.Errorf("internal error: %w", err)
 		}
 
 		if prompt != nil {
@@ -303,7 +307,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 		updatedPayload, rewriteErr := i.reqPayload.appendedMessages(loopMessages)
 		if rewriteErr != nil {
 			http.Error(w, rewriteErr.Error(), http.StatusInternalServerError)
-			return fmt.Errorf("rewrite payload for agentic loop: %w", rewriteErr)
+			return xerrors.Errorf("rewrite payload for agentic loop: %w", rewriteErr)
 		}
 		i.reqPayload = updatedPayload
 	}
@@ -315,13 +319,13 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	// Overwrite response identifier since proxy obscures injected tool call invocations.
 	sj, err := sjson.Set(resp.RawJSON(), "id", i.ID().String())
 	if err != nil {
-		return fmt.Errorf("marshal response id failed: %w", err)
+		return xerrors.Errorf("marshal response id failed: %w", err)
 	}
 
 	// Overwrite the response's usage with the cumulative usage across any inner loops which invokes injected MCP tools.
 	sj, err = sjson.Set(sj, "usage", cumulativeUsage)
 	if err != nil {
-		return fmt.Errorf("marshal response usage failed: %w", err)
+		return xerrors.Errorf("marshal response usage failed: %w", err)
 	}
 
 	w.Header().Set("Content-Type", "application/json")

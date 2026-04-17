@@ -3,7 +3,6 @@ package eventstream
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -13,10 +12,12 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/xerrors"
+
 	"cdr.dev/slog/v3"
 )
 
-var ErrEventStreamClosed = errors.New("event stream closed")
+var ErrEventStreamClosed = xerrors.New("event stream closed")
 
 const pingInterval = time.Second * 10
 
@@ -31,7 +32,6 @@ type EventStream struct {
 	initiated    atomic.Bool
 	initiateOnce sync.Once
 
-	closeOnce    sync.Once
 	shutdownOnce sync.Once
 	eventsCh     chan event
 
@@ -132,7 +132,7 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if err := flush(w); err != nil {
-			s.logger.Warn(ctx, "failed to flush", slog.Error(err))
+			s.logger.Warn(ctx, "failed to flush event stream", slog.Error(err))
 			return
 		}
 
@@ -187,9 +187,9 @@ func (s *EventStream) Shutdown(shutdownCtx context.Context) error {
 	select {
 	case <-shutdownCtx.Done():
 		// If shutdownCtx completes, shutdown likely exceeded its timeout.
-		err = fmt.Errorf("shutdown ended prematurely with %d outstanding events: %w", len(s.eventsCh), shutdownCtx.Err())
+		err = xerrors.Errorf("shutdown ended prematurely with %d outstanding events: %w", len(s.eventsCh), shutdownCtx.Err())
 	case <-s.ctx.Done():
-		err = fmt.Errorf("shutdown ended prematurely with %d outstanding events: %w", len(s.eventsCh), s.ctx.Err())
+		err = xerrors.Errorf("shutdown ended prematurely with %d outstanding events: %w", len(s.eventsCh), s.ctx.Err())
 	case <-s.doneCh:
 		return nil
 	}
@@ -235,12 +235,11 @@ func IsUnrecoverableError(err error) bool {
 func flush(w http.ResponseWriter) (err error) {
 	flusher, ok := w.(http.Flusher)
 	if !ok || flusher == nil {
-		return errors.New("SSE not supported")
+		return xerrors.New("SSE not supported")
 	}
 
 	defer func() {
-		if r := recover(); r != nil {
-			// Likely a broken connection, don't spam the logs.
+		if r := recover(); r != nil { //nolint:revive,staticcheck // Intentionally swallowed; likely a broken connection.
 		}
 	}()
 

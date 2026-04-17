@@ -2,19 +2,20 @@ package mcp
 
 import (
 	"context"
-	"fmt"
 	"regexp"
 	"slices"
 	"strings"
 
-	"cdr.dev/slog/v3"
-	"github.com/coder/aibridge/tracing"
 	"github.com/mark3labs/mcp-go/client"
 	"github.com/mark3labs/mcp-go/client/transport"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/exp/maps"
+	"golang.org/x/xerrors"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/tracing"
 )
 
 var _ ServerProxier = &StreamableHTTPServerProxy{}
@@ -40,7 +41,7 @@ func NewStreamableHTTPServerProxy(serverName, serverURL string, headers map[stri
 
 	mcpClient, err := client.NewStreamableHttpClient(serverURL, opts...)
 	if err != nil {
-		return nil, fmt.Errorf("create streamable http client: %w", err)
+		return nil, xerrors.Errorf("create streamable http client: %w", err)
 	}
 
 	return &StreamableHTTPServerProxy{
@@ -63,7 +64,7 @@ func (p *StreamableHTTPServerProxy) Init(ctx context.Context) (outErr error) {
 	defer tracing.EndSpanErr(span, &outErr)
 
 	if err := p.client.Start(ctx); err != nil {
-		return fmt.Errorf("start client: %w", err)
+		return xerrors.Errorf("start client: %w", err)
 	}
 
 	version := mcp.LATEST_PROTOCOL_VERSION
@@ -76,21 +77,21 @@ func (p *StreamableHTTPServerProxy) Init(ctx context.Context) (outErr error) {
 
 	result, err := p.client.Initialize(ctx, initReq)
 	if err != nil {
-		return fmt.Errorf("init MCP client: %w", err)
+		return xerrors.Errorf("init MCP client: %w", err)
 	}
 
 	if !slices.Contains(mcp.ValidProtocolVersions, result.ProtocolVersion) {
 		if err := p.client.Close(); err != nil {
 			p.logger.Debug(ctx, "failed to close MCP client on unsuccessful version negotiation", slog.Error(err))
 		}
-		return fmt.Errorf("MCP version negotiation failed; requested %q, accepts %q, received %q", version, strings.Join(mcp.ValidProtocolVersions, ","), result.ProtocolVersion)
+		return xerrors.Errorf("MCP version negotiation failed; requested %q, accepts %q, received %q", version, strings.Join(mcp.ValidProtocolVersions, ","), result.ProtocolVersion)
 	}
 
-	p.logger.Debug(ctx, "MCP client initialized", slog.F("name", result.ServerInfo.Name), slog.F("server_version", result.ServerInfo.Version))
+	p.logger.Debug(ctx, "mcp client initialized", slog.F("name", result.ServerInfo.Name), slog.F("server_version", result.ServerInfo.Version))
 
 	tools, err := p.fetchTools(ctx)
 	if err != nil {
-		return fmt.Errorf("fetch tools: %w", err)
+		return xerrors.Errorf("fetch tools: %w", err)
 	}
 
 	// Only include allowed tools.
@@ -121,7 +122,7 @@ func (p *StreamableHTTPServerProxy) GetTool(name string) *Tool {
 func (p *StreamableHTTPServerProxy) CallTool(ctx context.Context, name string, input any) (*mcp.CallToolResult, error) {
 	tool := p.GetTool(name)
 	if tool == nil {
-		return nil, fmt.Errorf("%q tool not known", name)
+		return nil, xerrors.Errorf("%q tool not known", name)
 	}
 
 	return p.client.CallTool(ctx, mcp.CallToolRequest{
@@ -138,7 +139,7 @@ func (p *StreamableHTTPServerProxy) fetchTools(ctx context.Context) (_ map[strin
 
 	tools, err := p.client.ListTools(ctx, mcp.ListToolsRequest{})
 	if err != nil {
-		return nil, fmt.Errorf("list MCP tools: %w", err)
+		return nil, xerrors.Errorf("list MCP tools: %w", err)
 	}
 
 	out := make(map[string]*Tool, len(tools.Tools))
@@ -160,7 +161,7 @@ func (p *StreamableHTTPServerProxy) fetchTools(ctx context.Context) (_ map[strin
 	return out, nil
 }
 
-func (p *StreamableHTTPServerProxy) Shutdown(ctx context.Context) error {
+func (p *StreamableHTTPServerProxy) Shutdown(_ context.Context) error {
 	if p.client == nil {
 		return nil
 	}

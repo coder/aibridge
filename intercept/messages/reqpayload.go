@@ -3,7 +3,6 @@ package messages
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"slices"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"golang.org/x/xerrors"
 )
 
 const (
@@ -82,23 +82,23 @@ var (
 	}
 )
 
-// MessagesRequestPayload is raw JSON bytes of an Anthropic Messages API request.
+// RequestPayload is raw JSON bytes of an Anthropic Messages API request.
 // Methods provide package-specific reads and rewrites while preserving the
 // original body for upstream pass-through.
-type MessagesRequestPayload []byte
+type RequestPayload []byte
 
-func NewMessagesRequestPayload(raw []byte) (MessagesRequestPayload, error) {
+func NewRequestPayload(raw []byte) (RequestPayload, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return nil, fmt.Errorf("messages empty request body")
+		return nil, xerrors.New("messages empty request body")
 	}
 	if !json.Valid(raw) {
-		return nil, fmt.Errorf("messages invalid JSON request body")
+		return nil, xerrors.New("messages invalid JSON request body")
 	}
 
-	return MessagesRequestPayload(raw), nil
+	return RequestPayload(raw), nil
 }
 
-func (p MessagesRequestPayload) Stream() bool {
+func (p RequestPayload) Stream() bool {
 	v := gjson.GetBytes(p, messagesReqPathStream)
 	if !v.IsBool() {
 		return false
@@ -106,11 +106,11 @@ func (p MessagesRequestPayload) Stream() bool {
 	return v.Bool()
 }
 
-func (p MessagesRequestPayload) model() string {
+func (p RequestPayload) model() string {
 	return gjson.GetBytes(p, messagesReqPathModel).Str
 }
 
-func (p MessagesRequestPayload) correlatingToolCallID() *string {
+func (p RequestPayload) correlatingToolCallID() *string {
 	messages := gjson.GetBytes(p, messagesReqPathMessages)
 	if !messages.IsArray() {
 		return nil
@@ -147,13 +147,13 @@ func (p MessagesRequestPayload) correlatingToolCallID() *string {
 // lastUserPrompt returns the prompt text from the last user message. If no prompt
 // is found, it returns empty string, false, nil. Unexpected shapes are treated as
 // unsupported and do not fail the request path.
-func (p MessagesRequestPayload) lastUserPrompt() (string, bool, error) {
+func (p RequestPayload) lastUserPrompt() (string, bool, error) {
 	messages := gjson.GetBytes(p, messagesReqPathMessages)
 	if !messages.Exists() || messages.Type == gjson.Null {
 		return "", false, nil
 	}
 	if !messages.IsArray() {
-		return "", false, fmt.Errorf("unexpected messages type: %s", messages.Type)
+		return "", false, xerrors.Errorf("unexpected messages type: %s", messages.Type)
 	}
 
 	messageItems := messages.Array()
@@ -174,7 +174,7 @@ func (p MessagesRequestPayload) lastUserPrompt() (string, bool, error) {
 		return content.String(), true, nil
 	}
 	if !content.IsArray() {
-		return "", false, fmt.Errorf("unexpected message content type: %s", content.Type)
+		return "", false, xerrors.Errorf("unexpected message content type: %s", content.Type)
 	}
 
 	contentItems := content.Array()
@@ -195,14 +195,14 @@ func (p MessagesRequestPayload) lastUserPrompt() (string, bool, error) {
 	return "", false, nil
 }
 
-func (p MessagesRequestPayload) injectTools(injected []anthropic.ToolUnionParam) (MessagesRequestPayload, error) {
+func (p RequestPayload) injectTools(injected []anthropic.ToolUnionParam) (RequestPayload, error) {
 	if len(injected) == 0 {
 		return p, nil
 	}
 
 	existing, err := p.tools()
 	if err != nil {
-		return p, fmt.Errorf("get existing tools: %w", err)
+		return p, xerrors.Errorf("get existing tools: %w", err)
 	}
 
 	// Using []json.Marshaler to merge differently-typed slices ([]anthropic.ToolUnionParam
@@ -221,7 +221,7 @@ func (p MessagesRequestPayload) injectTools(injected []anthropic.ToolUnionParam)
 	return p.set(messagesReqPathTools, allTools)
 }
 
-func (p MessagesRequestPayload) disableParallelToolCalls() (MessagesRequestPayload, error) {
+func (p RequestPayload) disableParallelToolCalls() (RequestPayload, error) {
 	toolChoice := gjson.GetBytes(p, messagesReqPathToolChoice)
 
 	// If no tool_choice was defined, assume auto.
@@ -229,24 +229,24 @@ func (p MessagesRequestPayload) disableParallelToolCalls() (MessagesRequestPaylo
 	if !toolChoice.Exists() || toolChoice.Type == gjson.Null {
 		updated, err := p.set(messagesReqPathToolChoiceType, constAuto)
 		if err != nil {
-			return p, fmt.Errorf("set tool choice type: %w", err)
+			return p, xerrors.Errorf("set tool choice type: %w", err)
 		}
 		return updated.set(messagesReqPathToolChoiceDisableParallel, true)
 	}
 	if !toolChoice.IsObject() {
-		return p, fmt.Errorf("unsupported tool_choice type: %s", toolChoice.Type)
+		return p, xerrors.Errorf("unsupported tool_choice type: %s", toolChoice.Type)
 	}
 
 	toolChoiceType := gjson.GetBytes(p, messagesReqPathToolChoiceType)
 	if toolChoiceType.Exists() && toolChoiceType.Type != gjson.String {
-		return p, fmt.Errorf("unsupported tool_choice.type type: %s", toolChoiceType.Type)
+		return p, xerrors.Errorf("unsupported tool_choice.type type: %s", toolChoiceType.Type)
 	}
 
 	switch toolChoiceType.String() {
 	case "":
 		updated, err := p.set(messagesReqPathToolChoiceType, constAuto)
 		if err != nil {
-			return p, fmt.Errorf("set tool_choice.type: %w", err)
+			return p, xerrors.Errorf("set tool_choice.type: %w", err)
 		}
 		return updated.set(messagesReqPathToolChoiceDisableParallel, true)
 	case constAuto, constAny, constTool:
@@ -254,18 +254,18 @@ func (p MessagesRequestPayload) disableParallelToolCalls() (MessagesRequestPaylo
 	case constNone:
 		return p, nil
 	default:
-		return p, fmt.Errorf("unsupported tool_choice.type value: %q", toolChoiceType.String())
+		return p, xerrors.Errorf("unsupported tool_choice.type value: %q", toolChoiceType.String())
 	}
 }
 
-func (p MessagesRequestPayload) appendedMessages(newMessages []anthropic.MessageParam) (MessagesRequestPayload, error) {
+func (p RequestPayload) appendedMessages(newMessages []anthropic.MessageParam) (RequestPayload, error) {
 	if len(newMessages) == 0 {
 		return p, nil
 	}
 
 	existing, err := p.messages()
 	if err != nil {
-		return p, fmt.Errorf("get existing messages: %w", err)
+		return p, xerrors.Errorf("get existing messages: %w", err)
 	}
 
 	// Using []json.Marshaler to merge differently-typed slices ([]json.Marshaler containing
@@ -285,35 +285,35 @@ func (p MessagesRequestPayload) appendedMessages(newMessages []anthropic.Message
 	return p.set(messagesReqPathMessages, allMessages)
 }
 
-func (p MessagesRequestPayload) withModel(model string) (MessagesRequestPayload, error) {
+func (p RequestPayload) withModel(model string) (RequestPayload, error) {
 	return p.set(messagesReqPathModel, model)
 }
 
-func (p MessagesRequestPayload) messages() ([]json.RawMessage, error) {
+func (p RequestPayload) messages() ([]json.RawMessage, error) {
 	messages := gjson.GetBytes(p, messagesReqPathMessages)
 	if !messages.Exists() || messages.Type == gjson.Null {
 		return nil, nil
 	}
 	if !messages.IsArray() {
-		return nil, fmt.Errorf("unsupported messages type: %s", messages.Type)
+		return nil, xerrors.Errorf("unsupported messages type: %s", messages.Type)
 	}
 
 	return p.resultToRawMessage(messages.Array()), nil
 }
 
-func (p MessagesRequestPayload) tools() ([]json.RawMessage, error) {
+func (p RequestPayload) tools() ([]json.RawMessage, error) {
 	tools := gjson.GetBytes(p, messagesReqPathTools)
 	if !tools.Exists() || tools.Type == gjson.Null {
 		return nil, nil
 	}
 	if !tools.IsArray() {
-		return nil, fmt.Errorf("unsupported tools type: %s", tools.Type)
+		return nil, xerrors.Errorf("unsupported tools type: %s", tools.Type)
 	}
 
 	return p.resultToRawMessage(tools.Array()), nil
 }
 
-func (p MessagesRequestPayload) resultToRawMessage(items []gjson.Result) []json.RawMessage {
+func (RequestPayload) resultToRawMessage(items []gjson.Result) []json.RawMessage {
 	// gjson.Result conversion to json.RawMessage is needed because
 	// gjson.Result does not implement json.Marshaler — would
 	// serialize its struct fields instead of the raw JSON it represents.
@@ -326,7 +326,7 @@ func (p MessagesRequestPayload) resultToRawMessage(items []gjson.Result) []json.
 
 // convertAdaptiveThinkingForBedrock converts thinking.type "adaptive" to "enabled" with a calculated budget_tokens
 // conversion is needed for Bedrock models that does not support the "adaptive" thinking.type
-func (p MessagesRequestPayload) convertAdaptiveThinkingForBedrock() (MessagesRequestPayload, error) {
+func (p RequestPayload) convertAdaptiveThinkingForBedrock() (RequestPayload, error) {
 	thinkingType := gjson.GetBytes(p, messagesReqPathThinkingType)
 	if thinkingType.String() != constAdaptive {
 		return p, nil
@@ -335,7 +335,7 @@ func (p MessagesRequestPayload) convertAdaptiveThinkingForBedrock() (MessagesReq
 	maxTokens := gjson.GetBytes(p, messagesReqPathMaxTokens).Int()
 	if maxTokens <= 0 {
 		// max_tokens is required by messages API
-		return p, fmt.Errorf("max_tokens: field required")
+		return p, xerrors.New("max_tokens: field required")
 	}
 
 	effort := gjson.GetBytes(p, messagesReqPathOutputConfigEffort).String()
@@ -377,10 +377,10 @@ func (p MessagesRequestPayload) convertAdaptiveThinkingForBedrock() (MessagesReq
 // removed when the corresponding flag is absent from the Anthropic-Beta header.
 // Model-specific beta flags must already be filtered from the header before
 // calling this method (see filterBedrockBetaFlags).
-func (p MessagesRequestPayload) removeUnsupportedBedrockFields(headers http.Header) (MessagesRequestPayload, error) {
+func (p RequestPayload) removeUnsupportedBedrockFields(headers http.Header) (RequestPayload, error) {
 	var payloadMap map[string]any
 	if err := json.Unmarshal(p, &payloadMap); err != nil {
-		return p, fmt.Errorf("failed to unmarshal request payload when removing unsupported Bedrock fields: %w", err)
+		return p, xerrors.Errorf("failed to unmarshal request payload when removing unsupported Bedrock fields: %w", err)
 	}
 
 	// Always strip unconditionally unsupported fields.
@@ -398,15 +398,15 @@ func (p MessagesRequestPayload) removeUnsupportedBedrockFields(headers http.Head
 
 	result, err := json.Marshal(payloadMap)
 	if err != nil {
-		return p, fmt.Errorf("failed to marshal request payload when removing unsupported Bedrock fields: %w", err)
+		return p, xerrors.Errorf("failed to marshal request payload when removing unsupported Bedrock fields: %w", err)
 	}
-	return MessagesRequestPayload(result), nil
+	return RequestPayload(result), nil
 }
 
-func (p MessagesRequestPayload) set(path string, value any) (MessagesRequestPayload, error) {
+func (p RequestPayload) set(path string, value any) (RequestPayload, error) {
 	out, err := sjson.SetBytes(p, path, value)
 	if err != nil {
-		return p, fmt.Errorf("set %s: %w", path, err)
+		return p, xerrors.Errorf("set %s: %w", path, err)
 	}
-	return MessagesRequestPayload(out), nil
+	return RequestPayload(out), nil
 }

@@ -39,6 +39,8 @@ type InterceptionRecord struct {
 	Client                string
 	UserAgent             string
 	CorrelatingToolCallID *string
+	CredentialKind        string
+	CredentialHint        string
 }
 
 type InterceptionRecordEnded struct {

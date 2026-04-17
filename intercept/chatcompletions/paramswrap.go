@@ -1,12 +1,12 @@
 package chatcompletions
 
 import (
-	"errors"
-
-	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/packages/param"
 	"github.com/tidwall/gjson"
+	"golang.org/x/xerrors"
+
+	"github.com/coder/aibridge/utils"
 )
 
 // ChatCompletionNewParamsWrapper exists because the "stream" param is not included in openai.ChatCompletionNewParams.
@@ -42,17 +42,17 @@ func (c *ChatCompletionNewParamsWrapper) UnmarshalJSON(raw []byte) error {
 
 func (c *ChatCompletionNewParamsWrapper) lastUserPrompt() (*string, error) {
 	if c == nil {
-		return nil, errors.New("nil struct")
+		return nil, xerrors.New("nil struct")
 	}
 
 	if len(c.Messages) == 0 {
-		return nil, errors.New("no messages")
+		return nil, xerrors.New("no messages")
 	}
 
 	// We only care if the last message was issued by a user.
 	msg := c.Messages[len(c.Messages)-1]
 	if msg.OfUser == nil {
-		return nil, nil
+		return nil, nil //nolint:nilnil // no user prompt found is not an error
 	}
 
 	if msg.OfUser.Content.OfString.String() != "" {
@@ -69,5 +69,5 @@ func (c *ChatCompletionNewParamsWrapper) lastUserPrompt() (*string, error) {
 		}
 	}
 
-	return nil, nil
+	return nil, nil //nolint:nilnil // no text content found is not an error
 }

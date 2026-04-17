@@ -1,16 +1,17 @@
-package messages
+package messages //nolint:testpackage // tests unexported internals
 
 import (
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
-	"github.com/coder/aibridge/utils"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
+	"github.com/coder/aibridge/utils"
 )
 
-func TestNewMessagesRequestPayload(t *testing.T) {
+func TestNewRequestPayload(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -41,7 +42,7 @@ func TestNewMessagesRequestPayload(t *testing.T) {
 		t.Run(testCase.name, func(t *testing.T) {
 			t.Parallel()
 
-			payload, err := NewMessagesRequestPayload(testCase.requestBody)
+			payload, err := NewRequestPayload(testCase.requestBody)
 			if testCase.expectError {
 				require.Error(t, err)
 				require.Nil(t, payload)
@@ -49,12 +50,12 @@ func TestNewMessagesRequestPayload(t *testing.T) {
 			}
 
 			require.NoError(t, err)
-			require.Equal(t, MessagesRequestPayload(testCase.requestBody), payload)
+			require.Equal(t, RequestPayload(testCase.requestBody), payload)
 		})
 	}
 }
 
-func TestMessagesRequestPayloadStream(t *testing.T) {
+func TestRequestPayloadStream(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -96,7 +97,7 @@ func TestMessagesRequestPayloadStream(t *testing.T) {
 	}
 }
 
-func TestMessagesRequestPayloadModel(t *testing.T) {
+func TestRequestPayloadModel(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -131,7 +132,7 @@ func TestMessagesRequestPayloadModel(t *testing.T) {
 	}
 }
 
-func TestMessagesRequestPayloadLastUserPrompt(t *testing.T) {
+func TestRequestPayloadLastUserPrompt(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -228,7 +229,7 @@ func TestMessagesRequestPayloadLastUserPrompt(t *testing.T) {
 	}
 }
 
-func TestMessagesRequestPayloadCorrelatingToolCallID(t *testing.T) {
+func TestRequestPayloadCorrelatingToolCallID(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -265,7 +266,7 @@ func TestMessagesRequestPayloadCorrelatingToolCallID(t *testing.T) {
 	}
 }
 
-func TestMessagesRequestPayloadInjectTools(t *testing.T) {
+func TestRequestPayloadInjectTools(t *testing.T) {
 	t.Parallel()
 
 	payload := mustMessagesPayload(t, `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}],"tools":[{"name":"existing_tool","type":"custom","input_schema":{"type":"object","properties":{}},"cache_control":{"type":"ephemeral"}}]}`)
@@ -290,7 +291,7 @@ func TestMessagesRequestPayloadInjectTools(t *testing.T) {
 	require.Equal(t, "ephemeral", toolItems[1].Get("cache_control.type").String())
 }
 
-func TestMessagesRequestPayloadConvertAdaptiveThinkingForBedrock(t *testing.T) {
+func TestRequestPayloadConvertAdaptiveThinkingForBedrock(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -360,7 +361,7 @@ func TestMessagesRequestPayloadConvertAdaptiveThinkingForBedrock(t *testing.T) {
 	}
 }
 
-func TestMessagesRequestPayloadDisableParallelToolCalls(t *testing.T) {
+func TestRequestPayloadDisableParallelToolCalls(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -450,7 +451,7 @@ func TestMessagesRequestPayloadDisableParallelToolCalls(t *testing.T) {
 	}
 }
 
-func TestMessagesRequestPayloadAppendedMessages(t *testing.T) {
+func TestRequestPayloadAppendedMessages(t *testing.T) {
 	t.Parallel()
 
 	payload := mustMessagesPayload(t, `{"model":"claude-opus-4-5","max_tokens":1024,"messages":[{"role":"user","content":"hello"}]}`)

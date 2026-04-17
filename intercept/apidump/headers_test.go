@@ -1,4 +1,4 @@
-package apidump
+package apidump //nolint:testpackage // tests unexported internals
 
 import (
 	"bytes"
@@ -7,64 +7,11 @@ import (
 
 	"cdr.dev/slog/v3"
 
-	"github.com/coder/quartz"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/quartz"
 )
-
-func TestRedactHeaderValue(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name     string
-		input    string
-		expected string
-	}{
-		{
-			name:     "empty string",
-			input:    "",
-			expected: "",
-		},
-		{
-			name:     "single char",
-			input:    "a",
-			expected: "a",
-		},
-		{
-			name:     "two chars",
-			input:    "ab",
-			expected: "a...b",
-		},
-		{
-			name:     "seven chars",
-			input:    "abcdefg",
-			expected: "a...g",
-		},
-		{
-			name:     "eight chars - threshold",
-			input:    "abcdefgh",
-			expected: "abcd...efgh",
-		},
-		{
-			name:     "long value",
-			input:    "Bearer sk-secret-key-12345",
-			expected: "Bear...2345",
-		},
-		{
-			name:     "realistic api key",
-			input:    "sk-proj-abc123xyz789",
-			expected: "sk-p...z789",
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			result := redactHeaderValue(tc.input)
-			require.Equal(t, tc.expected, result)
-		})
-	}
-}
 
 func TestSensitiveHeaderLists(t *testing.T) {
 	t.Parallel()
@@ -140,7 +87,7 @@ func TestWriteRedactedHeaders(t *testing.T) {
 			name:      "sensitive header redacted",
 			headers:   http.Header{"Set-Cookie": {"session=abcdefghij"}},
 			sensitive: sensitiveResponseHeaders,
-			expected:  "Set-Cookie: sess...ghij\r\n",
+			expected:  "Set-Cookie: se...ij\r\n",
 		},
 		{
 			name: "multi-value header",

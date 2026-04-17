@@ -2,23 +2,24 @@ package integrationtest
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"testing"
-	"time"
 
-	"cdr.dev/slog/v3"
-	"cdr.dev/slog/v3/sloggers/slogtest"
-	"github.com/coder/aibridge/mcp"
 	"github.com/mark3labs/mcp-go/client/transport"
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace"
 	"go.opentelemetry.io/otel/trace/noop"
+	"golang.org/x/xerrors"
+
+	"cdr.dev/slog/v3"
+	"cdr.dev/slog/v3/sloggers/slogtest"
+	"github.com/coder/aibridge/internal/testutil"
+	"github.com/coder/aibridge/mcp"
 )
 
 // mockToolName is the primary mock tool name used in MCP tests.
@@ -67,12 +68,12 @@ func setupMCPForTestWithName(t *testing.T, name string, tracer trace.Tracer) *mo
 
 	mgr := mcp.NewServerProxyManager(map[string]mcp.ServerProxier{proxy.Name(): proxy}, tracer)
 	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), testutil.WaitShort)
 		defer cancel()
 		require.NoError(t, mgr.Shutdown(ctx))
 	})
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 	require.NoError(t, mgr.Init(ctx))
 	require.NotEmpty(t, mgr.ListTools(), "mock MCP server should expose tools after init")
@@ -140,10 +141,10 @@ func createMockMCPSrv(t *testing.T) (http.Handler, *callAccumulator) {
 		tool := mcplib.NewTool(name,
 			mcplib.WithDescription(fmt.Sprintf("Mock of the %s tool", name)),
 		)
-		s.AddTool(tool, func(ctx context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+		s.AddTool(tool, func(_ context.Context, request mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			acc.addCall(request.Params.Name, request.Params.Arguments)
 			if errMsg, ok := acc.getToolError(request.Params.Name); ok {
-				return nil, errors.New(errMsg)
+				return nil, xerrors.New(errMsg)
 			}
 			return mcplib.NewToolResultText("mock"), nil
 		})

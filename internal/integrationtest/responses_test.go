@@ -1,4 +1,4 @@
-package integrationtest
+package integrationtest //nolint:testpackage // tests unexported internals
 
 import (
 	"context"
@@ -14,16 +14,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/aibridge"
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/provider"
-	"github.com/coder/aibridge/recorder"
-	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/sjson"
+
+	"github.com/coder/aibridge"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/internal/testutil"
+	"github.com/coder/aibridge/provider"
+	"github.com/coder/aibridge/recorder"
+	"github.com/coder/aibridge/utils"
 )
 
 type keyVal struct {
@@ -334,15 +336,17 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request(), http.Header{"User-Agent": {tc.userAgent}})
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request(), http.Header{"User-Agent": {tc.userAgent}})
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			got, err := io.ReadAll(resp.Body)
 
@@ -415,7 +419,7 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// request with Background mode should be rejected before it reaches upstream
@@ -425,11 +429,13 @@ func TestResponsesBackgroundModeForbidden(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
 
 			// Create a request with background mode enabled
 			reqBytes := responsesRequestBytes(t, tc.streaming, keyVal{"background", true})
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
 			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 			require.Equal(t, http.StatusNotImplemented, resp.StatusCode)
@@ -546,17 +552,17 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/streaming=%v", tc.name, streaming), func(t *testing.T) {
 				t.Parallel()
 
-				ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+				ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 				t.Cleanup(cancel)
 
 				fix := fixtures.Parse(t, tc.fixture[i])
-				upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+				upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 				var opts []bridgeOption
 				if tc.withInjectedTools {
 					opts = append(opts, withMCP(setupMCPForTest(t, defaultTracer)))
 				}
-				bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, opts...)
+				bridgeServer := newBridgeTestServer(ctx, t, upstream.URL, opts...)
 
 				var (
 					reqBody = fix.Request()
@@ -567,7 +573,9 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 					require.NoError(t, err)
 				}
 
-				resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBody)
+				resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBody)
+				require.NoError(t, err)
+				defer resp.Body.Close()
 				_, err = io.ReadAll(resp.Body)
 				require.NoError(t, err)
 
@@ -630,14 +638,16 @@ func TestClientAndConnectionError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// tc.addr may be an intentionally invalid URL; use withCustomProvider.
-			bridgeServer := newBridgeTestServer(t, ctx, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))))
+			bridgeServer := newBridgeTestServer(ctx, t, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))))
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
 			require.Equal(t, "application/json", resp.Header.Get("Content-Type"))
 			require.Equal(t, http.StatusInternalServerError, resp.StatusCode)
@@ -700,7 +710,7 @@ func TestUpstreamError(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -711,10 +721,12 @@ func TestUpstreamError(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
 			require.Equal(t, tc.statusCode, resp.StatusCode)
 			require.Equal(t, tc.contentType, resp.Header.Get("Content-Type"))
@@ -879,13 +891,13 @@ func TestResponsesInjectedTool(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// Setup mock server for multi-turn interaction.
 			// First request → tool call response, second → tool response.
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix))
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix), newFixtureToolResponse(fix))
 
 			// Setup MCP server proxies (with mock tools).
 			mockMCP := setupMCPForTest(t, defaultTracer)
@@ -893,9 +905,11 @@ func TestResponsesInjectedTool(t *testing.T) {
 				mockMCP.setToolError(tc.mcpToolName, tc.expectToolError)
 			}
 
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, withMCP(mockMCP))
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL, withMCP(mockMCP))
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
 			body, err := io.ReadAll(resp.Body)
@@ -904,7 +918,7 @@ func TestResponsesInjectedTool(t *testing.T) {
 			// Wait for both requests to be made (inner agentic loop).
 			require.Eventually(t, func() bool {
 				return upstream.Calls.Load() == 2
-			}, time.Second*10, time.Millisecond*50)
+			}, testutil.WaitMedium, testutil.IntervalFast)
 
 			// Verify the injected tool was invoked via MCP.
 			invocations := mockMCP.getCallsByTool(tc.mcpToolName)
@@ -1024,18 +1038,20 @@ func TestResponsesModelThoughts(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL)
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, fix.Request())
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 
-			_, err := io.ReadAll(resp.Body)
+			_, err = io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
 			bridgeServer.Recorder.VerifyModelThoughtsRecorded(t, tc.expectedThoughts)

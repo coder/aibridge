@@ -3,11 +3,14 @@ package mcp_test
 import (
 	"testing"
 
-	"github.com/coder/aibridge/mcp"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/coder/aibridge/mcp"
 )
 
 func TestGetClientInfo(t *testing.T) {
+	t.Parallel()
+
 	info := mcp.GetClientInfo()
 
 	assert.Equal(t, "coder/aibridge", info.Name)

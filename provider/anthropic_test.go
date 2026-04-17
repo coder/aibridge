@@ -1,4 +1,4 @@
-package provider
+package provider //nolint:testpackage // tests unexported internals
 
 import (
 	"bytes"
@@ -6,11 +6,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"cdr.dev/slog/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"cdr.dev/slog/v3"
+
 	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/internal/testutil"
 )
 
@@ -145,7 +147,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 		assert.Empty(t, receivedHeaders.Get("Authorization"), "client Authorization header must not reach upstream")
 	})
 
-	t.Run("UnknownRoute", func(t *testing.T) {
+	t.Run("ErrUnknownRoute", func(t *testing.T) {
 		t.Parallel()
 
 		body := `{"model": "claude-opus-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "hello"}]}`
@@ -154,7 +156,7 @@ func TestAnthropic_CreateInterceptor(t *testing.T) {
 
 		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
 
-		require.ErrorIs(t, err, UnknownRoute)
+		require.ErrorIs(t, err, ErrUnknownRoute)
 		require.Nil(t, interceptor)
 	})
 }
@@ -163,25 +165,33 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		setHeaders        map[string]string
-		wantXApiKey       string
-		wantAuthorization string
+		name               string
+		setHeaders         map[string]string
+		wantXApiKey        string
+		wantAuthorization  string
+		wantCredentialKind intercept.CredentialKind
+		wantCredentialHint string
 	}{
 		{
-			name:              "Messages_BYOK_BearerToken",
-			setHeaders:        map[string]string{"Authorization": "Bearer user-access-token"},
-			wantAuthorization: "Bearer user-access-token",
+			name:               "Messages_BYOK_BearerToken",
+			setHeaders:         map[string]string{"Authorization": "Bearer user-access-token"},
+			wantAuthorization:  "Bearer user-access-token",
+			wantCredentialKind: intercept.CredentialKindBYOK,
+			wantCredentialHint: "us...en",
 		},
 		{
-			name:        "Messages_BYOK_APIKey",
-			setHeaders:  map[string]string{"X-Api-Key": "user-api-key"},
-			wantXApiKey: "user-api-key",
+			name:               "Messages_BYOK_APIKey",
+			setHeaders:         map[string]string{"X-Api-Key": "user-api-key"},
+			wantXApiKey:        "user-api-key",
+			wantCredentialKind: intercept.CredentialKindBYOK,
+			wantCredentialHint: "us...ey",
 		},
 		{
-			name:        "Messages_Centralized_UsesCentralizedKey",
-			setHeaders:  map[string]string{},
-			wantXApiKey: "test-key",
+			name:               "Messages_Centralized",
+			setHeaders:         map[string]string{},
+			wantXApiKey:        "test-key",
+			wantCredentialKind: intercept.CredentialKindCentralized,
+			wantCredentialHint: "t...y",
 		},
 		{
 			name: "Messages_BYOK_BearerToken_And_APIKey",
@@ -189,7 +199,9 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 				"Authorization": "Bearer user-access-token",
 				"X-Api-Key":     "user-api-key",
 			},
-			wantXApiKey: "user-api-key",
+			wantXApiKey:        "user-api-key",
+			wantCredentialKind: intercept.CredentialKindBYOK,
+			wantCredentialHint: "us...ey",
 		},
 	}
 
@@ -222,6 +234,10 @@ func TestAnthropic_CreateInterceptor_BYOK(t *testing.T) {
 			interceptor, err := provider.CreateInterceptor(w, req, testTracer)
 			require.NoError(t, err)
 			require.NotNil(t, interceptor)
+
+			cred := interceptor.Credential()
+			assert.Equal(t, tc.wantCredentialKind, cred.Kind, "credential kind mismatch")
+			assert.Equal(t, tc.wantCredentialHint, cred.Hint, "credential hint mismatch")
 
 			logger := slog.Make()
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)

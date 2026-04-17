@@ -1,0 +1,199 @@
+# Based on the Coder repo lint profile, trimmed to the checks that make sense
+# for the standalone aibridge module.
+
+linters-settings:
+  dupl:
+    threshold: 412
+
+  exhaustruct:
+    include:
+      - 'httpmw\.\w+'
+
+  gocognit:
+    min-complexity: 300
+
+  goconst:
+    min-len: 4
+    min-occurrences: 3
+
+  gocritic:
+    enabled-checks:
+      - badLock
+      - badRegexp
+      - boolExprSimplify
+      - builtinShadowDecl
+      - commentedOutImport
+      - deferUnlambda
+      - dupImport
+      - emptyFallthrough
+      - hexLiteral
+      - indexAlloc
+      - initClause
+      - methodExprCall
+      - nilValReturn
+      - regexpPattern
+      - ruleguard
+      - sortSlice
+      - sprintfQuotedString
+      - sqlQuery
+      - truncateCmp
+      - typeAssertChain
+      - weakCond
+    settings:
+      ruleguard:
+        failOn: all
+        rules: "${configDir}/scripts/rules.go"
+
+  staticcheck:
+    checks: ["all", "-SA1019"]
+
+  goimports:
+    local-prefixes: coder.com,cdr.dev,go.coder.com,github.com/cdr,github.com/coder
+
+  importas:
+    no-unaliased: true
+
+  misspell:
+    locale: US
+    ignore-words:
+      - trialer
+
+  nestif:
+    min-complexity: 20
+
+  revive:
+    ignore-generated-header: true
+    severity: warning
+    rules:
+      - name: atomic
+      - name: bare-return
+      - name: blank-imports
+      - name: bool-literal-in-expr
+      - name: call-to-gc
+      - name: confusing-naming
+      - name: confusing-results
+      - name: constant-logical-expr
+      - name: context-as-argument
+      - name: context-keys-type
+      - name: deep-exit
+      - name: defer
+      - name: dot-imports
+      - name: duplicated-imports
+      - name: early-return
+      - name: empty-block
+      - name: empty-lines
+      - name: error-naming
+      - name: error-return
+      - name: error-strings
+      - name: errorf
+      - name: exported
+      - name: flag-parameter
+      - name: get-return
+      - name: identical-branches
+      - name: if-return
+      - name: import-shadowing
+      - name: increment-decrement
+      - name: indent-error-flow
+      - name: modifies-value-receiver
+      - name: package-comments
+      - name: range
+      - name: receiver-naming
+      - name: redefines-builtin-id
+      - name: string-of-int
+      - name: struct-tag
+      - name: superfluous-else
+      - name: time-naming
+      - name: unconditional-recursion
+      - name: unexported-naming
+      - name: unexported-return
+      - name: unhandled-error
+      - name: unnecessary-stmt
+      - name: unreachable-code
+      - name: unused-parameter
+        exclude: "**/*_test.go"
+      - name: unused-receiver
+      - name: var-declaration
+      - name: var-naming
+      - name: waitgroup-by-value
+
+  usetesting:
+    os-setenv: true
+    os-create-temp: false
+    os-mkdir-temp: false
+    os-temp-dir: false
+    os-chdir: false
+    context-background: false
+    context-todo: false
+
+  govet:
+    disable:
+      - loopclosure
+
+  gosec:
+    excludes:
+      - G601
+
+issues:
+  fix: true
+
+  exclude-dirs:
+    - .git
+
+  exclude-files:
+    - scripts/rules.go
+
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - errcheck
+        - forcetypeassert
+        - exhaustruct
+    - path: scripts/*
+      linters:
+        - exhaustruct
+    - path: scripts/rules.go
+      linters:
+        - ALL
+
+  max-issues-per-linter: 0
+  max-same-issues: 0
+
+run:
+  timeout: 10m
+
+linters:
+  disable-all: true
+  enable:
+    - asciicheck
+    - bidichk
+    - bodyclose
+    - dogsled
+    - errcheck
+    - errname
+    - errorlint
+    - exhaustruct
+    - forcetypeassert
+    - gocognit
+    - gocritic
+    - goimports
+    - gomodguard
+    - gosec
+    - gosimple
+    - govet
+    - importas
+    - ineffassign
+    - makezero
+    - misspell
+    - nestif
+    - nilnil
+    - noctx
+    - paralleltest
+    - revive
+    - staticcheck
+    - testpackage
+    - tparallel
+    - typecheck
+    - unconvert
+    - unused
+    - usetesting
+    - dupl

@@ -8,15 +8,17 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
+
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/chatcompletions"
 	"github.com/coder/aibridge/intercept/responses"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/aibridge/utils"
-	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -70,7 +72,7 @@ func NewCopilot(cfg config.Copilot) *Copilot {
 	}
 }
 
-func (p *Copilot) Type() string {
+func (*Copilot) Type() string {
 	return config.ProviderCopilot
 }
 
@@ -86,14 +88,14 @@ func (p *Copilot) RoutePrefix() string {
 	return fmt.Sprintf("/%s", p.Name())
 }
 
-func (p *Copilot) BridgedRoutes() []string {
+func (*Copilot) BridgedRoutes() []string {
 	return []string{
 		routeCopilotChatCompletions,
 		routeCopilotResponses,
 	}
 }
 
-func (p *Copilot) PassthroughRoutes() []string {
+func (*Copilot) PassthroughRoutes() []string {
 	return []string{
 		"/models",
 		"/models/",
@@ -103,7 +105,7 @@ func (p *Copilot) PassthroughRoutes() []string {
 	}
 }
 
-func (p *Copilot) AuthHeader() string {
+func (*Copilot) AuthHeader() string {
 	return "Authorization"
 }
 
@@ -111,7 +113,7 @@ func (p *Copilot) AuthHeader() string {
 // Copilot uses per-user tokens passed in the original Authorization header,
 // rather than a global key configured at the provider level.
 // The original Authorization header flows through untouched from the client.
-func (p *Copilot) InjectAuthHeader(_ *http.Header) {}
+func (*Copilot) InjectAuthHeader(_ *http.Header) {}
 
 func (p *Copilot) CircuitBreakerConfig() *config.CircuitBreaker {
 	return p.circuitBreaker
@@ -129,7 +131,7 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 	key := utils.ExtractBearerToken(r.Header.Get("Authorization"))
 	if key == "" {
 		span.SetStatus(codes.Error, "missing authorization")
-		return nil, fmt.Errorf("missing Copilot authorization: Authorization header not found or invalid")
+		return nil, xerrors.New("missing Copilot authorization: Authorization header not found or invalid")
 	}
 
 	id := uuid.New()
@@ -145,6 +147,8 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 		ExtraHeaders:   extractCopilotHeaders(r),
 	}
 
+	cred := intercept.NewCredentialInfo(intercept.CredentialKindBYOK, key)
+
 	var interceptor intercept.Interceptor
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
@@ -152,34 +156,34 @@ func (p *Copilot) CreateInterceptor(_ http.ResponseWriter, r *http.Request, trac
 	case routeCopilotChatCompletions:
 		var req chatcompletions.ChatCompletionNewParamsWrapper
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			return nil, fmt.Errorf("unmarshal chat completions request body: %w", err)
+			return nil, xerrors.Errorf("unmarshal chat completions request body: %w", err)
 		}
 
 		if req.Stream {
-			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewStreamingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		} else {
-			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = chatcompletions.NewBlockingInterceptor(id, &req, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		}
 
 	case routeCopilotResponses:
 		payload, err := io.ReadAll(r.Body)
 		if err != nil {
-			return nil, fmt.Errorf("read body: %w", err)
+			return nil, xerrors.Errorf("read body: %w", err)
 		}
-		reqPayload, err := responses.NewResponsesRequestPayload(payload)
+		reqPayload, err := responses.NewRequestPayload(payload)
 		if err != nil {
-			return nil, fmt.Errorf("unmarshal request body: %w", err)
+			return nil, xerrors.Errorf("unmarshal request body: %w", err)
 		}
 
 		if reqPayload.Stream() {
-			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		} else {
-			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer)
+			interceptor = responses.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, r.Header, p.AuthHeader(), tracer, cred)
 		}
 
 	default:
 		span.SetStatus(codes.Error, "unknown route: "+r.URL.Path)
-		return nil, UnknownRoute
+		return nil, ErrUnknownRoute
 	}
 
 	span.SetAttributes(interceptor.TraceAttributes(r)...)

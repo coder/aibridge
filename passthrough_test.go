@@ -1,14 +1,15 @@
-package aibridge
+package aibridge //nolint:testpackage // tests unexported newPassthroughRouter
 
 import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
-	"cdr.dev/slog/v3/sloggers/slogtest"
-	"github.com/coder/aibridge/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"go.opentelemetry.io/otel"
+
+	"cdr.dev/slog/v3/sloggers/slogtest"
+	"github.com/coder/aibridge/internal/testutil"
 )
 
 var testTracer = otel.Tracer("bridge_test")

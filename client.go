@@ -24,10 +24,10 @@ const (
 	ClientUnknown     Client = "Unknown"
 )
 
-// guessClient attempts to guess the client application from the request headers.
+// GuessClient attempts to guess the client application from the request headers.
 // Not all clients set proper user agent headers, so this is a best-effort approach.
 // Based on https://github.com/coder/aibridge/issues/20#issuecomment-3769444101.
-func guessClient(r *http.Request) Client {
+func GuessClient(r *http.Request) Client {
 	userAgent := strings.ToLower(r.UserAgent())
 	originator := r.Header.Get("originator")
 

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -12,6 +11,15 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/responses"
+	"github.com/openai/openai-go/v3/shared/constant"
+	"github.com/tidwall/gjson"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
@@ -22,13 +30,6 @@ import (
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/quartz"
-	"github.com/google/uuid"
-	"github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/responses"
-	"github.com/openai/openai-go/v3/shared/constant"
-	"github.com/tidwall/gjson"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -41,14 +42,15 @@ type responsesInterceptionBase struct {
 	// clientHeaders are the original HTTP headers from the client request.
 	clientHeaders  http.Header
 	authHeaderName string
-	reqPayload     ResponsesRequestPayload
+	reqPayload     RequestPayload
 
 	cfg      config.OpenAI
 	recorder recorder.Recorder
 	mcpProxy mcp.ServerProxier
 
-	logger slog.Logger
-	tracer trace.Tracer
+	logger     slog.Logger
+	tracer     trace.Tracer
+	credential intercept.CredentialInfo
 }
 
 func (i *responsesInterceptionBase) newResponsesService() responses.ResponseService {
@@ -83,9 +85,13 @@ func (i *responsesInterceptionBase) ID() uuid.UUID {
 	return i.id
 }
 
-func (i *responsesInterceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+func (i *responsesInterceptionBase) Credential() intercept.CredentialInfo {
+	return i.credential
+}
+
+func (i *responsesInterceptionBase) Setup(logger slog.Logger, rec recorder.Recorder, mcpProxy mcp.ServerProxier) {
 	i.logger = logger.With(slog.F("model", i.Model()))
-	i.recorder = recorder
+	i.recorder = rec
 	i.mcpProxy = mcpProxy
 }
 
@@ -110,7 +116,7 @@ func (i *responsesInterceptionBase) baseTraceAttributes(r *http.Request, streami
 
 func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.ResponseWriter) error {
 	if i.reqPayload.background() {
-		err := fmt.Errorf("background requests are currently not supported by AI Bridge")
+		err := xerrors.New("background requests are currently not supported by AI Bridge")
 		i.sendCustomErr(ctx, w, http.StatusNotImplemented, err)
 		return err
 	}
@@ -121,7 +127,13 @@ func (i *responsesInterceptionBase) validateRequest(ctx context.Context, w http.
 // sendCustomErr sends custom responses.Error error to the client
 // it should only be called before any data is sent back to the client
 func (i *responsesInterceptionBase) sendCustomErr(ctx context.Context, w http.ResponseWriter, code int, err error) {
-	respErr := responses.Error{
+	// Same JSON shape as responses.Error but using a plain struct because
+	// responses.Error embeds *http.Request whose GetBody func field
+	// is not JSON-marshalable (SA1026).
+	respErr := struct {
+		Code    string `json:"code"`
+		Message string `json:"message"`
+	}{
 		Code:    strconv.Itoa(code),
 		Message: err.Error(),
 	}
@@ -216,15 +228,15 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 
 func (i *responsesInterceptionBase) parseFunctionCallJSONArgs(ctx context.Context, raw string) recorder.ToolArgs {
 	trimmed := strings.TrimSpace(raw)
-	if trimmed != "" {
-		var args recorder.ToolArgs
-		if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
-			i.logger.Warn(ctx, "failed to unmarshal tool args", slog.Error(err))
-		} else {
-			return args
-		}
+	if trimmed == "" {
+		return trimmed
 	}
-	return trimmed
+	var args recorder.ToolArgs
+	if err := json.Unmarshal([]byte(trimmed), &args); err != nil {
+		i.logger.Warn(ctx, "failed to unmarshal tool args", slog.Error(err))
+		return trimmed
+	}
+	return args
 }
 
 func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, response *responses.Response) {
@@ -258,7 +270,7 @@ func (i *responsesInterceptionBase) recordTokenUsage(ctx context.Context, respon
 // extractModelThoughts extracts model thoughts from response output items.
 // It captures both reasoning summary items and commentary messages (message
 // output items with "phase": "commentary") as model thoughts.
-func (i *responsesInterceptionBase) extractModelThoughts(response *responses.Response) []*recorder.ModelThoughtRecord {
+func (*responsesInterceptionBase) extractModelThoughts(response *responses.Response) []*recorder.ModelThoughtRecord {
 	if response == nil {
 		return nil
 	}
@@ -367,11 +379,11 @@ func (r *responseCopier) forwardResp(w http.ResponseWriter) error {
 
 	b, err := r.readAll()
 	if err != nil {
-		return fmt.Errorf("failed to read response body: %w", err)
+		return xerrors.Errorf("failed to read response body: %w", err)
 	}
 
 	if _, err := w.Write(b); err != nil {
-		return fmt.Errorf("failed to write response body: %w", err)
+		return xerrors.Errorf("failed to write response body: %w", err)
 	}
 	return nil
 }

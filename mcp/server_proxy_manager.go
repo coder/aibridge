@@ -2,15 +2,16 @@ package mcp
 
 import (
 	"context"
-	"fmt"
 	"slices"
 	"strings"
 	"sync"
 
-	"github.com/coder/aibridge/tracing"
-	"github.com/coder/aibridge/utils"
 	"github.com/mark3labs/mcp-go/mcp"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
+
+	"github.com/coder/aibridge/tracing"
+	"github.com/coder/aibridge/utils"
 )
 
 var _ ServerProxier = &ServerProxyManager{}
@@ -106,12 +107,12 @@ func (s *ServerProxyManager) ListTools() []*Tool {
 func (s *ServerProxyManager) CallTool(ctx context.Context, name string, input any) (*mcp.CallToolResult, error) {
 	tool := s.GetTool(name)
 	if tool == nil {
-		return nil, fmt.Errorf("%q tool not known", name)
+		return nil, xerrors.Errorf("%q tool not known", name)
 	}
 
 	proxy, ok := s.proxiers[tool.ServerName]
 	if !ok {
-		return nil, fmt.Errorf("%q server not known", tool.ServerName)
+		return nil, xerrors.Errorf("%q server not known", tool.ServerName)
 	}
 
 	return proxy.CallTool(ctx, name, input)

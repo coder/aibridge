@@ -17,10 +17,11 @@ import (
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
-	"github.com/coder/aibridge/fixtures"
 	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
+	"github.com/coder/aibridge/fixtures"
 )
 
 // upstreamResponse defines a single response that mockUpstream will replay
@@ -110,9 +111,9 @@ func (ms *mockUpstream) receivedRequests() []receivedRequest {
 // The test fails if the number of requests doesn't match the number of
 // responses (when AllowOverflow is not set, default).
 //
-//	srv := newMockUpstream(t, ctx, newFixtureResponse(fix))                        // simple
-//	srv := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix)) // multi-turn
-func newMockUpstream(t *testing.T, ctx context.Context, responses ...upstreamResponse) *mockUpstream {
+//	srv := newMockUpstream(ctx, t, newFixtureResponse(fix))                        // simple
+//	srv := newMockUpstream(ctx, t, newFixtureResponse(fix), newFixtureToolResponse(fix)) // multi-turn
+func newMockUpstream(ctx context.Context, t *testing.T, responses ...upstreamResponse) *mockUpstream {
 	t.Helper()
 	require.NotEmpty(t, responses, "at least one upstreamResponse required")
 

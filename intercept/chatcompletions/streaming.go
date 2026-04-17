@@ -4,12 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net/http"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"github.com/openai/openai-go/v3/packages/ssestream"
+	"github.com/tidwall/sjson"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
 
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
@@ -18,13 +26,6 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
-	"github.com/google/uuid"
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
-	"github.com/openai/openai-go/v3/packages/ssestream"
-	"github.com/tidwall/sjson"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog/v3"
 )
@@ -41,6 +42,7 @@ func NewStreamingInterceptor(
 	clientHeaders http.Header,
 	authHeaderName string,
 	tracer trace.Tracer,
+	cred intercept.CredentialInfo,
 ) *StreamingInterception {
 	return &StreamingInterception{interceptionBase: interceptionBase{
 		id:             id,
@@ -50,19 +52,20 @@ func NewStreamingInterceptor(
 		clientHeaders:  clientHeaders,
 		authHeaderName: authHeaderName,
 		tracer:         tracer,
+		credential:     cred,
 	}}
 }
 
-func (i *StreamingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	i.interceptionBase.Setup(logger.Named("streaming"), recorder, mcpProxy)
+func (i *StreamingInterception) Setup(logger slog.Logger, rec recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	i.interceptionBase.Setup(logger.Named("streaming"), rec, mcpProxy)
 }
 
-func (i *StreamingInterception) Streaming() bool {
+func (*StreamingInterception) Streaming() bool {
 	return true
 }
 
-func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.interceptionBase.baseTraceAttributes(r, true)
+func (i *StreamingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return i.interceptionBase.baseTraceAttributes(r, true)
 }
 
 // ProcessRequest handles a request to /v1/chat/completions.
@@ -79,7 +82,7 @@ func (s *StreamingInterception) TraceAttributes(r *http.Request) []attribute.Key
 // can continue until all injected tool invocations are completed and the response is relayed to the client.
 func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
-		return fmt.Errorf("developer error: req is nil")
+		return xerrors.New("developer error: req is nil")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -99,7 +102,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	logger := i.logger.With(slog.F("model", i.req.Model))
 
 	streamCtx, streamCancel := context.WithCancelCause(ctx)
-	defer streamCancel(errors.New("deferred"))
+	defer streamCancel(xerrors.New("deferred"))
 
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
 	events := eventstream.NewEventStream(streamCtx, logger.Named("sse-sender"), nil)
@@ -135,10 +138,10 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 
 		// We take control of request body here and pass it to the SDK as a raw byte slice.
 		// This is because the SDK's serialization applies hidden request options that result in
-		// unexpected, breaking behaviour. See https://github.com/coder/aibridge/pull/164
+		// unexpected, breaking behavior. See https://github.com/coder/aibridge/pull/164
 		body, err := json.Marshal(i.req.ChatCompletionNewParams)
 		if err != nil {
-			return fmt.Errorf("marshal request body: %w", err)
+			return xerrors.Errorf("marshal request body: %w", err)
 		}
 		opts = append(opts, option.WithRequestBody("application/json", body))
 		opts = append(opts, option.WithJSONSet("stream", true))
@@ -165,12 +168,12 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 			payload, err := i.marshalChunk(&chunk, i.ID(), processor)
 			if err != nil {
 				logger.Warn(ctx, "failed to marshal chunk", slog.Error(err), slog.F("chunk", chunk.RawJSON()))
-				lastErr = fmt.Errorf("marshal chunk: %w", err)
+				lastErr = xerrors.Errorf("marshal chunk: %w", err)
 				break
 			}
 			if err := events.Send(ctx, payload); err != nil {
 				logger.Warn(ctx, "failed to relay chunk", slog.Error(err))
-				lastErr = fmt.Errorf("relay chunk: %w", err)
+				lastErr = xerrors.Errorf("relay chunk: %w", err)
 				break
 			}
 		}
@@ -188,16 +191,14 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 				})
 
 				toolCall = nil
-			} else {
+			} else if stream.Err() == nil {
 				// When the provider responds with only tool calls (no text content),
 				// no chunks are relayed to the client, so the stream is not yet
 				// initiated. Initiate it here so the SSE headers are sent and the
 				// ping ticker is started, preventing client timeout during tool invocation.
 				// Only initiate if no stream error, if there's an error, we'll return
 				// an HTTP error response instead of starting an SSE stream.
-				if stream.Err() == nil {
-					events.InitiateStream(w)
-				}
+				events.InitiateStream(w)
 			}
 		}
 
@@ -230,41 +231,41 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 			})
 		}
 
-		if events.IsStreaming() {
-			// Check if the stream encountered any errors.
-			if streamErr := stream.Err(); streamErr != nil {
-				if eventstream.IsUnrecoverableError(streamErr) {
-					logger.Debug(ctx, "stream terminated", slog.Error(streamErr))
-					// We can't reflect an error back if there's a connection error or the request context was canceled.
-				} else if oaiErr := getErrorResponse(streamErr); oaiErr != nil {
-					logger.Warn(ctx, "openai stream error", slog.Error(streamErr))
-					interceptionErr = oaiErr
-				} else {
-					logger.Warn(ctx, "unknown error", slog.Error(streamErr))
-					// Unfortunately, the OpenAI SDK does not support parsing errors received in the stream
-					// into known types (i.e. [shared.OverloadedError]).
-					// See https://github.com/openai/openai-go/blob/v2.7.0/packages/ssestream/ssestream.go#L171
-					// All it does is wrap the payload in an error - which is all we can return, currently.
-					interceptionErr = newErrorResponse(fmt.Errorf("unknown stream error: %w", streamErr))
-				}
-			} else if lastErr != nil {
-				// Otherwise check if any logical errors occurred during processing.
-				logger.Warn(ctx, "stream failed", slog.Error(lastErr))
-				interceptionErr = newErrorResponse(fmt.Errorf("processing error: %w", lastErr))
-			}
-
-			if interceptionErr != nil {
-				payload, err := i.marshalErr(interceptionErr)
-				if err != nil {
-					logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", slog.F("%+v", interceptionErr)))
-				} else if err := events.Send(streamCtx, payload); err != nil {
-					logger.Warn(ctx, "failed to relay error", slog.Error(err), slog.F("payload", payload))
-				}
-			}
-		} else {
+		if !events.IsStreaming() {
 			// response/downstream Stream has not started yet; write error response and exit.
 			i.writeUpstreamError(w, getErrorResponse(stream.Err()))
 			return stream.Err()
+		}
+
+		// Check if the stream encountered any errors.
+		if streamErr := stream.Err(); streamErr != nil {
+			if eventstream.IsUnrecoverableError(streamErr) {
+				logger.Debug(ctx, "stream terminated", slog.Error(streamErr))
+				// We can't reflect an error back if there's a connection error or the request context was canceled.
+			} else if oaiErr := getErrorResponse(streamErr); oaiErr != nil {
+				logger.Warn(ctx, "openai stream error", slog.Error(streamErr))
+				interceptionErr = oaiErr
+			} else {
+				logger.Warn(ctx, "unknown stream error", slog.Error(streamErr))
+				// Unfortunately, the OpenAI SDK does not support parsing errors received in the stream
+				// into known types (i.e. [shared.OverloadedError]).
+				// See https://github.com/openai/openai-go/blob/v2.7.0/packages/ssestream/ssestream.go#L171
+				// All it does is wrap the payload in an error - which is all we can return, currently.
+				interceptionErr = newErrorResponse(xerrors.Errorf("unknown stream error: %w", streamErr))
+			}
+		} else if lastErr != nil {
+			// Otherwise check if any logical errors occurred during processing.
+			logger.Warn(ctx, "stream processing failed", slog.Error(lastErr))
+			interceptionErr = newErrorResponse(xerrors.Errorf("processing error: %w", lastErr))
+		}
+
+		if interceptionErr != nil {
+			payload, err := i.marshalErr(interceptionErr)
+			if err != nil {
+				logger.Warn(ctx, "failed to marshal error", slog.Error(err), slog.F("error_payload", fmt.Sprintf("%+v", interceptionErr)))
+			} else if err := events.Send(streamCtx, payload); err != nil {
+				logger.Warn(ctx, "failed to relay error", slog.Error(err), slog.F("payload", payload))
+			}
 		}
 
 		// No tool call, nothing more to do.
@@ -338,9 +339,9 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	}
 
 	if err != nil {
-		streamCancel(fmt.Errorf("stream err: %w", err))
+		streamCancel(xerrors.Errorf("stream err: %w", err))
 	} else {
-		streamCancel(errors.New("gracefully done"))
+		streamCancel(xerrors.New("gracefully done"))
 	}
 
 	return interceptionErr
@@ -365,7 +366,7 @@ func (i *StreamingInterception) getInjectedToolByName(name string) *mcp.Tool {
 func (i *StreamingInterception) marshalChunk(chunk *openai.ChatCompletionChunk, id uuid.UUID, prc *streamProcessor) ([]byte, error) {
 	sj, err := sjson.Set(chunk.RawJSON(), "id", id.String())
 	if err != nil {
-		return nil, fmt.Errorf("marshal chunk id failed: %w", err)
+		return nil, xerrors.Errorf("marshal chunk id failed: %w", err)
 	}
 
 	// If usage information is available, relay the cumulative usage once all tool invocations have completed.
@@ -373,7 +374,7 @@ func (i *StreamingInterception) marshalChunk(chunk *openai.ChatCompletionChunk, 
 		u := prc.getCumulativeUsage()
 		sj, err = sjson.Set(sj, "usage", u)
 		if err != nil {
-			return nil, fmt.Errorf("marshal chunk usage failed: %w", err)
+			return nil, xerrors.Errorf("marshal chunk usage failed: %w", err)
 		}
 	}
 
@@ -383,17 +384,18 @@ func (i *StreamingInterception) marshalChunk(chunk *openai.ChatCompletionChunk, 
 func (i *StreamingInterception) marshalErr(err error) ([]byte, error) {
 	data, err := json.Marshal(err)
 	if err != nil {
-		return nil, fmt.Errorf("marshal error failed: %w", err)
+		return nil, xerrors.Errorf("marshal error failed: %w", err)
 	}
 
 	return i.encodeForStream(data), nil
 }
 
-func (i *StreamingInterception) encodeForStream(payload []byte) []byte {
+func (*StreamingInterception) encodeForStream(payload []byte) []byte {
+	// bytes.Buffer writes to in-memory storage and never return errors.
 	var buf bytes.Buffer
-	buf.WriteString("data: ")
-	buf.Write(payload)
-	buf.WriteString("\n\n")
+	_, _ = buf.WriteString("data: ")
+	_, _ = buf.Write(payload)
+	_, _ = buf.WriteString("\n\n")
 	return buf.Bytes()
 }
 

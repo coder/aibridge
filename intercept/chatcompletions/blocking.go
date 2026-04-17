@@ -3,10 +3,16 @@ package chatcompletions
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
 
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
@@ -15,11 +21,6 @@ import (
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
 	"github.com/coder/aibridge/tracing"
-	"github.com/google/uuid"
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog/v3"
 )
@@ -36,6 +37,7 @@ func NewBlockingInterceptor(
 	clientHeaders http.Header,
 	authHeaderName string,
 	tracer trace.Tracer,
+	cred intercept.CredentialInfo,
 ) *BlockingInterception {
 	return &BlockingInterception{interceptionBase: interceptionBase{
 		id:             id,
@@ -45,24 +47,25 @@ func NewBlockingInterceptor(
 		clientHeaders:  clientHeaders,
 		authHeaderName: authHeaderName,
 		tracer:         tracer,
+		credential:     cred,
 	}}
 }
 
-func (s *BlockingInterception) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
-	s.interceptionBase.Setup(logger.Named("blocking"), recorder, mcpProxy)
+func (i *BlockingInterception) Setup(logger slog.Logger, rec recorder.Recorder, mcpProxy mcp.ServerProxier) {
+	i.interceptionBase.Setup(logger.Named("blocking"), rec, mcpProxy)
 }
 
-func (s *BlockingInterception) Streaming() bool {
+func (*BlockingInterception) Streaming() bool {
 	return false
 }
 
-func (s *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
-	return s.interceptionBase.baseTraceAttributes(r, false)
+func (i *BlockingInterception) TraceAttributes(r *http.Request) []attribute.KeyValue {
+	return i.interceptionBase.baseTraceAttributes(r, false)
 }
 
 func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Request) (outErr error) {
 	if i.req == nil {
-		return fmt.Errorf("developer error: req is nil")
+		return xerrors.New("developer error: req is nil")
 	}
 
 	ctx, span := i.tracer.Start(r.Context(), "Intercept.ProcessRequest", trace.WithAttributes(tracing.InterceptionAttributesFromContext(r.Context())...))
@@ -218,16 +221,16 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	if err != nil {
 		if eventstream.IsConnError(err) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return fmt.Errorf("upstream connection closed: %w", err)
+			return xerrors.Errorf("upstream connection closed: %w", err)
 		}
 
 		if apiErr := getErrorResponse(err); apiErr != nil {
 			i.writeUpstreamError(w, apiErr)
-			return fmt.Errorf("openai API error: %w", err)
+			return xerrors.Errorf("openai API error: %w", err)
 		}
 
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return fmt.Errorf("chat completion failed: %w", err)
+		return xerrors.Errorf("chat completion failed: %w", err)
 	}
 
 	if completion == nil {
@@ -245,7 +248,7 @@ func (i *BlockingInterception) ProcessRequest(w http.ResponseWriter, r *http.Req
 	w.Header().Set("Content-Type", "application/json")
 	out, err := json.Marshal(completion)
 	if err != nil {
-		out, _ = json.Marshal(i.newErrorResponse(fmt.Errorf("failed to marshal response: %w", err)))
+		out, _ = json.Marshal(i.newErrorResponse(xerrors.Errorf("failed to marshal response: %w", err)))
 		w.WriteHeader(http.StatusInternalServerError)
 	} else {
 		w.WriteHeader(http.StatusOK)

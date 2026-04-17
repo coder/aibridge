@@ -1,4 +1,4 @@
-package integrationtest
+package integrationtest //nolint:testpackage // tests unexported internals
 
 import (
 	"bufio"
@@ -11,14 +11,15 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/require"
 
 	"github.com/coder/aibridge"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/fixtures"
 	"github.com/coder/aibridge/intercept/apidump"
+	"github.com/coder/aibridge/internal/testutil"
 	"github.com/coder/aibridge/provider"
-	"github.com/stretchr/testify/require"
 )
 
 func TestAPIDump(t *testing.T) {
@@ -113,23 +114,25 @@ func TestAPIDump(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			// Setup mock upstream server.
 			fix := fixtures.Parse(t, tc.fixture)
-			srv := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			srv := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 			// Create temp dir for API dumps.
 			dumpDir := t.TempDir()
 
-			bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, srv.URL,
 				withCustomProvider(tc.providerFunc(srv.URL, dumpDir)),
 			)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
-			_, err := io.ReadAll(resp.Body)
+			_, err = io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
 			// Verify dump files were created.
@@ -186,6 +189,7 @@ func TestAPIDump(t *testing.T) {
 			// Parse the dumped HTTP response.
 			dumpResp, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(respDumpData)), nil)
 			require.NoError(t, err)
+			defer dumpResp.Body.Close()
 			require.Equal(t, http.StatusOK, dumpResp.StatusCode)
 			dumpRespBody, err := io.ReadAll(dumpResp.Body)
 			require.NoError(t, err)
@@ -240,7 +244,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -251,16 +255,18 @@ func TestAPIDumpPassthrough(t *testing.T) {
 
 			dumpDir := t.TempDir()
 
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 				withCustomProvider(tc.providerFunc(upstream.URL, dumpDir)),
 			)
 
-			bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
+			resp, err := bridgeServer.makeRequest(t, http.MethodGet, tc.requestPath, nil)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 
 			// Find dump files in the passthrough directory.
 			passthroughDir := filepath.Join(dumpDir, tc.name, "passthrough")
 			var reqDumpFile, respDumpFile string
-			err := filepath.Walk(passthroughDir, func(path string, info os.FileInfo, err error) error {
+			err = filepath.Walk(passthroughDir, func(path string, info os.FileInfo, err error) error {
 				if err != nil {
 					return err
 				}
@@ -298,6 +304,7 @@ func TestAPIDumpPassthrough(t *testing.T) {
 			require.NoError(t, err)
 			dumpResp, err := http.ReadResponse(bufio.NewReader(bytes.NewReader(respDumpData)), nil)
 			require.NoError(t, err)
+			defer dumpResp.Body.Close()
 			require.Equal(t, http.StatusOK, dumpResp.StatusCode)
 			dumpRespBody, err := io.ReadAll(dumpResp.Body)
 			require.NoError(t, err)

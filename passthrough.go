@@ -7,23 +7,24 @@ import (
 	"net/url"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/intercept/apidump"
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/quartz"
-	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // newPassthroughRouter returns a simple reverse-proxy implementation which will be used when a route is not handled specifically
 // by a [intercept.Provider].
-func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
+func newPassthroughRouter(prov provider.Provider, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if m != nil {
-			m.PassthroughCount.WithLabelValues(provider.Name(), r.URL.Path, r.Method).Add(1)
+			m.PassthroughCount.WithLabelValues(prov.Name(), r.URL.Path, r.Method).Add(1)
 		}
 
 		ctx, span := tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
@@ -32,7 +33,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 		))
 		defer span.End()
 
-		upURL, err := url.Parse(provider.BaseURL())
+		upURL, err := url.Parse(prov.BaseURL())
 		if err != nil {
 			logger.Warn(ctx, "failed to parse provider base URL", slog.Error(err))
 			http.Error(w, "request error", http.StatusBadGateway)
@@ -43,7 +44,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 		// Append the request path to the upstream base path.
 		reqPath, err := url.JoinPath(upURL.Path, r.URL.Path)
 		if err != nil {
-			logger.Warn(ctx, "failed to join upstream path", slog.Error(err), slog.F("upstreamPath", upURL.Path), slog.F("requestPath", r.URL.Path))
+			logger.Warn(ctx, "failed to join upstream path", slog.Error(err), slog.F("upstream_path", upURL.Path), slog.F("request_path", r.URL.Path))
 			http.Error(w, "failed to join upstream path", http.StatusInternalServerError)
 			span.SetStatus(codes.Error, "failed to join upstream path: "+err.Error())
 			return
@@ -95,7 +96,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 				}
 
 				// Inject provider auth.
-				provider.InjectAuthHeader(&req.Header)
+				prov.InjectAuthHeader(&req.Header)
 			},
 			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, e error) {
 				logger.Warn(req.Context(), "reverse proxy error", slog.Error(e), slog.F("path", req.URL.Path))
@@ -112,7 +113,7 @@ func newPassthroughRouter(provider provider.Provider, logger slog.Logger, m *met
 			TLSHandshakeTimeout:   10 * time.Second,
 			ExpectContinueTimeout: 1 * time.Second,
 		}
-		proxy.Transport = apidump.NewPassthroughMiddleware(t, provider.APIDumpDir(), provider.Name(), logger, quartz.NewReal())
+		proxy.Transport = apidump.NewPassthroughMiddleware(t, prov.APIDumpDir(), prov.Name(), logger, quartz.NewReal())
 
 		proxy.ServeHTTP(w, r)
 	}

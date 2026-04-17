@@ -1,11 +1,12 @@
-package chatcompletions
+package chatcompletions //nolint:testpackage // tests unexported internals
 
 import (
 	"testing"
 
-	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v3"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/aibridge/utils"
 )
 
 func TestScanForCorrelatingToolCallID(t *testing.T) {

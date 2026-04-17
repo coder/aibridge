@@ -1,4 +1,4 @@
-package provider
+package provider //nolint:testpackage // tests unexported internals
 
 import (
 	"bytes"
@@ -6,10 +6,11 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"cdr.dev/slog/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
+
+	"cdr.dev/slog/v3"
 
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/internal/testutil"
@@ -300,7 +301,7 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 		assert.Empty(t, receivedHeaders.Get("X-Api-Key"), "X-Api-Key must not be set upstream")
 	})
 
-	t.Run("UnknownRoute", func(t *testing.T) {
+	t.Run("ErrUnknownRoute", func(t *testing.T) {
 		t.Parallel()
 
 		body := `{"model": "gpt-4.1", "messages": [{"role": "user", "content": "hello"}]}`
@@ -310,7 +311,7 @@ func TestCopilot_CreateInterceptor(t *testing.T) {
 
 		interceptor, err := provider.CreateInterceptor(w, req, testTracer)
 
-		require.ErrorIs(t, err, UnknownRoute)
+		require.ErrorIs(t, err, ErrUnknownRoute)
 		require.Nil(t, interceptor)
 	})
 }

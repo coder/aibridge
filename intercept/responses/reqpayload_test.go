@@ -1,21 +1,22 @@
-package responses
+package responses //nolint:testpackage // tests unexported internals
 
 import (
 	"encoding/json"
 	"fmt"
 	"testing"
 
-	"cdr.dev/slog/v3"
-	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/utils"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/utils"
 )
 
-func TestNewResponsesRequestPayload(t *testing.T) {
+func TestNewRequestPayload(t *testing.T) {
 	t.Parallel()
 
 	payloadWithWrongTypes := []byte(`{"model":123,"stream":"yes","input":42,"background":"nope"}`)
@@ -41,7 +42,7 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 			err:  "invalid JSON payload",
 		},
 		{
-			// ResponsesRequestPayload just checks for JSON validity,
+			// RequestPayload just checks for JSON validity,
 			// schema errors are not surfaced here and
 			// the original body is preserved for upstream handling
 			// similar to how reverse proxy would behave.
@@ -58,7 +59,7 @@ func TestNewResponsesRequestPayload(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			payload, err := NewResponsesRequestPayload(tc.raw)
+			payload, err := NewRequestPayload(tc.raw)
 
 			if tc.err != "" {
 				require.ErrorContains(t, err, tc.err)
@@ -517,10 +518,10 @@ func injectedFunctionTool(name string) responses.ToolUnionParam {
 	}
 }
 
-func mustPayload(t *testing.T, raw []byte) ResponsesRequestPayload {
+func mustPayload(t *testing.T, raw []byte) RequestPayload {
 	t.Helper()
 
-	payload, err := NewResponsesRequestPayload(raw)
+	payload, err := NewRequestPayload(raw)
 	require.NoError(t, err)
 	return payload
 }

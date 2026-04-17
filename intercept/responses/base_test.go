@@ -1,16 +1,17 @@
-package responses
+package responses //nolint:testpackage // tests unexported internals
 
 import (
 	"net/http"
 	"testing"
 	"time"
 
-	"cdr.dev/slog/v3"
-	"github.com/coder/aibridge/internal/testutil"
-	"github.com/coder/aibridge/recorder"
 	"github.com/google/uuid"
 	oairesponses "github.com/openai/openai-go/v3/responses"
 	"github.com/stretchr/testify/require"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/internal/testutil"
+	"github.com/coder/aibridge/recorder"
 )
 
 func TestRecordPrompt(t *testing.T) {
@@ -358,13 +359,16 @@ func (mrw *mockResponseWriter) WriteHeader(statusCode int) {
 }
 
 func TestResponseCopierDoesntSendIfNoResponseReceived(t *testing.T) {
+	t.Parallel()
+
 	mrw := mockResponseWriter{}
 
 	respCopy := responseCopier{}
 	body := "test_body"
-	respCopy.buff.Write([]byte(body))
+	_, _ = respCopy.buff.Write([]byte(body)) // bytes.Buffer.Write never fails
 
-	respCopy.forwardResp(&mrw)
+	err := respCopy.forwardResp(&mrw)
+	require.NoError(t, err)
 	require.False(t, mrw.headerCalled)
 	require.False(t, mrw.writeCalled)
 	require.False(t, mrw.writeHeaderCalled)
@@ -372,7 +376,8 @@ func TestResponseCopierDoesntSendIfNoResponseReceived(t *testing.T) {
 	// after response is received data is forwarded
 	respCopy.responseReceived.Store(true)
 
-	respCopy.forwardResp(&mrw)
+	err = respCopy.forwardResp(&mrw)
+	require.NoError(t, err)
 	require.True(t, mrw.headerCalled)
 	require.True(t, mrw.writeCalled)
 	require.True(t, mrw.writeHeaderCalled)

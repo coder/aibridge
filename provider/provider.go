@@ -1,15 +1,16 @@
 package provider
 
 import (
-	"errors"
 	"net/http"
+
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
 
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
-	"go.opentelemetry.io/otel/trace"
 )
 
-var UnknownRoute = errors.New("unknown route")
+var ErrUnknownRoute = xerrors.New("unknown route")
 
 // Provider defines routes (bridged and passed through) for given provider.
 // Bridged routes are processed by dedicated interceptors.
@@ -23,7 +24,7 @@ var UnknownRoute = errors.New("unknown route")
 // When request is bridged, interceptor created based on route processes the request.
 // When request is passed through the {host} + {aibridge root} + {provider prefix} URL part
 // is replaced by provider's base URL and request is forwarded.
-// This mirrors behaviour in bridged routes and SDKs used by interceptors.
+// This mirrors behavior in bridged routes and SDKs used by interceptors.
 //
 // Example:
 //

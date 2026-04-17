@@ -1,4 +1,4 @@
-package integrationtest
+package integrationtest //nolint:testpackage // tests unexported internals
 
 import (
 	"bytes"
@@ -7,16 +7,17 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
-	"github.com/coder/aibridge"
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/fixtures"
-	"github.com/coder/aibridge/metrics"
 	"github.com/prometheus/client_golang/prometheus"
 	promtest "github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/sjson"
+
+	"github.com/coder/aibridge"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/internal/testutil"
+	"github.com/coder/aibridge/metrics"
 )
 
 func TestMetrics_Interception(t *testing.T) {
@@ -103,7 +104,7 @@ func TestMetrics_Interception(t *testing.T) {
 		},
 		{
 			name:           "oai_responses_blocking_error",
-			fixture:        fixtures.OaiResponsesBlockingHttpErr,
+			fixture:        fixtures.OaiResponsesBlockingHTTPErr,
 			path:           pathOpenAIResponses,
 			headers:        http.Header{"User-Agent": []string{"codex/1.0.0"}},
 			expectStatus:   metrics.InterceptionCountStatusFailed,
@@ -126,7 +127,7 @@ func TestMetrics_Interception(t *testing.T) {
 		},
 		{
 			name:           "oai_responses_streaming_error",
-			fixture:        fixtures.OaiResponsesStreamingHttpErr,
+			fixture:        fixtures.OaiResponsesStreamingHTTPErr,
 			path:           pathOpenAIResponses,
 			headers:        http.Header{"Originator": []string{"roo-code"}},
 			expectStatus:   metrics.InterceptionCountStatusFailed,
@@ -142,20 +143,22 @@ func TestMetrics_Interception(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 			upstream.AllowOverflow = tc.allowOverflow
 
 			m := aibridge.NewMetrics(prometheus.NewRegistry())
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 				withMetrics(m),
 			)
 
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
-			_, err := io.ReadAll(resp.Body)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.path, fix.Request(), tc.headers)
+			require.NoError(t, err)
+			defer resp.Body.Close()
+			_, err = io.ReadAll(resp.Body)
 			require.NoError(t, err)
 
 			count := promtest.ToFloat64(m.InterceptionCount.WithLabelValues(
@@ -172,7 +175,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 
 	fix := fixtures.Parse(t, fixtures.AntSimple)
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	blockCh := make(chan struct{})
@@ -184,7 +187,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	bridgeServer := newBridgeTestServer(t, ctx, srv.URL,
+	bridgeServer := newBridgeTestServer(ctx, t, srv.URL,
 		withMetrics(m),
 	)
 
@@ -207,7 +210,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 		return promtest.ToFloat64(
 			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 1
-	}, time.Second*10, time.Millisecond*50)
+	}, testutil.WaitMedium, testutil.IntervalFast)
 
 	// Unblock request, await completion.
 	close(blockCh)
@@ -222,7 +225,7 @@ func TestMetrics_InterceptionsInflight(t *testing.T) {
 		return promtest.ToFloat64(
 			m.InterceptionsInflight.WithLabelValues(config.ProviderAnthropic, "claude-sonnet-4-0", "/v1/messages"),
 		) == 0
-	}, time.Second*10, time.Millisecond*50)
+	}, testutil.WaitMedium, testutil.IntervalFast)
 }
 
 func TestMetrics_PassthroughCount(t *testing.T) {
@@ -232,11 +235,13 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 	t.Cleanup(upstream.Close)
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	bridgeServer := newBridgeTestServer(t, t.Context(), upstream.URL,
+	bridgeServer := newBridgeTestServer(t.Context(), t, upstream.URL,
 		withMetrics(m),
 	)
 
-	resp := bridgeServer.makeRequest(t, http.MethodGet, "/openai/v1/models", nil)
+	resp, err := bridgeServer.makeRequest(t, http.MethodGet, "/openai/v1/models", nil)
+	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	count := promtest.ToFloat64(m.PassthroughCount.WithLabelValues(
@@ -247,20 +252,22 @@ func TestMetrics_PassthroughCount(t *testing.T) {
 func TestMetrics_PromptCount(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixtures.OaiChatSimple)
-	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+	upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 		withMetrics(m),
 	)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request(), http.Header{"User-Agent": []string{"claude-code/1.0.0"}})
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request(), http.Header{"User-Agent": []string{"claude-code/1.0.0"}})
+	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, err := io.ReadAll(resp.Body)
+	_, err = io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
 	prompts := promtest.ToFloat64(m.PromptCount.WithLabelValues(
@@ -335,14 +342,14 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+			ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 			t.Cleanup(cancel)
 
 			fix := fixtures.Parse(t, tc.fixture)
-			upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+			upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 			m := aibridge.NewMetrics(prometheus.NewRegistry())
-			bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 				withMetrics(m),
 			)
 
@@ -352,7 +359,9 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 				reqBody, err = sjson.SetBytes(reqBody, "stream", true)
 				require.NoError(t, err)
 			}
-			resp := bridgeServer.makeRequest(t, http.MethodPost, tc.reqPath, reqBody, nil)
+			resp, err := bridgeServer.makeRequest(t, http.MethodPost, tc.reqPath, reqBody, nil)
+			require.NoError(t, err)
+			defer resp.Body.Close()
 			require.Equal(t, http.StatusOK, resp.StatusCode)
 			_, _ = io.ReadAll(resp.Body)
 
@@ -360,7 +369,7 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 			require.Eventually(t, func() bool {
 				return promtest.ToFloat64(m.TokenUseCount.WithLabelValues(
 					tc.expectProvider, tc.expectModel, "input", defaultActorID, string(aibridge.ClientUnknown))) > 0
-			}, time.Second*10, time.Millisecond*50)
+			}, testutil.WaitMedium, testutil.IntervalFast)
 
 			for label, expected := range tc.expectedLabels {
 				require.Equal(t, expected, promtest.ToFloat64(m.TokenUseCount.WithLabelValues(
@@ -374,20 +383,22 @@ func TestMetrics_TokenUseCount(t *testing.T) {
 func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixtures.OaiChatSingleBuiltinTool)
-	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix))
+	upstream := newMockUpstream(ctx, t, newFixtureResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
-	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 		withMetrics(m),
 	)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIChatCompletions, fix.Request())
+	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, err := io.ReadAll(resp.Body)
+	_, err = io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
 	count := promtest.ToFloat64(m.NonInjectedToolUseCount.WithLabelValues(
@@ -398,32 +409,34 @@ func TestMetrics_NonInjectedToolUseCount(t *testing.T) {
 func TestMetrics_InjectedToolUseCount(t *testing.T) {
 	t.Parallel()
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	// First request returns the tool invocation, the second returns the mocked response to the tool result.
 	fix := fixtures.Parse(t, fixtures.AntSingleInjectedTool)
-	upstream := newMockUpstream(t, ctx, newFixtureResponse(fix), newFixtureToolResponse(fix))
+	upstream := newMockUpstream(ctx, t, newFixtureResponse(fix), newFixtureToolResponse(fix))
 
 	m := aibridge.NewMetrics(prometheus.NewRegistry())
 
 	// Setup mocked MCP server & tools.
 	mockMCP := setupMCPForTest(t, defaultTracer)
 
-	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL,
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL,
 		withMetrics(m),
 		withMCP(mockMCP),
 	)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fix.Request())
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathAnthropicMessages, fix.Request())
+	require.NoError(t, err)
+	defer resp.Body.Close()
 	require.Equal(t, http.StatusOK, resp.StatusCode)
-	_, err := io.ReadAll(resp.Body)
+	_, err = io.ReadAll(resp.Body)
 	require.NoError(t, err)
 
 	// Wait until full roundtrip has completed.
 	require.Eventually(t, func() bool {
 		return upstream.Calls.Load() == 2
-	}, time.Second*10, time.Millisecond*50)
+	}, testutil.WaitMedium, testutil.IntervalFast)
 
 	recorder := bridgeServer.Recorder
 	require.Len(t, recorder.ToolUsages(), 1)

@@ -7,11 +7,13 @@ import (
 	"fmt"
 	"strings"
 
-	"cdr.dev/slog/v3"
 	"github.com/openai/openai-go/v3/responses"
 	"github.com/openai/openai-go/v3/shared/constant"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
+	"golang.org/x/xerrors"
+
+	"cdr.dev/slog/v3"
 )
 
 const (
@@ -35,36 +37,36 @@ var (
 	reqPathType    = string(constant.ValueOf[constant.Type]())
 )
 
-// ResponsesRequestPayload is raw JSON bytes of a Responses API request.
+// RequestPayload is raw JSON bytes of a Responses API request.
 // Methods provide package-specific reads and rewrites while preserving the
 // original body for upstream pass-through.
 // Note: No changes are made on schema error.
-type ResponsesRequestPayload []byte
+type RequestPayload []byte
 
-func NewResponsesRequestPayload(raw []byte) (ResponsesRequestPayload, error) {
+func NewRequestPayload(raw []byte) (RequestPayload, error) {
 	if len(bytes.TrimSpace(raw)) == 0 {
-		return nil, fmt.Errorf("empty request body")
+		return nil, xerrors.New("empty request body")
 	}
 	if !json.Valid(raw) {
-		return nil, fmt.Errorf("invalid JSON payload")
+		return nil, xerrors.New("invalid JSON payload")
 	}
 
-	return ResponsesRequestPayload(raw), nil
+	return RequestPayload(raw), nil
 }
 
-func (p ResponsesRequestPayload) Stream() bool {
+func (p RequestPayload) Stream() bool {
 	return gjson.GetBytes(p, reqPathStream).Bool()
 }
 
-func (p ResponsesRequestPayload) model() string {
+func (p RequestPayload) model() string {
 	return gjson.GetBytes(p, reqPathModel).String()
 }
 
-func (p ResponsesRequestPayload) background() bool {
+func (p RequestPayload) background() bool {
 	return gjson.GetBytes(p, reqPathBackground).Bool()
 }
 
-func (p ResponsesRequestPayload) correlatingToolCallID() *string {
+func (p RequestPayload) correlatingToolCallID() *string {
 	items := gjson.GetBytes(p, reqPathInput)
 	if !items.IsArray() {
 		return nil
@@ -92,7 +94,7 @@ func (p ResponsesRequestPayload) correlatingToolCallID() *string {
 // item, or the string input value if present. If no prompt is found, it returns
 // empty string, false, nil. Unexpected shapes are treated as unsupported and do
 // not fail the request path.
-func (p ResponsesRequestPayload) lastUserPrompt(ctx context.Context, logger slog.Logger) (string, bool, error) {
+func (p RequestPayload) lastUserPrompt(ctx context.Context, logger slog.Logger) (string, bool, error) {
 	inputItems := gjson.GetBytes(p, reqPathInput)
 	if !inputItems.Exists() || inputItems.Type == gjson.Null {
 		return "", false, nil
@@ -108,7 +110,7 @@ func (p ResponsesRequestPayload) lastUserPrompt(ctx context.Context, logger slog
 
 	// Array variant: checking only the last input item
 	if !inputItems.IsArray() {
-		return "", false, fmt.Errorf("unexpected input type: %s", inputItems.Type)
+		return "", false, xerrors.Errorf("unexpected input type: %s", inputItems.Type)
 	}
 
 	inputItemsArr := inputItems.Array()
@@ -135,7 +137,7 @@ func (p ResponsesRequestPayload) lastUserPrompt(ctx context.Context, logger slog
 	}
 
 	if !content.IsArray() {
-		return "", false, fmt.Errorf("unexpected input content type: %s", content.Type)
+		return "", false, xerrors.Errorf("unexpected input content type: %s", content.Type)
 	}
 
 	var sb strings.Builder
@@ -153,10 +155,10 @@ func (p ResponsesRequestPayload) lastUserPrompt(ctx context.Context, logger slog
 		}
 
 		if promptExists {
-			sb.WriteByte('\n')
+			_ = sb.WriteByte('\n') // strings.Builder.WriteByte never fails
 		}
 		promptExists = true
-		sb.WriteString(text.Str)
+		_, _ = sb.WriteString(text.Str) // strings.Builder.WriteString never fails
 	}
 
 	if !promptExists {
@@ -166,14 +168,14 @@ func (p ResponsesRequestPayload) lastUserPrompt(ctx context.Context, logger slog
 	return sb.String(), true, nil
 }
 
-func (p ResponsesRequestPayload) injectTools(injected []responses.ToolUnionParam) (ResponsesRequestPayload, error) {
+func (p RequestPayload) injectTools(injected []responses.ToolUnionParam) (RequestPayload, error) {
 	if len(injected) == 0 {
 		return p, nil
 	}
 
 	existing, err := p.toolItems()
 	if err != nil {
-		return p, fmt.Errorf("failed to get existing tools: %w", err)
+		return p, xerrors.Errorf("failed to get existing tools: %w", err)
 	}
 
 	allTools := make([]any, 0, len(existing)+len(injected))
@@ -187,18 +189,18 @@ func (p ResponsesRequestPayload) injectTools(injected []responses.ToolUnionParam
 	return p.set(reqPathTools, allTools)
 }
 
-func (p ResponsesRequestPayload) disableParallelToolCalls() (ResponsesRequestPayload, error) {
+func (p RequestPayload) disableParallelToolCalls() (RequestPayload, error) {
 	return p.set(reqPathParallelToolCalls, false)
 }
 
-func (p ResponsesRequestPayload) appendInputItems(items []responses.ResponseInputItemUnionParam) (ResponsesRequestPayload, error) {
+func (p RequestPayload) appendInputItems(items []responses.ResponseInputItemUnionParam) (RequestPayload, error) {
 	if len(items) == 0 {
 		return p, nil
 	}
 
 	existing, err := p.inputItems()
 	if err != nil {
-		return p, fmt.Errorf("failed to get existing 'input' items: %w", err)
+		return p, xerrors.Errorf("failed to get existing 'input' items: %w", err)
 	}
 
 	allInput := make([]any, 0, len(existing)+len(items))
@@ -210,7 +212,7 @@ func (p ResponsesRequestPayload) appendInputItems(items []responses.ResponseInpu
 	return p.set(reqPathInput, allInput)
 }
 
-func (p ResponsesRequestPayload) inputItems() ([]any, error) {
+func (p RequestPayload) inputItems() ([]any, error) {
 	input := gjson.GetBytes(p, reqPathInput)
 	if !input.Exists() || input.Type == gjson.Null {
 		return []any{}, nil
@@ -221,7 +223,7 @@ func (p ResponsesRequestPayload) inputItems() ([]any, error) {
 	}
 
 	if !input.IsArray() {
-		return nil, fmt.Errorf("unsupported 'input' type: %s", input.Type)
+		return nil, xerrors.Errorf("unsupported 'input' type: %s", input.Type)
 	}
 
 	items := input.Array()
@@ -233,13 +235,13 @@ func (p ResponsesRequestPayload) inputItems() ([]any, error) {
 	return existing, nil
 }
 
-func (p ResponsesRequestPayload) toolItems() ([]json.RawMessage, error) {
+func (p RequestPayload) toolItems() ([]json.RawMessage, error) {
 	tools := gjson.GetBytes(p, reqPathTools)
 	if !tools.Exists() {
 		return nil, nil
 	}
 	if !tools.IsArray() {
-		return nil, fmt.Errorf("unsupported 'tools' type: %s", tools.Type)
+		return nil, xerrors.Errorf("unsupported 'tools' type: %s", tools.Type)
 	}
 
 	items := tools.Array()
@@ -251,10 +253,10 @@ func (p ResponsesRequestPayload) toolItems() ([]json.RawMessage, error) {
 	return existing, nil
 }
 
-func (p ResponsesRequestPayload) set(path string, value any) (ResponsesRequestPayload, error) {
+func (p RequestPayload) set(path string, value any) (RequestPayload, error) {
 	updated, err := sjson.SetBytes(p, path, value)
 	if err != nil {
-		return p, fmt.Errorf("failed to set value at path %s: %w", path, err)
+		return p, xerrors.Errorf("failed to set value at path %s: %w", path, err)
 	}
 	return updated, nil
 }

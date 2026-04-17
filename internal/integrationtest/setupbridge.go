@@ -7,7 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
+
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/sjson"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/trace"
 
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge"
@@ -19,10 +23,6 @@ import (
 	"github.com/coder/aibridge/metrics"
 	"github.com/coder/aibridge/provider"
 	"github.com/coder/aibridge/recorder"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/sjson"
-	"go.opentelemetry.io/otel"
-	"go.opentelemetry.io/otel/trace"
 )
 
 const (
@@ -62,11 +62,13 @@ type bridgeTestServer struct {
 
 // makeRequest builds and executes an HTTP request against this server.
 // Optional headers are applied after the default Content-Type.
-func (s *bridgeTestServer) makeRequest(t *testing.T, method string, path string, body []byte, header ...http.Header) *http.Response {
+func (s *bridgeTestServer) makeRequest(t *testing.T, method string, path string, body []byte, header ...http.Header) (*http.Response, error) {
 	t.Helper()
 
 	req, err := http.NewRequestWithContext(t.Context(), method, s.URL+path, bytes.NewReader(body))
-	require.NoError(t, err)
+	if err != nil {
+		return nil, err
+	}
 	req.Header.Set("Content-Type", "application/json")
 	for _, h := range header {
 		for k, vals := range h {
@@ -75,10 +77,7 @@ func (s *bridgeTestServer) makeRequest(t *testing.T, method string, path string,
 			}
 		}
 	}
-	resp, err := http.DefaultClient.Do(req)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = resp.Body.Close() })
-	return resp
+	return http.DefaultClient.Do(req)
 }
 
 type bridgeOption func(*bridgeConfig)
@@ -132,8 +131,8 @@ func withActor(id string, md recorder.Metadata) bridgeOption {
 //   - defaultTracer (unless withTracer)
 //   - defaultActorID (unless withActor)
 func newBridgeTestServer(
-	t *testing.T,
 	ctx context.Context,
+	t *testing.T,
 	upstreamURL string,
 	opts ...bridgeOption,
 ) *bridgeTestServer {
@@ -208,7 +207,7 @@ func setupInjectedToolTest(
 ) (*bridgeTestServer, *mockMCP, *http.Response) {
 	t.Helper()
 
-	ctx, cancel := context.WithTimeout(t.Context(), time.Second*30)
+	ctx, cancel := context.WithTimeout(t.Context(), testutil.WaitLong)
 	t.Cleanup(cancel)
 
 	fix := fixtures.Parse(t, fixture)
@@ -219,7 +218,7 @@ func setupInjectedToolTest(
 	firstResp := newFixtureResponse(fix)
 	toolResp := newFixtureToolResponse(fix)
 	toolResp.OnRequest = toolRequestValidatorFn
-	upstream := newMockUpstream(t, ctx, firstResp, toolResp)
+	upstream := newMockUpstream(ctx, t, firstResp, toolResp)
 
 	mockMCP := setupMCPForTest(t, tracer)
 
@@ -229,19 +228,20 @@ func setupInjectedToolTest(
 		withActor(defaultActorID, nil),
 	}
 	allOpts = append(allOpts, opts...)
-	bridgeServer := newBridgeTestServer(t, ctx, upstream.URL, allOpts...)
+	bridgeServer := newBridgeTestServer(ctx, t, upstream.URL, allOpts...)
 
 	// Add the stream param to the request.
 	reqBody, err := sjson.SetBytes(fix.Request(), "stream", streaming)
 	require.NoError(t, err)
 
-	resp := bridgeServer.makeRequest(t, http.MethodPost, path, reqBody)
+	resp, err := bridgeServer.makeRequest(t, http.MethodPost, path, reqBody)
+	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, resp.StatusCode)
 
 	// Wait both requests (initial + tool call result)
 	require.Eventually(t, func() bool {
 		return upstream.Calls.Load() == 2
-	}, time.Second*10, time.Millisecond*50)
+	}, testutil.WaitMedium, testutil.IntervalFast)
 
 	return bridgeServer, mockMCP, resp
 }

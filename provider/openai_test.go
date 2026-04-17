@@ -1,4 +1,4 @@
-package provider
+package provider //nolint:testpackage // tests unexported internals
 
 import (
 	"bytes"
@@ -9,13 +9,15 @@ import (
 	"strings"
 	"testing"
 
-	"cdr.dev/slog/v3"
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/internal/testutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel/trace/noop"
 	"golang.org/x/sync/errgroup"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/intercept"
+	"github.com/coder/aibridge/internal/testutil"
 )
 
 const (
@@ -197,44 +199,54 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		name              string
-		route             string
-		requestBody       string
-		responseBody      string
-		setHeaders        map[string]string
-		wantAuthorization string
+		name               string
+		route              string
+		requestBody        string
+		responseBody       string
+		setHeaders         map[string]string
+		wantAuthorization  string
+		wantCredentialKind intercept.CredentialKind
+		wantCredentialHint string
 	}{
 		{
-			name:              "ChatCompletions_BYOK",
-			route:             routeChatCompletions,
-			requestBody:       `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
-			responseBody:      chatCompletionResponse,
-			setHeaders:        map[string]string{"Authorization": "Bearer user-token"},
-			wantAuthorization: "Bearer user-token",
+			name:               "ChatCompletions_BYOK",
+			route:              routeChatCompletions,
+			requestBody:        `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
+			responseBody:       chatCompletionResponse,
+			setHeaders:         map[string]string{"Authorization": "Bearer user-token"},
+			wantAuthorization:  "Bearer user-token",
+			wantCredentialKind: intercept.CredentialKindBYOK,
+			wantCredentialHint: "us...en",
 		},
 		{
-			name:              "ChatCompletions_Centralized",
-			route:             routeChatCompletions,
-			requestBody:       `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
-			responseBody:      chatCompletionResponse,
-			setHeaders:        map[string]string{},
-			wantAuthorization: "Bearer centralized-key",
+			name:               "ChatCompletions_Centralized",
+			route:              routeChatCompletions,
+			requestBody:        `{"model": "gpt-4", "messages": [{"role": "user", "content": "hello"}], "stream": false}`,
+			responseBody:       chatCompletionResponse,
+			setHeaders:         map[string]string{},
+			wantAuthorization:  "Bearer centralized-key",
+			wantCredentialKind: intercept.CredentialKindCentralized,
+			wantCredentialHint: "ce...ey",
 		},
 		{
-			name:              "Responses_BYOK",
-			route:             routeResponses,
-			requestBody:       `{"model": "gpt-5", "input": "hello", "stream": false}`,
-			responseBody:      responsesAPIResponse,
-			setHeaders:        map[string]string{"Authorization": "Bearer user-token"},
-			wantAuthorization: "Bearer user-token",
+			name:               "Responses_BYOK",
+			route:              routeResponses,
+			requestBody:        `{"model": "gpt-5", "input": "hello", "stream": false}`,
+			responseBody:       responsesAPIResponse,
+			setHeaders:         map[string]string{"Authorization": "Bearer user-token"},
+			wantAuthorization:  "Bearer user-token",
+			wantCredentialKind: intercept.CredentialKindBYOK,
+			wantCredentialHint: "us...en",
 		},
 		{
-			name:              "Responses_Centralized",
-			route:             routeResponses,
-			requestBody:       `{"model": "gpt-5", "input": "hello", "stream": false}`,
-			responseBody:      responsesAPIResponse,
-			setHeaders:        map[string]string{},
-			wantAuthorization: "Bearer centralized-key",
+			name:               "Responses_Centralized",
+			route:              routeResponses,
+			requestBody:        `{"model": "gpt-5", "input": "hello", "stream": false}`,
+			responseBody:       responsesAPIResponse,
+			setHeaders:         map[string]string{},
+			wantAuthorization:  "Bearer centralized-key",
+			wantCredentialKind: intercept.CredentialKindCentralized,
+			wantCredentialHint: "ce...ey",
 		},
 		// X-Api-Key should not appear in production since clients use Authorization,
 		// but ensure it is stripped if it does arrive.
@@ -247,7 +259,9 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 				"Authorization": "Bearer user-token",
 				"X-Api-Key":     "some-key",
 			},
-			wantAuthorization: "Bearer user-token",
+			wantAuthorization:  "Bearer user-token",
+			wantCredentialKind: intercept.CredentialKindBYOK,
+			wantCredentialHint: "us...en",
 		},
 		{
 			name:         "Responses_BYOK_XApiKeyStripped",
@@ -258,7 +272,9 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 				"Authorization": "Bearer user-token",
 				"X-Api-Key":     "some-key",
 			},
-			wantAuthorization: "Bearer user-token",
+			wantAuthorization:  "Bearer user-token",
+			wantCredentialKind: intercept.CredentialKindBYOK,
+			wantCredentialHint: "us...en",
 		},
 	}
 
@@ -291,6 +307,10 @@ func TestOpenAI_CreateInterceptor(t *testing.T) {
 			interceptor, err := provider.CreateInterceptor(w, req, testTracer)
 			require.NoError(t, err)
 			require.NotNil(t, interceptor)
+
+			cred := interceptor.Credential()
+			assert.Equal(t, tc.wantCredentialKind, cred.Kind, "credential kind mismatch")
+			assert.Equal(t, tc.wantCredentialHint, cred.Hint, "credential hint mismatch")
 
 			logger := slog.Make()
 			interceptor.Setup(logger, &testutil.MockRecorder{}, nil)

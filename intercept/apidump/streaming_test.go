@@ -1,4 +1,4 @@
-package apidump
+package apidump //nolint:testpackage // shares test helpers with apidump_test.go
 
 import (
 	"bytes"
@@ -9,11 +9,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+	"github.com/stretchr/testify/require"
+
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/slogtest"
 	"github.com/coder/quartz"
-	"github.com/google/uuid"
-	"github.com/stretchr/testify/require"
 )
 
 func TestMiddleware_StreamingResponse(t *testing.T) {
@@ -27,7 +28,7 @@ func TestMiddleware_StreamingResponse(t *testing.T) {
 	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
-	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 
 	// Simulate a streaming response with multiple chunks
@@ -41,10 +42,12 @@ func TestMiddleware_StreamingResponse(t *testing.T) {
 	// Create a pipe to simulate streaming
 	pr, pw := io.Pipe()
 	go func() {
+		defer pw.Close() //nolint:revive // error handled via pipe read side
 		for _, chunk := range chunks {
-			pw.Write([]byte(chunk))
+			if _, err := pw.Write([]byte(chunk)); err != nil {
+				return
+			}
 		}
-		pw.Close()
 	}()
 
 	resp, err := middleware(req, func(r *http.Request) (*http.Response, error) {
@@ -64,7 +67,7 @@ func TestMiddleware_StreamingResponse(t *testing.T) {
 	for {
 		n, err := resp.Body.Read(buf)
 		if n > 0 {
-			receivedData.Write(buf[:n])
+			_, _ = receivedData.Write(buf[:n]) // bytes.Buffer.Write never fails
 		}
 		if err == io.EOF {
 			break
@@ -103,7 +106,7 @@ func TestMiddleware_PreservesResponseBody(t *testing.T) {
 	middleware := NewBridgeMiddleware(tmpDir, "openai", "gpt-4", interceptionID, logger, clk)
 	require.NotNil(t, middleware)
 
-	req, err := http.NewRequest(http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, "https://api.openai.com/v1/chat/completions", bytes.NewReader([]byte(`{}`)))
 	require.NoError(t, err)
 
 	originalRespBody := `{"choices": [{"message": {"content": "hi"}}]}`
@@ -117,6 +120,7 @@ func TestMiddleware_PreservesResponseBody(t *testing.T) {
 		}, nil
 	})
 	require.NoError(t, err)
+	defer resp.Body.Close()
 
 	// Verify the response body is still readable after middleware
 	capturedBody, err := io.ReadAll(resp.Body)

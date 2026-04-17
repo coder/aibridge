@@ -1,20 +1,24 @@
 package circuitbreaker
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/sony/gobreaker/v2"
+	"golang.org/x/xerrors"
+
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/metrics"
-	"github.com/sony/gobreaker/v2"
 )
 
 // ErrCircuitOpen is returned by Execute when the circuit breaker is open
 // and the request was rejected without calling the handler.
-var ErrCircuitOpen = errors.New("circuit breaker is open")
+var ErrCircuitOpen = xerrors.New("circuit breaker is open")
 
 // DefaultIsFailure returns true for standard HTTP status codes that typically
 // indicate upstream overload.
@@ -63,8 +67,8 @@ func (p *ProviderCircuitBreakers) isFailure(statusCode int) bool {
 	return DefaultIsFailure(statusCode)
 }
 
-// openErrorResponse returns the error response body when the circuit is open.
-func (p *ProviderCircuitBreakers) openErrorResponse() []byte {
+// openErrBody returns the error response body when the circuit is open.
+func (p *ProviderCircuitBreakers) openErrBody() []byte {
 	if p.config.OpenErrorResponse != nil {
 		return p.config.OpenErrorResponse()
 	}
@@ -75,7 +79,7 @@ func (p *ProviderCircuitBreakers) openErrorResponse() []byte {
 func (p *ProviderCircuitBreakers) Get(endpoint, model string) *gobreaker.CircuitBreaker[struct{}] {
 	key := endpoint + ":" + model
 	if v, ok := p.breakers.Load(key); ok {
-		return v.(*gobreaker.CircuitBreaker[struct{}])
+		return v.(*gobreaker.CircuitBreaker[struct{}]) //nolint:forcetypeassert // sync.Map always stores this type
 	}
 
 	settings := gobreaker.Settings{
@@ -95,11 +99,12 @@ func (p *ProviderCircuitBreakers) Get(endpoint, model string) *gobreaker.Circuit
 
 	cb := gobreaker.NewCircuitBreaker[struct{}](settings)
 	actual, _ := p.breakers.LoadOrStore(key, cb)
-	return actual.(*gobreaker.CircuitBreaker[struct{}])
+	return actual.(*gobreaker.CircuitBreaker[struct{}]) //nolint:forcetypeassert // sync.Map always stores this type
 }
 
 // statusCapturingWriter wraps http.ResponseWriter to capture the status code.
-// It also implements http.Flusher to support streaming responses.
+// It implements http.Flusher to support streaming and http.Hijacker to
+// satisfy the FullResponseWriter lint rule.
 type statusCapturingWriter struct {
 	http.ResponseWriter
 	statusCode    int
@@ -128,6 +133,14 @@ func (w *statusCapturingWriter) Flush() {
 	}
 }
 
+func (w *statusCapturingWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := w.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, xerrors.New("upstream ResponseWriter does not support hijacking")
+	}
+	return h.Hijack()
+}
+
 // Unwrap returns the underlying ResponseWriter for interface checks.
 func (w *statusCapturingWriter) Unwrap() http.ResponseWriter {
 	return w.ResponseWriter
@@ -153,7 +166,7 @@ func (p *ProviderCircuitBreakers) Execute(endpoint, model string, w http.Respons
 	_, err := cb.Execute(func() (struct{}, error) {
 		handlerErr = handler(sw)
 		if p.isFailure(sw.statusCode) {
-			return struct{}{}, fmt.Errorf("upstream error: %d", sw.statusCode)
+			return struct{}{}, xerrors.Errorf("upstream error: %d", sw.statusCode)
 		}
 		return struct{}{}, nil
 	})
@@ -165,7 +178,7 @@ func (p *ProviderCircuitBreakers) Execute(endpoint, model string, w http.Respons
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", fmt.Sprintf("%d", int64(p.config.Timeout.Seconds())))
 		w.WriteHeader(http.StatusServiceUnavailable)
-		_, _ = w.Write(p.openErrorResponse())
+		_, _ = w.Write(p.openErrBody())
 		return ErrCircuitOpen
 	}
 
@@ -185,7 +198,7 @@ func (p *ProviderCircuitBreakers) Provider() string {
 // OpenErrorResponse returns the error response body when the circuit is open.
 // This is exposed for handlers to use when responding to rejected requests.
 func (p *ProviderCircuitBreakers) OpenErrorResponse() []byte {
-	return p.openErrorResponse()
+	return p.openErrBody()
 }
 
 // StateToGaugeValue converts gobreaker.State to a gauge value.

@@ -1,4 +1,4 @@
-package chatcompletions
+package chatcompletions //nolint:testpackage // tests unexported internals
 
 import (
 	"fmt"
@@ -114,6 +114,8 @@ func TestOpenAILastUserPrompt(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			result, err := tt.wrapper.lastUserPrompt()
 
 			if tt.expectError {
@@ -144,7 +146,7 @@ func generatePayload(messageCount int) []byte {
 		}
 		// Use realistic message content size
 		content := fmt.Sprintf("This is message number %d with some realistic content that might appear in a conversation.", i+1)
-		messages = append(messages, fmt.Sprintf(`{"role": "%s", "content": "%s"}`, role, content))
+		messages = append(messages, fmt.Sprintf(`{"role": %q, "content": %q}`, role, content))
 	}
 
 	return []byte(fmt.Sprintf(`{

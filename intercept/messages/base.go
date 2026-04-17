@@ -16,6 +16,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/aws-sdk-go-v2/credentials"
+	"golang.org/x/xerrors"
+
 	aibconfig "github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
 	"github.com/coder/aibridge/intercept"
@@ -65,7 +67,7 @@ var bedrockSupportedBetaFlags = map[string]bool{
 type interceptionBase struct {
 	id           uuid.UUID
 	providerName string
-	reqPayload   MessagesRequestPayload
+	reqPayload   RequestPayload
 
 	cfg        aibconfig.Anthropic
 	bedrockCfg *aibconfig.AWSBedrock
@@ -77,17 +79,22 @@ type interceptionBase struct {
 	tracer trace.Tracer
 	logger slog.Logger
 
-	recorder recorder.Recorder
-	mcpProxy mcp.ServerProxier
+	recorder   recorder.Recorder
+	mcpProxy   mcp.ServerProxier
+	credential intercept.CredentialInfo
 }
 
 func (i *interceptionBase) ID() uuid.UUID {
 	return i.id
 }
 
-func (i *interceptionBase) Setup(logger slog.Logger, recorder recorder.Recorder, mcpProxy mcp.ServerProxier) {
+func (i *interceptionBase) Credential() intercept.CredentialInfo {
+	return i.credential
+}
+
+func (i *interceptionBase) Setup(logger slog.Logger, rec recorder.Recorder, mcpProxy mcp.ServerProxier) {
 	i.logger = logger
-	i.recorder = recorder
+	i.recorder = rec
 	i.mcpProxy = mcpProxy
 }
 
@@ -111,15 +118,15 @@ func (i *interceptionBase) Model() string {
 	return i.reqPayload.model()
 }
 
-func (s *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
+func (i *interceptionBase) baseTraceAttributes(r *http.Request, streaming bool) []attribute.KeyValue {
 	return []attribute.KeyValue{
 		attribute.String(tracing.RequestPath, r.URL.Path),
-		attribute.String(tracing.InterceptionID, s.id.String()),
+		attribute.String(tracing.InterceptionID, i.id.String()),
 		attribute.String(tracing.InitiatorID, aibcontext.ActorIDFromContext(r.Context())),
-		attribute.String(tracing.Provider, s.providerName),
-		attribute.String(tracing.Model, s.Model()),
+		attribute.String(tracing.Provider, i.providerName),
+		attribute.String(tracing.Model, i.Model()),
 		attribute.Bool(tracing.Streaming, streaming),
-		attribute.Bool(tracing.IsBedrock, s.bedrockCfg != nil),
+		attribute.Bool(tracing.IsBedrock, i.bedrockCfg != nil),
 	}
 }
 
@@ -169,24 +176,22 @@ func (i *interceptionBase) disableParallelToolCalls() {
 }
 
 // extractModelThoughts returns any thinking blocks that were returned in the response.
-func (i *interceptionBase) extractModelThoughts(msg *anthropic.Message) []*recorder.ModelThoughtRecord {
+func (*interceptionBase) extractModelThoughts(msg *anthropic.Message) []*recorder.ModelThoughtRecord {
 	if msg == nil {
 		return nil
 	}
 
 	var thoughtRecords []*recorder.ModelThoughtRecord
 	for _, block := range msg.Content {
-		switch variant := block.AsAny().(type) {
-		case anthropic.ThinkingBlock:
-			if variant.Thinking == "" {
-				continue
-			}
-			thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
-				Content:  variant.Thinking,
-				Metadata: recorder.Metadata{"source": recorder.ThoughtSourceThinking},
-			})
-		}
 		// anthropic.RedactedThinkingBlock also exists, but there's nothing useful we can capture.
+		variant, ok := block.AsAny().(anthropic.ThinkingBlock)
+		if !ok || variant.Thinking == "" {
+			continue
+		}
+		thoughtRecords = append(thoughtRecords, &recorder.ModelThoughtRecord{
+			Content:  variant.Thinking,
+			Metadata: recorder.Metadata{"source": recorder.ThoughtSourceThinking},
+		})
 	}
 	return thoughtRecords
 }
@@ -259,40 +264,58 @@ func (i *interceptionBase) withBody() option.RequestOption {
 	return option.WithRequestBody("application/json", []byte(i.reqPayload))
 }
 
-func (i *interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
+// withAWSBedrockOptions returns request options for authenticating with AWS Bedrock.
+//
+// When both AccessKey and AccessKeySecret are set in the aibridge config, they are
+// used directly as static credentials (with an optional SessionToken for temporary credentials).
+// Otherwise, the AWS SDK default credential chain resolves credentials (environment variables,
+// shared config/credentials files, IAM roles, IRSA, SSO, IMDS, etc.).
+func (*interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
 	if cfg == nil {
-		return nil, fmt.Errorf("nil config given")
+		return nil, xerrors.New("nil config given")
 	}
 	if cfg.Region == "" && cfg.BaseURL == "" {
-		return nil, fmt.Errorf("region or base url required")
-	}
-	if cfg.AccessKey == "" {
-		return nil, fmt.Errorf("access key required")
-	}
-	if cfg.AccessKeySecret == "" {
-		return nil, fmt.Errorf("access key secret required")
+		return nil, xerrors.New("region or base url required")
 	}
 	if cfg.Model == "" {
-		return nil, fmt.Errorf("model required")
+		return nil, xerrors.New("model required")
 	}
 	if cfg.SmallFastModel == "" {
-		return nil, fmt.Errorf("small fast model required")
+		return nil, xerrors.New("small fast model required")
 	}
 
-	opts := []func(*config.LoadOptions) error{
+	loadOpts := []func(*config.LoadOptions) error{
 		config.WithRegion(cfg.Region),
-		config.WithCredentialsProvider(
+	}
+
+	// Use static credentials when explicitly provided, otherwise fall back to the SDK default credential chain.
+	switch {
+	// Both set: use static credentials directly.
+	case cfg.AccessKey != "" && cfg.AccessKeySecret != "":
+		loadOpts = append(loadOpts, config.WithCredentialsProvider(
 			credentials.NewStaticCredentialsProvider(
 				cfg.AccessKey,
 				cfg.AccessKeySecret,
-				"",
+				cfg.SessionToken, // optional
 			),
-		),
+		))
+	// Only one set: misconfiguration.
+	case cfg.AccessKey != "" || cfg.AccessKeySecret != "":
+		return nil, xerrors.New("both access key and access key secret must be provided together")
+	// Neither set: SDK default credential chain resolves credentials.
+	default:
 	}
 
-	awsCfg, err := config.LoadDefaultConfig(ctx, opts...)
+	awsCfg, err := config.LoadDefaultConfig(ctx, loadOpts...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load AWS Bedrock config: %w", err)
+		return nil, xerrors.Errorf("failed to load AWS Bedrock config: %w", err)
+	}
+
+	// Fail fast: ensure credentials can be resolved before making any requests.
+	// awsCfg already carries the credentials provider, and the Bedrock middleware
+	// will call Retrieve on it when signing each request.
+	if _, err := awsCfg.Credentials.Retrieve(ctx); err != nil {
+		return nil, xerrors.Errorf("no AWS credentials found: %w", err)
 	}
 
 	var out []option.RequestOption
@@ -364,9 +387,7 @@ func filterBedrockBetaFlags(headers http.Header, model string) {
 	// https://httpwg.org/specs/rfc9110.html#rfc.section.5.3
 	var flags []string
 	for _, v := range headers.Values("Anthropic-Beta") {
-		for _, flag := range strings.Split(v, ",") {
-			flags = append(flags, flag)
-		}
+		flags = append(flags, strings.Split(v, ",")...)
 	}
 
 	if len(flags) == 0 {
@@ -402,7 +423,7 @@ func filterBedrockBetaFlags(headers http.Header, model string) {
 }
 
 // writeUpstreamError marshals and writes a given error.
-func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *ErrorResponse) {
+func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *responseError) {
 	if antErr == nil {
 		return
 	}
@@ -412,7 +433,7 @@ func (i *interceptionBase) writeUpstreamError(w http.ResponseWriter, antErr *Err
 
 	out, err := json.Marshal(antErr)
 	if err != nil {
-		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", slog.F("%+v", antErr)))
+		i.logger.Warn(context.Background(), "failed to marshal upstream error", slog.Error(err), slog.F("error_payload", fmt.Sprintf("%+v", antErr)))
 		// Response has to match expected format.
 		// See https://docs.claude.com/en/api/errors#error-shapes.
 		_, _ = w.Write([]byte(fmt.Sprintf(`{
@@ -484,7 +505,7 @@ func accumulateUsage(dest, src any) {
 	}
 }
 
-func getErrorResponse(err error) *ErrorResponse {
+func getErrorResponse(err error) *responseError {
 	var apierr *anthropic.Error
 	if !errors.As(err, &apierr) {
 		return nil
@@ -502,7 +523,7 @@ func getErrorResponse(err error) *ErrorResponse {
 		typ = string(detail.Type)
 	}
 
-	return &ErrorResponse{
+	return &responseError{
 		ErrorResponse: &anthropic.ErrorResponse{
 			Error: anthropic.ErrorObjectUnion{
 				Message: msg,
@@ -514,16 +535,16 @@ func getErrorResponse(err error) *ErrorResponse {
 	}
 }
 
-var _ error = &ErrorResponse{}
+var _ error = &responseError{}
 
-type ErrorResponse struct {
+type responseError struct {
 	*anthropic.ErrorResponse
 
 	StatusCode int `json:"-"`
 }
 
-func newErrorResponse(msg error) *ErrorResponse {
-	return &ErrorResponse{
+func newErrorResponse(msg error) *responseError {
+	return &responseError{
 		ErrorResponse: &shared.ErrorResponse{
 			Error: shared.ErrorObjectUnion{
 				Message: msg.Error(),
@@ -533,7 +554,7 @@ func newErrorResponse(msg error) *ErrorResponse {
 	}
 }
 
-func (a *ErrorResponse) Error() string {
+func (a *responseError) Error() string {
 	if a.ErrorResponse == nil {
 		return ""
 	}

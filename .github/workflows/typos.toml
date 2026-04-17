@@ -1,0 +1,15 @@
+[default]
+extend-ignore-re = ["(#|//)\\s*spellchecker:ignore-next-line\\n.*"]
+
+[default.extend-words]
+trialer = "trialer"
+
+[files]
+extend-exclude = [
+	"go.sum",
+	"go.mod",
+	# Fixtures contain truncated streaming chunks that look like typos
+	"fixtures/**",
+	# Test files contain hashes and redacted values that look like typos
+	"**/*_test.go",
+]

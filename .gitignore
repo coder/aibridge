@@ -6,3 +6,4 @@
 # Project specific
 example/aibridge.db
 AGENTS.local.md
+build/

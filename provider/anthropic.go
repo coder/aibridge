@@ -7,15 +7,17 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/xerrors"
+
 	"github.com/coder/aibridge/circuitbreaker"
 	"github.com/coder/aibridge/config"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/messages"
 	"github.com/coder/aibridge/tracing"
 	"github.com/coder/aibridge/utils"
-	"github.com/google/uuid"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 )
 
 // anthropicForwardHeaders lists headers from incoming requests that should be
@@ -71,7 +73,7 @@ func NewAnthropic(cfg config.Anthropic, bedrockCfg *config.AWSBedrock) *Anthropi
 	}
 }
 
-func (p *Anthropic) Type() string {
+func (*Anthropic) Type() string {
 	return config.ProviderAnthropic
 }
 
@@ -83,11 +85,11 @@ func (p *Anthropic) RoutePrefix() string {
 	return fmt.Sprintf("/%s", p.Name())
 }
 
-func (p *Anthropic) BridgedRoutes() []string {
+func (*Anthropic) BridgedRoutes() []string {
 	return []string{routeMessages}
 }
 
-func (p *Anthropic) PassthroughRoutes() []string {
+func (*Anthropic) PassthroughRoutes() []string {
 	return []string{
 		"/v1/models",
 		"/v1/models/", // See https://pkg.go.dev/net/http#hdr-Trailing_slash_redirection-ServeMux.
@@ -96,69 +98,76 @@ func (p *Anthropic) PassthroughRoutes() []string {
 	}
 }
 
-func (p *Anthropic) CreateInterceptor(w http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ intercept.Interceptor, outErr error) {
+func (p *Anthropic) CreateInterceptor(_ http.ResponseWriter, r *http.Request, tracer trace.Tracer) (_ intercept.Interceptor, outErr error) {
 	id := uuid.New()
 	_, span := tracer.Start(r.Context(), "Intercept.CreateInterceptor")
 	defer tracing.EndSpanErr(span, &outErr)
 
 	path := strings.TrimPrefix(r.URL.Path, p.RoutePrefix())
-	switch path {
-	case routeMessages:
-		payload, err := io.ReadAll(r.Body)
-		if err != nil {
-			return nil, fmt.Errorf("read body: %w", err)
-		}
-
-		reqPayload, err := messages.NewMessagesRequestPayload(payload)
-		if err != nil {
-			return nil, fmt.Errorf("unmarshal request body: %w", err)
-		}
-
-		cfg := p.cfg
-		cfg.ExtraHeaders = extractAnthropicHeaders(r)
-
-		// At this point the request contains only LLM provider headers.
-		// Any Coder-specific authentication has already been stripped.
-		//
-		// In centralized mode neither Authorization nor X-Api-Key is
-		// present, so cfg keeps the centralized key unchanged.
-		//
-		// In BYOK mode the user's LLM credentials survive intact.
-		// If X-Api-Key is present the user has a personal API key;
-		// overwrite the centralized key with it. If Authorization is
-		// present the user authenticated directly with provider;
-		// set BYOKBearerToken and clear the centralized key.
-		// When both are present, X-Api-Key takes priority to match
-		// claude-code behavior.
-		authHeaderName := p.AuthHeader()
-		if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
-			cfg.Key = apiKey
-			authHeaderName = "X-Api-Key"
-		} else if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
-			cfg.BYOKBearerToken = token
-			cfg.Key = ""
-			authHeaderName = "Authorization"
-		}
-
-		var interceptor intercept.Interceptor
-		if reqPayload.Stream() {
-			interceptor = messages.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
-		} else {
-			interceptor = messages.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer)
-		}
-		span.SetAttributes(interceptor.TraceAttributes(r)...)
-		return interceptor, nil
+	if path != routeMessages {
+		span.SetStatus(codes.Error, "unknown route: "+r.URL.Path)
+		return nil, ErrUnknownRoute
 	}
 
-	span.SetStatus(codes.Error, "unknown route: "+r.URL.Path)
-	return nil, UnknownRoute
+	payload, err := io.ReadAll(r.Body)
+	if err != nil {
+		return nil, xerrors.Errorf("read body: %w", err)
+	}
+
+	reqPayload, err := messages.NewRequestPayload(payload)
+	if err != nil {
+		return nil, xerrors.Errorf("unmarshal request body: %w", err)
+	}
+
+	cfg := p.cfg
+	cfg.ExtraHeaders = extractAnthropicHeaders(r)
+
+	// At this point the request contains only LLM provider headers.
+	// Any Coder-specific authentication has already been stripped.
+	//
+	// In centralized mode neither Authorization nor X-Api-Key is
+	// present, so cfg keeps the centralized key unchanged.
+	//
+	// In BYOK mode the user's LLM credentials survive intact.
+	// If X-Api-Key is present the user has a personal API key;
+	// overwrite the centralized key with it. If Authorization is
+	// present the user authenticated directly with provider;
+	// set BYOKBearerToken and clear the centralized key.
+	// When both are present, X-Api-Key takes priority to match
+	// claude-code behavior.
+	credKind := intercept.CredentialKindCentralized
+	credSecret := cfg.Key
+	authHeaderName := p.AuthHeader()
+	if apiKey := r.Header.Get("X-Api-Key"); apiKey != "" {
+		cfg.Key = apiKey
+		authHeaderName = "X-Api-Key"
+		credKind = intercept.CredentialKindBYOK
+		credSecret = apiKey
+	} else if token := utils.ExtractBearerToken(r.Header.Get("Authorization")); token != "" {
+		cfg.BYOKBearerToken = token
+		cfg.Key = ""
+		authHeaderName = "Authorization"
+		credKind = intercept.CredentialKindBYOK
+		credSecret = token
+	}
+
+	cred := intercept.NewCredentialInfo(credKind, credSecret)
+
+	var interceptor intercept.Interceptor
+	if reqPayload.Stream() {
+		interceptor = messages.NewStreamingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer, cred)
+	} else {
+		interceptor = messages.NewBlockingInterceptor(id, reqPayload, p.Name(), cfg, p.bedrockCfg, r.Header, authHeaderName, tracer, cred)
+	}
+	span.SetAttributes(interceptor.TraceAttributes(r)...)
+	return interceptor, nil
 }
 
 func (p *Anthropic) BaseURL() string {
 	return p.cfg.BaseURL
 }
 
-func (p *Anthropic) AuthHeader() string {
+func (*Anthropic) AuthHeader() string {
 	return "X-Api-Key"
 }
 

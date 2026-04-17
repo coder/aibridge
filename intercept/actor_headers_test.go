@@ -1,19 +1,21 @@
-package intercept
+package intercept_test
 
 import (
 	"testing"
 
-	"github.com/coder/aibridge/context"
-	"github.com/coder/aibridge/recorder"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
+
+	"github.com/coder/aibridge/context"
+	"github.com/coder/aibridge/intercept"
+	"github.com/coder/aibridge/recorder"
 )
 
 func TestNilActor(t *testing.T) {
 	t.Parallel()
 
-	require.Nil(t, ActorHeadersAsOpenAIOpts(nil))
-	require.Nil(t, ActorHeadersAsAnthropicOpts(nil))
+	require.Nil(t, intercept.ActorHeadersAsOpenAIOpts(nil))
+	require.Nil(t, intercept.ActorHeadersAsAnthropicOpts(nil))
 }
 
 func TestBasic(t *testing.T) {
@@ -27,9 +29,9 @@ func TestBasic(t *testing.T) {
 	// We can't peek inside since these opts require an internal type to apply onto.
 	// All we can do is check the length.
 	// See TestActorHeaders for an integration test.
-	oaiOpts := ActorHeadersAsOpenAIOpts(actor)
+	oaiOpts := intercept.ActorHeadersAsOpenAIOpts(actor)
 	require.Len(t, oaiOpts, 1)
-	antOpts := ActorHeadersAsAnthropicOpts(actor)
+	antOpts := intercept.ActorHeadersAsAnthropicOpts(actor)
 	require.Len(t, antOpts, 1)
 }
 
@@ -48,8 +50,8 @@ func TestBasicAndMetadata(t *testing.T) {
 	// We can't peek inside since these opts require an internal type to apply onto.
 	// All we can do is check the length.
 	// See TestActorHeaders for an integration test.
-	oaiOpts := ActorHeadersAsOpenAIOpts(actor)
+	oaiOpts := intercept.ActorHeadersAsOpenAIOpts(actor)
 	require.Len(t, oaiOpts, 1+len(actor.Metadata))
-	antOpts := ActorHeadersAsAnthropicOpts(actor)
+	antOpts := intercept.ActorHeadersAsAnthropicOpts(actor)
 	require.Len(t, antOpts, 1+len(actor.Metadata))
 }

@@ -1,19 +1,20 @@
-package messages
+package messages //nolint:testpackage // tests unexported internals
 
 import (
 	"context"
 	"net/http"
 	"testing"
 
-	"cdr.dev/slog/v3"
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
-	"github.com/coder/aibridge/config"
-	"github.com/coder/aibridge/mcp"
-	"github.com/coder/aibridge/utils"
 	mcpgo "github.com/mark3labs/mcp-go/mcp"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+
+	"cdr.dev/slog/v3"
+	"github.com/coder/aibridge/config"
+	"github.com/coder/aibridge/mcp"
+	"github.com/coder/aibridge/utils"
 )
 
 func TestScanForCorrelatingToolCallID(t *testing.T) {
@@ -83,9 +84,9 @@ func TestAWSBedrockValidation(t *testing.T) {
 		expectError bool
 		errorMsg    string
 	}{
-		// Valid cases.
+		// Valid cases: static credentials.
 		{
-			name: "valid with region",
+			name: "static credentials with region",
 			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
@@ -95,7 +96,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 			},
 		},
 		{
-			name: "valid with base url",
+			name: "static credentials with base url",
 			cfg: &config.AWSBedrock{
 				BaseURL:         "http://bedrock.internal",
 				AccessKey:       "test-key",
@@ -110,11 +111,22 @@ func TestAWSBedrockValidation(t *testing.T) {
 			// which is internal to the anthropic SDK.
 			//
 			// See TestAWSBedrockIntegration which validates this.
-			name: "valid with base url & region",
+			name: "static credentials with base url & region",
 			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
 				AccessKey:       "test-key",
 				AccessKeySecret: "test-secret",
+				Model:           "test-model",
+				SmallFastModel:  "test-small-model",
+			},
+		},
+		{
+			name: "static credentials with session token",
+			cfg: &config.AWSBedrock{
+				Region:          "us-east-1",
+				AccessKey:       "test-key",
+				AccessKeySecret: "test-secret",
+				SessionToken:    "test-session-token",
 				Model:           "test-model",
 				SmallFastModel:  "test-small-model",
 			},
@@ -136,13 +148,12 @@ func TestAWSBedrockValidation(t *testing.T) {
 			name: "missing access key",
 			cfg: &config.AWSBedrock{
 				Region:          "us-east-1",
-				AccessKey:       "",
 				AccessKeySecret: "test-secret",
 				Model:           "test-model",
 				SmallFastModel:  "test-small-model",
 			},
 			expectError: true,
-			errorMsg:    "access key required",
+			errorMsg:    "both access key and access key secret must be provided together",
 		},
 		{
 			name: "missing access key secret",
@@ -154,7 +165,7 @@ func TestAWSBedrockValidation(t *testing.T) {
 				SmallFastModel:  "test-small-model",
 			},
 			expectError: true,
-			errorMsg:    "access key secret required",
+			errorMsg:    "both access key and access key secret must be provided together",
 		},
 		{
 			name: "missing model",
@@ -196,6 +207,84 @@ func TestAWSBedrockValidation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			base := &interceptionBase{}
+			opts, err := base.withAWSBedrockOptions(context.Background(), tt.cfg)
+
+			if tt.expectError {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NotEmpty(t, opts)
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+// TestAWSBedrockCredentialChain tests credential resolution via the AWS SDK default credential chain.
+// NOTE: Cannot use t.Parallel() here because subtests use t.Setenv which requires sequential execution.
+func TestAWSBedrockCredentialChain(t *testing.T) {
+	tests := []struct {
+		name        string
+		cfg         *config.AWSBedrock
+		envVars     map[string]string
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name: "temporary credentials via env",
+			cfg: &config.AWSBedrock{
+				Region:         "us-east-1",
+				Model:          "test-model",
+				SmallFastModel: "test-small-model",
+			},
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":     "test-key",
+				"AWS_SECRET_ACCESS_KEY": "test-secret",
+			},
+		},
+		{
+			name: "temporary credentials with session token via env",
+			cfg: &config.AWSBedrock{
+				Region:         "us-east-1",
+				Model:          "test-model",
+				SmallFastModel: "test-small-model",
+			},
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":     "test-key",
+				"AWS_SECRET_ACCESS_KEY": "test-secret",
+				"AWS_SESSION_TOKEN":     "test-session-token",
+			},
+		},
+		{
+			// When static credentials are not provided and no environment credentials are set,
+			// the SDK default credential chain fails to resolve credentials.
+			name: "error when no credential source is configured",
+			cfg: &config.AWSBedrock{
+				Region:         "us-east-1",
+				Model:          "test-model",
+				SmallFastModel: "test-small-model",
+			},
+			envVars: map[string]string{
+				"AWS_ACCESS_KEY_ID":           "",
+				"AWS_SECRET_ACCESS_KEY":       "",
+				"AWS_SESSION_TOKEN":           "",
+				"AWS_PROFILE":                 "",
+				"AWS_SHARED_CREDENTIALS_FILE": "/dev/null",
+				"AWS_CONFIG_FILE":             "/dev/null",
+			},
+			expectError: true,
+			errorMsg:    "no AWS credentials found",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for key, val := range tt.envVars {
+				t.Setenv(key, val)
+			}
 			base := &interceptionBase{}
 			opts, err := base.withAWSBedrockOptions(context.Background(), tt.cfg)
 
@@ -211,7 +300,10 @@ func TestAWSBedrockValidation(t *testing.T) {
 }
 
 func TestAccumulateUsage(t *testing.T) {
+	t.Parallel()
+
 	t.Run("Usage to Usage", func(t *testing.T) {
+		t.Parallel()
 		dest := &anthropic.Usage{
 			InputTokens:              10,
 			OutputTokens:             20,
@@ -252,6 +344,8 @@ func TestAccumulateUsage(t *testing.T) {
 	})
 
 	t.Run("MessageDeltaUsage to MessageDeltaUsage", func(t *testing.T) {
+		t.Parallel()
+
 		dest := &anthropic.MessageDeltaUsage{
 			InputTokens:              10,
 			OutputTokens:             20,
@@ -282,6 +376,8 @@ func TestAccumulateUsage(t *testing.T) {
 	})
 
 	t.Run("Usage to MessageDeltaUsage", func(t *testing.T) {
+		t.Parallel()
+
 		dest := &anthropic.MessageDeltaUsage{
 			InputTokens:              10,
 			OutputTokens:             20,
@@ -316,6 +412,8 @@ func TestAccumulateUsage(t *testing.T) {
 	})
 
 	t.Run("MessageDeltaUsage to Usage", func(t *testing.T) {
+		t.Parallel()
+
 		dest := &anthropic.Usage{
 			InputTokens:              10,
 			OutputTokens:             20,
@@ -353,6 +451,8 @@ func TestAccumulateUsage(t *testing.T) {
 	})
 
 	t.Run("Nil or unsupported types", func(t *testing.T) {
+		t.Parallel()
+
 		// Test with nil dest
 		var nilUsage *anthropic.Usage
 		source := anthropic.Usage{InputTokens: 10}
@@ -762,10 +862,10 @@ func TestAugmentRequestForBedrock_AdaptiveThinking(t *testing.T) {
 	}
 }
 
-func mustMessagesPayload(t *testing.T, requestBody string) MessagesRequestPayload {
+func mustMessagesPayload(t *testing.T, requestBody string) RequestPayload {
 	t.Helper()
 
-	payload, err := NewMessagesRequestPayload([]byte(requestBody))
+	payload, err := NewRequestPayload([]byte(requestBody))
 	require.NoError(t, err)
 
 	return payload
@@ -776,11 +876,11 @@ type mockServerProxier struct {
 	tools []*mcp.Tool
 }
 
-func (m *mockServerProxier) Init(context.Context) error {
+func (*mockServerProxier) Init(context.Context) error {
 	return nil
 }
 
-func (m *mockServerProxier) Shutdown(context.Context) error {
+func (*mockServerProxier) Shutdown(context.Context) error {
 	return nil
 }
 
@@ -797,8 +897,8 @@ func (m *mockServerProxier) GetTool(id string) *mcp.Tool {
 	return nil
 }
 
-func (m *mockServerProxier) CallTool(context.Context, string, any) (*mcpgo.CallToolResult, error) {
-	return nil, nil
+func (*mockServerProxier) CallTool(context.Context, string, any) (*mcpgo.CallToolResult, error) {
+	return nil, nil //nolint:nilnil // mock: no-op implementation
 }
 
 func TestFilterBedrockBetaFlags(t *testing.T) {
