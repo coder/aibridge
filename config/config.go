@@ -43,6 +43,10 @@ type OpenAI struct {
 	CircuitBreaker   *CircuitBreaker
 	SendActorHeaders bool
 	ExtraHeaders     map[string]string
+	// MaxRetries controls the number of automatic retries the SDK will perform
+	// on transient errors. If nil, the SDK default (2) is used.
+	// Set to 0 to disable retries entirely.
+	MaxRetries *int
 }
 
 type Copilot struct {

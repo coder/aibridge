@@ -596,9 +596,6 @@ func TestResponsesParallelToolsOverwritten(t *testing.T) {
 	}
 }
 
-// TODO set MaxRetries to speed up this test
-// option.WithMaxRetries(0), in base responses interceptor
-// https://github.com/coder/aibridge/issues/115
 func TestClientAndConnectionError(t *testing.T) {
 	t.Parallel()
 
@@ -642,7 +639,11 @@ func TestClientAndConnectionError(t *testing.T) {
 			t.Cleanup(cancel)
 
 			// tc.addr may be an intentionally invalid URL; use withCustomProvider.
-			bridgeServer := newBridgeTestServer(ctx, t, tc.addr, withCustomProvider(provider.NewOpenAI(openAICfg(tc.addr, apiKey))))
+			// MaxRetries is set to 0 to disable SDK retries and speed up the test.
+			cfg := openAICfg(tc.addr, apiKey)
+			maxRetries := 0
+			cfg.MaxRetries = &maxRetries
+			bridgeServer := newBridgeTestServer(ctx, t, tc.addr, withCustomProvider(provider.NewOpenAI(cfg)))
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
 			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
@@ -660,9 +661,6 @@ func TestClientAndConnectionError(t *testing.T) {
 	}
 }
 
-// TODO set MaxRetries to speed up this test
-// option.WithMaxRetries(0), in base responses interceptor
-// https://github.com/coder/aibridge/issues/115
 func TestUpstreamError(t *testing.T) {
 	t.Parallel()
 
@@ -721,7 +719,11 @@ func TestUpstreamError(t *testing.T) {
 			}))
 			t.Cleanup(upstream.Close)
 
-			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL)
+			// MaxRetries is set to 0 to disable SDK retries and speed up the test.
+			cfg := openAICfg(upstream.URL, apiKey)
+			maxRetries := 0
+			cfg.MaxRetries = &maxRetries
+			bridgeServer := newBridgeTestServer(ctx, t, upstream.URL, withCustomProvider(provider.NewOpenAI(cfg)))
 
 			reqBytes := responsesRequestBytes(t, tc.streaming)
 			resp, err := bridgeServer.makeRequest(t, http.MethodPost, pathOpenAIResponses, reqBytes)
