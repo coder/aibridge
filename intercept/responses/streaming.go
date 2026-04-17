@@ -22,8 +22,8 @@ import (
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
-	"github.com/coder/quartz"
 	"github.com/coder/aibridge/tracing"
+	"github.com/coder/quartz"
 )
 
 const (
