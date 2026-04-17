@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/google/uuid"
@@ -50,6 +51,13 @@ func NewOpenAI(cfg config.OpenAI) *OpenAI {
 	}
 	if cfg.APIDumpDir == "" {
 		cfg.APIDumpDir = os.Getenv("BRIDGE_DUMP_DIR")
+	}
+	if cfg.MaxRetries == nil {
+		if v := os.Getenv("OPENAI_MAX_RETRIES"); v != "" {
+			if n, err := strconv.Atoi(v); err == nil {
+				cfg.MaxRetries = &n
+			}
+		}
 	}
 	if cfg.CircuitBreaker != nil {
 		cfg.CircuitBreaker.OpenErrorResponse = openAIOpenErrorResponse

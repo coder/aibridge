@@ -219,6 +219,9 @@ func (i *interceptionBase) newMessagesService(ctx context.Context, opts ...optio
 		opts = append(opts, option.WithAPIKey(i.cfg.Key))
 	}
 	opts = append(opts, option.WithBaseURL(i.cfg.BaseURL))
+	if i.cfg.MaxRetries != nil {
+		opts = append(opts, option.WithMaxRetries(*i.cfg.MaxRetries))
+	}
 
 	// Add extra headers if configured.
 	// Some providers require additional headers that are not added by the SDK.
