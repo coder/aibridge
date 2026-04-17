@@ -1,7 +1,7 @@
 package aibridge
 
 import (
-	"net"
+	"context"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -21,100 +21,97 @@ import (
 
 // newPassthroughRouter returns a simple reverse-proxy implementation which will be used when a route is not handled specifically
 // by a [intercept.Provider].
+// A single reverse proxy is created per provider and reused across all requests.
 func newPassthroughRouter(prov provider.Provider, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer) http.HandlerFunc {
+	provBaseURL, err := url.Parse(prov.BaseURL())
+	if err != nil {
+		return newInvalidBaseURLHandler(prov, logger, m, tracer, err)
+	}
+	if _, err := url.JoinPath(provBaseURL.Path, "/"); err != nil {
+		return newInvalidBaseURLHandler(prov, logger, m, tracer, err)
+	}
+
+	// Transport tuned for streaming (no response header timeout).
+	t := &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+
+	// Build a reverse proxy to the upstream, reused across all requests for this provider.
+	// All request modifications happen in Rewrite.
+	proxy := &httputil.ReverseProxy{
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			rewritePassthroughRequest(pr, provBaseURL, prov)
+		},
+		Transport: apidump.NewPassthroughMiddleware(t, prov.APIDumpDir(), prov.Name(), logger, quartz.NewReal()),
+		ErrorHandler: func(rw http.ResponseWriter, req *http.Request, e error) {
+			logger.Warn(req.Context(), "reverse proxy error", slog.Error(e), slog.F("path", req.URL.Path))
+			http.Error(rw, "upstream proxy error", http.StatusBadGateway)
+		},
+	}
+
 	return func(w http.ResponseWriter, r *http.Request) {
 		if m != nil {
 			m.PassthroughCount.WithLabelValues(prov.Name(), r.URL.Path, r.Method).Add(1)
 		}
 
-		ctx, span := tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
-			attribute.String(tracing.PassthroughURL, r.URL.String()),
-			attribute.String(tracing.PassthroughMethod, r.Method),
-		))
+		ctx, span := startSpan(r, tracer)
 		defer span.End()
 
-		upURL, err := url.Parse(prov.BaseURL())
-		if err != nil {
-			logger.Warn(ctx, "failed to parse provider base URL", slog.Error(err))
-			http.Error(w, "request error", http.StatusBadGateway)
-			span.SetStatus(codes.Error, "failed to parse provider base URL: "+err.Error())
-			return
-		}
-
-		// Append the request path to the upstream base path.
-		reqPath, err := url.JoinPath(upURL.Path, r.URL.Path)
-		if err != nil {
-			logger.Warn(ctx, "failed to join upstream path", slog.Error(err), slog.F("upstream_path", upURL.Path), slog.F("request_path", r.URL.Path))
-			http.Error(w, "failed to join upstream path", http.StatusInternalServerError)
-			span.SetStatus(codes.Error, "failed to join upstream path: "+err.Error())
-			return
-		}
-		// Ensure leading slash, proxied requests should have absolute paths.
-		// JoinPath can return relative paths, eg. when upURL path is empty.
-		if len(reqPath) == 0 || reqPath[0] != '/' {
-			reqPath = "/" + reqPath
-		}
-
-		// Build a reverse proxy to the upstream.
-		proxy := &httputil.ReverseProxy{
-			Director: func(req *http.Request) {
-				// Set scheme/host to upstream.
-				req.URL.Scheme = upURL.Scheme
-				req.URL.Host = upURL.Host
-				req.URL.Path = reqPath
-				req.URL.RawPath = ""
-
-				// Preserve query string.
-				req.URL.RawQuery = r.URL.RawQuery
-
-				// Set Host header for upstream.
-				req.Host = upURL.Host
-				span.SetAttributes(attribute.String(tracing.PassthroughUpstreamURL, req.URL.String()))
-
-				// Copy headers from client.
-				req.Header = r.Header.Clone()
-
-				// Standard proxy headers.
-				host, _, herr := net.SplitHostPort(r.RemoteAddr)
-				if herr != nil {
-					host = r.RemoteAddr
-				}
-				if prior := req.Header.Get("X-Forwarded-For"); prior != "" {
-					req.Header.Set("X-Forwarded-For", prior+", "+host)
-				} else {
-					req.Header.Set("X-Forwarded-For", host)
-				}
-				req.Header.Set("X-Forwarded-Host", r.Host)
-				if r.TLS != nil {
-					req.Header.Set("X-Forwarded-Proto", "https")
-				} else {
-					req.Header.Set("X-Forwarded-Proto", "http")
-				}
-				// Avoid default Go user-agent if none provided.
-				if _, ok := req.Header["User-Agent"]; !ok {
-					req.Header.Set("User-Agent", "aibridge") // TODO: use build tag.
-				}
-
-				// Inject provider auth.
-				prov.InjectAuthHeader(&req.Header)
-			},
-			ErrorHandler: func(rw http.ResponseWriter, req *http.Request, e error) {
-				logger.Warn(req.Context(), "reverse proxy error", slog.Error(e), slog.F("path", req.URL.Path))
-				http.Error(rw, "upstream proxy error", http.StatusBadGateway)
-			},
-		}
-
-		// Transport tuned for streaming (no response header timeout).
-		t := &http.Transport{
-			Proxy:                 http.ProxyFromEnvironment,
-			ForceAttemptHTTP2:     true,
-			MaxIdleConns:          100,
-			IdleConnTimeout:       90 * time.Second,
-			TLSHandshakeTimeout:   10 * time.Second,
-			ExpectContinueTimeout: 1 * time.Second,
-		}
-		proxy.Transport = apidump.NewPassthroughMiddleware(t, prov.APIDumpDir(), prov.Name(), logger, quartz.NewReal())
-
-		proxy.ServeHTTP(w, r)
+		proxy.ServeHTTP(w, r.WithContext(ctx))
 	}
+}
+
+// rewritePassthroughRequest configures the outbound request for the upstream and
+// applies proxy headers and provider auth.
+func rewritePassthroughRequest(pr *httputil.ProxyRequest, provBaseURL *url.URL, prov provider.Provider) {
+	pr.SetURL(provBaseURL)
+
+	// Rewrite sets "X-Forwarded-For" to just last hop (clients IP address).
+	// To preserve old Director behavior pr.In "X-Forwarded-For" header
+	// values need to be copied manually.
+	// https://pkg.go.dev/net/http/httputil#ProxyRequest.SetXForwarded
+	if prior, ok := pr.In.Header["X-Forwarded-For"]; ok {
+		pr.Out.Header["X-Forwarded-For"] = append([]string(nil), prior...)
+	}
+	pr.SetXForwarded()
+
+	span := trace.SpanFromContext(pr.Out.Context())
+	span.SetAttributes(attribute.String(tracing.PassthroughUpstreamURL, pr.Out.URL.String()))
+
+	// Avoid default Go user-agent if none provided.
+	if _, ok := pr.Out.Header["User-Agent"]; !ok {
+		pr.Out.Header.Set("User-Agent", "aibridge") // TODO: use build tag.
+	}
+
+	// Inject provider auth.
+	prov.InjectAuthHeader(&pr.Out.Header)
+}
+
+// newInvalidBaseURLHandler returns a handler that always returns 502
+// when the provider's base URL is invalid.
+func newInvalidBaseURLHandler(prov provider.Provider, logger slog.Logger, m *metrics.Metrics, tracer trace.Tracer, baseURLErr error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx, span := startSpan(r, tracer)
+		defer span.End()
+
+		if m != nil {
+			m.PassthroughCount.WithLabelValues(prov.Name(), r.URL.Path, r.Method).Add(1)
+		}
+
+		logger.Warn(ctx, "invalid provider base URL", slog.Error(baseURLErr))
+		http.Error(w, "invalid provider base URL", http.StatusBadGateway)
+		span.SetStatus(codes.Error, "invalid provider base URL: "+baseURLErr.Error())
+	}
+}
+
+func startSpan(r *http.Request, tracer trace.Tracer) (context.Context, trace.Span) {
+	return tracer.Start(r.Context(), "Passthrough", trace.WithAttributes(
+		attribute.String(tracing.PassthroughURL, r.URL.String()),
+		attribute.String(tracing.PassthroughMethod, r.Method),
+	))
 }
