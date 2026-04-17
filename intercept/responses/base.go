@@ -204,14 +204,45 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 	}
 
 	for _, item := range response.Output {
-		var args recorder.ToolArgs
+		var (
+			args     recorder.ToolArgs
+			toolName string
+			callID   string
+		)
 
-		// recording other function types to be considered: https://github.com/coder/aibridge/issues/121
+		//nolint:goconst // tool type string values are clearer inline.
 		switch item.Type {
 		case string(constant.ValueOf[constant.FunctionCall]()):
 			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments)
+			toolName = item.Name
+			callID = item.CallID
+
 		case string(constant.ValueOf[constant.CustomToolCall]()):
 			args = item.Input
+			toolName = item.Name
+			callID = item.CallID
+
+		case "web_search_call",
+			"computer_call",
+			"file_search_call",
+			"code_interpreter_call",
+			"image_generation_call",
+			"mcp_call",
+			"local_shell_call",
+			"shell_call",
+			"apply_patch_call":
+			// For these tool types, use the type as the tool name
+			// when there is no explicit name, and prefer call_id
+			// but fall back to the item id.
+			toolName = item.Name
+			if toolName == "" {
+				toolName = item.Type
+			}
+			callID = item.CallID
+			if callID == "" {
+				callID = item.ID
+			}
+
 		default:
 			continue
 		}
@@ -219,12 +250,12 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 		if err := i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 			InterceptionID: i.ID().String(),
 			MsgID:          response.ID,
-			ToolCallID:     item.CallID,
-			Tool:           item.Name,
+			ToolCallID:     callID,
+			Tool:           toolName,
 			Args:           args,
 			Injected:       false,
 		}); err != nil {
-			i.logger.Warn(ctx, "failed to record tool usage", slog.Error(err), slog.F("tool", item.Name))
+			i.logger.Warn(ctx, "failed to record tool usage", slog.Error(err), slog.F("tool", toolName))
 		}
 	}
 }

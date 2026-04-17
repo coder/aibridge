@@ -191,6 +191,145 @@ func TestRecordToolUsage(t *testing.T) {
 				},
 			},
 		},
+		{
+			name: "web_search_call_with_no_name",
+			response: &oairesponses.Response{
+				ID: "resp_ws",
+				Output: []oairesponses.ResponseOutputItemUnion{
+					{
+						Type: "web_search_call",
+						ID:   "ws_abc",
+					},
+				},
+			},
+			expected: []*recorder.ToolUsageRecord{
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_ws",
+					ToolCallID:     "ws_abc",
+					Tool:           "web_search_call",
+					Injected:       false,
+				},
+			},
+		},
+		{
+			name: "all_additional_tool_types",
+			response: &oairesponses.Response{
+				ID: "resp_all",
+				Output: []oairesponses.ResponseOutputItemUnion{
+					{
+						Type: "web_search_call",
+						ID:   "ws_1",
+					},
+					{
+						Type:   "computer_call",
+						CallID: "call_comp",
+					},
+					{
+						Type:   "local_shell_call",
+						CallID: "call_lsh",
+					},
+					{
+						Type:   "shell_call",
+						CallID: "call_sh",
+					},
+					{
+						Type:   "apply_patch_call",
+						CallID: "call_ap",
+					},
+					{
+						Type: "code_interpreter_call",
+						ID:   "ci_1",
+					},
+					{
+						Type: "mcp_call",
+						ID:   "mcp_1",
+						Name: "my_mcp_tool",
+					},
+					{
+						Type: "file_search_call",
+						ID:   "fs_1",
+					},
+					{
+						Type: "image_generation_call",
+						ID:   "ig_1",
+					},
+					{
+						Type: "message",
+						ID:   "msg_skip",
+					},
+					{
+						Type: "reasoning",
+						ID:   "rs_skip",
+					},
+				},
+			},
+			expected: []*recorder.ToolUsageRecord{
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_all",
+					ToolCallID:     "ws_1",
+					Tool:           "web_search_call",
+					Injected:       false,
+				},
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_all",
+					ToolCallID:     "call_comp",
+					Tool:           "computer_call",
+					Injected:       false,
+				},
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_all",
+					ToolCallID:     "call_lsh",
+					Tool:           "local_shell_call",
+					Injected:       false,
+				},
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_all",
+					ToolCallID:     "call_sh",
+					Tool:           "shell_call",
+					Injected:       false,
+				},
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_all",
+					ToolCallID:     "call_ap",
+					Tool:           "apply_patch_call",
+					Injected:       false,
+				},
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_all",
+					ToolCallID:     "ci_1",
+					Tool:           "code_interpreter_call",
+					Injected:       false,
+				},
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_all",
+					ToolCallID:     "mcp_1",
+					Tool:           "my_mcp_tool",
+					Injected:       false,
+				},
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_all",
+					ToolCallID:     "fs_1",
+					Tool:           "file_search_call",
+					Injected:       false,
+				},
+				{
+					InterceptionID: id.String(),
+					MsgID:          "resp_all",
+					ToolCallID:     "ig_1",
+					Tool:           "image_generation_call",
+					Injected:       false,
+				},
+			},
+		},
 	}
 
 	for _, tc := range tests {
