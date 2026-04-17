@@ -10,9 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"cdr.dev/slog/v3"
 	"cdr.dev/slog/v3/sloggers/slogtest"
-	"github.com/stretchr/testify/require"
 
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/quartz"

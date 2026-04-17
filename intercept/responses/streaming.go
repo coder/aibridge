@@ -18,11 +18,11 @@ import (
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
-	"github.com/coder/quartz"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
 	"github.com/coder/aibridge/recorder"
+	"github.com/coder/quartz"
 	"github.com/coder/aibridge/tracing"
 )
 
