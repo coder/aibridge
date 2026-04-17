@@ -18,6 +18,7 @@ import (
 	"cdr.dev/slog/v3"
 	"github.com/coder/aibridge/config"
 	aibcontext "github.com/coder/aibridge/context"
+	"github.com/coder/quartz"
 	"github.com/coder/aibridge/intercept"
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/aibridge/mcp"
@@ -83,7 +84,7 @@ func (i *StreamingResponsesInterceptor) ProcessRequest(w http.ResponseWriter, r 
 
 	i.injectTools()
 
-	events := eventstream.NewEventStream(ctx, i.logger.Named("sse-sender"), nil)
+	events := eventstream.NewEventStream(ctx, i.logger.Named("sse-sender"), nil, quartz.NewReal())
 	go events.Start(w, r)
 	defer func() {
 		shutdownCtx, shutdownCancel := context.WithTimeout(ctx, streamShutdownTimeout)

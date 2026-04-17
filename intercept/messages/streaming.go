@@ -29,6 +29,7 @@ import (
 	"github.com/coder/aibridge/tracing"
 
 	"cdr.dev/slog/v3"
+	"github.com/coder/quartz"
 )
 
 type StreamingInterception struct {
@@ -140,7 +141,7 @@ func (i *StreamingInterception) ProcessRequest(w http.ResponseWriter, r *http.Re
 	}
 
 	// events will either terminate when shutdown after interaction with upstream completes, or when streamCtx is done.
-	events := eventstream.NewEventStream(streamCtx, logger.Named("sse-sender"), i.pingPayload())
+	events := eventstream.NewEventStream(streamCtx, logger.Named("sse-sender"), i.pingPayload(), quartz.NewReal())
 	go events.Start(w, r)
 	defer func() {
 		_ = events.Shutdown(streamCtx) // Catch-all in case it doesn't get shutdown after stream completes.

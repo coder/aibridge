@@ -15,17 +15,22 @@ import (
 	"golang.org/x/xerrors"
 
 	"cdr.dev/slog/v3"
+	"github.com/coder/quartz"
 )
 
 var ErrEventStreamClosed = xerrors.New("event stream closed")
 
-const pingInterval = time.Second * 10
+const (
+	pingInterval       = time.Second * 10
+	slowFlushThreshold = time.Millisecond * 500
+)
 
 type event []byte
 
 type EventStream struct {
 	ctx    context.Context
 	logger slog.Logger
+	clk    quartz.Clock
 
 	pingPayload []byte
 
@@ -43,7 +48,7 @@ type EventStream struct {
 }
 
 // NewEventStream creates a new SSE stream, with an optional payload which is used to send pings every [pingInterval].
-func NewEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte) *EventStream {
+func NewEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte, clk quartz.Clock) *EventStream {
 	// Send periodic pings to keep connections alive.
 	// The upstream provider may also send their own pings, but we can't rely on this.
 	tick := time.NewTicker(time.Nanosecond)
@@ -52,6 +57,7 @@ func NewEventStream(ctx context.Context, logger slog.Logger, pingPayload []byte)
 	return &EventStream{
 		ctx:    ctx,
 		logger: logger,
+		clk:    clk,
 
 		pingPayload: pingPayload,
 
@@ -131,9 +137,13 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
+		flushStart := s.clk.Now()
 		if err := flush(w); err != nil {
 			s.logger.Warn(ctx, "failed to flush event stream", slog.Error(err))
 			return
+		}
+		if d := s.clk.Since(flushStart); d > slowFlushThreshold {
+			s.logger.Warn(ctx, "slow client detected", slog.F("flush_duration", d))
 		}
 
 		// Reset the timer once we've flushed some data to the stream, since it's already fresh.
