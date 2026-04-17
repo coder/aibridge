@@ -221,6 +221,11 @@ func TestRewritePassthroughRequest(t *testing.T) {
 			},
 		},
 		{
+			// This is an edge case where whole `X-Forwarded-For` header
+			// is dropped if last hop (remote addr) is not parseable.
+			// This is how library handles this case and is not directly
+			// related to our code. Added it to verify that we
+			// don't accidentally break this behavior.
 			name:          "omits_forwarded_for_when_remote_addr_is_not_parseable",
 			reqPath:       "http://client-host/chat",
 			reqRemoteAddr: "not-a-socket-address",
