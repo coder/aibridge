@@ -120,17 +120,6 @@ func TestAWSBedrockValidation(t *testing.T) {
 				SmallFastModel:  "test-small-model",
 			},
 		},
-		{
-			name: "static credentials with session token",
-			cfg: &config.AWSBedrock{
-				Region:          "us-east-1",
-				AccessKey:       "test-key",
-				AccessKeySecret: "test-secret",
-				SessionToken:    "test-session-token",
-				Model:           "test-model",
-				SmallFastModel:  "test-small-model",
-			},
-		},
 		// Invalid cases.
 		{
 			name: "missing region & base url",

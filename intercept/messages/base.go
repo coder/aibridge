@@ -270,9 +270,9 @@ func (i *interceptionBase) withBody() option.RequestOption {
 // withAWSBedrockOptions returns request options for authenticating with AWS Bedrock.
 //
 // When both AccessKey and AccessKeySecret are set in the aibridge config, they are
-// used directly as static credentials (with an optional SessionToken for temporary credentials).
-// Otherwise, the AWS SDK default credential chain resolves credentials (environment variables,
-// shared config/credentials files, IAM roles, IRSA, SSO, IMDS, etc.).
+// used directly as static credentials. Otherwise, the AWS SDK default credential chain
+// resolves credentials (environment variables, shared config/credentials files, IAM
+// roles, IRSA, SSO, IMDS, etc.).
 func (*interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconfig.AWSBedrock) ([]option.RequestOption, error) {
 	if cfg == nil {
 		return nil, xerrors.New("nil config given")
@@ -299,7 +299,7 @@ func (*interceptionBase) withAWSBedrockOptions(ctx context.Context, cfg *aibconf
 			credentials.NewStaticCredentialsProvider(
 				cfg.AccessKey,
 				cfg.AccessKeySecret,
-				cfg.SessionToken, // optional
+				"",
 			),
 		))
 	// Only one set: misconfiguration.
