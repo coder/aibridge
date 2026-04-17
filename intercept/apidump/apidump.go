@@ -26,6 +26,8 @@ const (
 	SuffixRequest = ".req.txt"
 	// SuffixResponse is the file suffix for response dump files.
 	SuffixResponse = ".resp.txt"
+	// SuffixError is the file suffix for error dump files written when a request fails.
+	SuffixError = ".req_error.txt"
 )
 
 // MiddlewareNext is the function to call the next middleware or the actual request.
@@ -51,9 +53,11 @@ func NewBridgeMiddleware(baseDir string, provider string, model string, intercep
 			logger.Named("apidump").Warn(req.Context(), "failed to dump request", slog.Error(err))
 		}
 
-		// TODO: https://github.com/coder/aibridge/issues/129
 		resp, err := next(req)
 		if err != nil {
+			if dumpErr := d.dumpError(err); dumpErr != nil {
+				logger.Named("apidump").Warn(req.Context(), "failed to dump request error", slog.Error(dumpErr))
+			}
 			return resp, err
 		}
 
@@ -111,6 +115,14 @@ func (d *dumper) dumpRequest(req *http.Request) error {
 	_ = buf.WriteByte('\n')
 
 	return os.WriteFile(dumpPath, buf.Bytes(), 0o644) //nolint:gosec // https://github.com/coder/aibridge/pull/256#discussion_r3072143983
+}
+
+func (d *dumper) dumpError(reqErr error) error {
+	dumpPath := d.dumpPath + SuffixError
+	if err := os.MkdirAll(filepath.Dir(dumpPath), 0o755); err != nil {
+		return xerrors.Errorf("create dump dir: %w", err)
+	}
+	return os.WriteFile(dumpPath, []byte(reqErr.Error()+"\n"), 0o644) //nolint:gosec // same rationale as other dump files
 }
 
 func (d *dumper) dumpResponse(resp *http.Response) error {
@@ -248,6 +260,9 @@ func (rt *dumpRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 
 	resp, err := rt.inner.RoundTrip(req)
 	if err != nil {
+		if dumpErr := dumper.dumpError(err); dumpErr != nil {
+			dumper.logger.Named("apidump").Warn(req.Context(), "failed to dump passthrough request error", slog.Error(dumpErr))
+		}
 		return resp, err
 	}
 

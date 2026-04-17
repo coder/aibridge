@@ -46,7 +46,8 @@ func main() {
 	// Configure providers.
 	providers := []aibridge.Provider{
 		aibridge.NewAnthropicProvider(aibridge.AnthropicConfig{
-			Key: os.Getenv("ANTHROPIC_API_KEY"),
+			Key:     os.Getenv("ANTHROPIC_API_KEY"),
+			BaseURL: os.Getenv("ANTHROPIC_BASE_URL"),
 		}, nil),
 		aibridge.NewOpenAIProvider(aibridge.OpenAIConfig{
 			Key: os.Getenv("OPENAI_API_KEY"),
