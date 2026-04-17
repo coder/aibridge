@@ -150,7 +150,7 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 				slog.F("flush_duration", d),
 				slog.F("client_ip", clientIP),
 				slog.F("user_agent", r.Header.Get("User-Agent")),
-				slog.F("response_size_bytes", len(ev)),
+				slog.F("payload_size", len(ev)),
 			)
 		}
 

@@ -73,7 +73,7 @@ func TestEventStream_LogsWarning_WhenFlushIsSlow(t *testing.T) {
 	require.Contains(t, buf.String(), "slow client detected")
 	require.Contains(t, buf.String(), "192.0.2.1")
 	require.Contains(t, buf.String(), "test-agent/1.0")
-	require.Contains(t, buf.String(), "response_size_bytes=13")
+	require.Contains(t, buf.String(), "payload_size=13")
 }
 
 func TestEventStream_NoWarning_WhenFlushIsFast(t *testing.T) {
