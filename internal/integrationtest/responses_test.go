@@ -163,11 +163,33 @@ func TestResponsesOutputMatchesUpstream(t *testing.T) {
 					"total_tokens":     172,
 				},
 			},
-			expectedClient: aibridge.ClientUnknown,
-		},
-		{
-			name:                 "streaming_simple",
-			fixture:              fixtures.OaiResponsesStreamingSimple,
+				expectedClient: aibridge.ClientUnknown,
+			},
+			{
+				name:                 "blocking_web_search",
+				fixture:              fixtures.OaiResponsesBlockingWebSearch,
+				expectModel:          "gpt-5",
+				expectPromptRecorded: "What is the current weather in Cape Town?",
+				expectToolRecorded: &recorder.ToolUsageRecord{
+					MsgID:      "resp_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9d0e1",
+					Tool:       "web_search_call",
+					ToolCallID: "ws_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9d0e1",
+					Injected:   false,
+				},
+				expectTokenUsage: &recorder.TokenUsageRecord{
+					MsgID:  "resp_a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6a7b8c9d0e1",
+					Input:  42,
+					Output: 150,
+					ExtraTokenTypes: map[string]int64{
+						"input_cached":     0,
+						"output_reasoning": 0,
+						"total_tokens":     192,
+					},
+				},
+				expectedClient: aibridge.ClientUnknown,
+			},
+			{
+				name:                 "streaming_simple",			fixture:              fixtures.OaiResponsesStreamingSimple,
 			streaming:            true,
 			expectModel:          "gpt-4o-mini",
 			expectPromptRecorded: "tell me a joke",
