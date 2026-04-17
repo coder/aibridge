@@ -145,7 +145,13 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if d := s.clk.Since(flushStart); d > SlowFlushThreshold {
-			s.logger.Warn(ctx, "slow client detected", slog.F("flush_duration", d))
+			clientIP, _, _ := net.SplitHostPort(r.RemoteAddr)
+			s.logger.Warn(ctx, "slow client detected",
+				slog.F("flush_duration", d),
+				slog.F("client_ip", clientIP),
+				slog.F("user_agent", r.Header.Get("User-Agent")),
+				slog.F("response_size_bytes", len(ev)),
+			)
 		}
 
 		// Reset the timer once we've flushed some data to the stream, since it's already fresh.

@@ -56,6 +56,8 @@ func TestEventStream_LogsWarning_WhenFlushIsSlow(t *testing.T) {
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
 	require.NoError(t, err)
+	req.RemoteAddr = "192.0.2.1:12345"
+	req.Header.Set("User-Agent", "test-agent/1.0")
 
 	done := make(chan struct{})
 	go func() {
@@ -69,6 +71,9 @@ func TestEventStream_LogsWarning_WhenFlushIsSlow(t *testing.T) {
 	<-done
 
 	require.Contains(t, buf.String(), "slow client detected")
+	require.Contains(t, buf.String(), "192.0.2.1")
+	require.Contains(t, buf.String(), "test-agent/1.0")
+	require.Contains(t, buf.String(), "response_size_bytes=13")
 }
 
 func TestEventStream_NoWarning_WhenFlushIsFast(t *testing.T) {
