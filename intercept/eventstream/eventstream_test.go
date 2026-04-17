@@ -6,44 +6,19 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"sync"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 
 	"cdr.dev/slog/v3"
+	"cdr.dev/slog/v3/sloggers/sloghuman"
 	"cdr.dev/slog/v3/sloggers/slogtest"
 
 	"github.com/coder/aibridge/intercept/eventstream"
 	"github.com/coder/quartz"
 )
-
-// captureSink collects log entries for assertions in tests.
-type captureSink struct {
-	mu      sync.Mutex
-	entries []slog.SinkEntry
-}
-
-func (s *captureSink) LogEntry(_ context.Context, e slog.SinkEntry) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.entries = append(s.entries, e)
-}
-
-func (*captureSink) Sync() {}
-
-func (s *captureSink) warns() []slog.SinkEntry {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var out []slog.SinkEntry
-	for _, e := range s.entries {
-		if e.Level == slog.LevelWarn {
-			out = append(out, e)
-		}
-	}
-	return out
-}
 
 // clockAdvancingFlusher wraps httptest.ResponseRecorder and advances the mock
 // clock on each Flush call, simulating a slow client without real sleeping.
@@ -66,8 +41,8 @@ func (*clockAdvancingFlusher) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 func TestEventStream_LogsWarning_WhenFlushIsSlow(t *testing.T) {
 	t.Parallel()
 
-	sink := &captureSink{}
-	logger := slogtest.Make(t, nil).AppendSinks(sink).Leveled(slog.LevelWarn)
+	var buf strings.Builder
+	logger := slogtest.Make(t, nil).AppendSinks(sloghuman.Sink(&buf)).Leveled(slog.LevelWarn)
 	ctx := context.Background()
 	clk := quartz.NewMock(t)
 
@@ -76,7 +51,7 @@ func TestEventStream_LogsWarning_WhenFlushIsSlow(t *testing.T) {
 	w := &clockAdvancingFlusher{
 		ResponseRecorder: httptest.NewRecorder(),
 		clk:              clk,
-		advance:          600 * time.Millisecond, // exceeds slowFlushThreshold (500ms)
+		advance:          eventstream.SlowFlushThreshold + time.Millisecond,
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "/", nil)
@@ -93,16 +68,14 @@ func TestEventStream_LogsWarning_WhenFlushIsSlow(t *testing.T) {
 	require.NoError(t, stream.Shutdown(ctx))
 	<-done
 
-	warns := sink.warns()
-	require.Len(t, warns, 1)
-	require.Equal(t, "slow client detected", warns[0].Message)
+	require.Contains(t, buf.String(), "slow client detected")
 }
 
 func TestEventStream_NoWarning_WhenFlushIsFast(t *testing.T) {
 	t.Parallel()
 
-	sink := &captureSink{}
-	logger := slogtest.Make(t, nil).AppendSinks(sink).Leveled(slog.LevelWarn)
+	var buf strings.Builder
+	logger := slogtest.Make(t, nil).AppendSinks(sloghuman.Sink(&buf)).Leveled(slog.LevelWarn)
 	ctx := context.Background()
 	clk := quartz.NewMock(t)
 
@@ -129,5 +102,5 @@ func TestEventStream_NoWarning_WhenFlushIsFast(t *testing.T) {
 	require.NoError(t, stream.Shutdown(ctx))
 	<-done
 
-	require.Empty(t, sink.warns())
+	require.Empty(t, buf.String())
 }

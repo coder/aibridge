@@ -21,8 +21,10 @@ import (
 var ErrEventStreamClosed = xerrors.New("event stream closed")
 
 const (
-	pingInterval       = time.Second * 10
-	slowFlushThreshold = time.Millisecond * 500
+	pingInterval = time.Second * 10
+	// SlowFlushThreshold is the duration after which a flush to the client is
+	// considered slow and a warning is logged.
+	SlowFlushThreshold = time.Millisecond * 500
 )
 
 type event []byte
@@ -142,7 +144,7 @@ func (s *EventStream) Start(w http.ResponseWriter, r *http.Request) {
 			s.logger.Warn(ctx, "failed to flush event stream", slog.Error(err))
 			return
 		}
-		if d := s.clk.Since(flushStart); d > slowFlushThreshold {
+		if d := s.clk.Since(flushStart); d > SlowFlushThreshold {
 			s.logger.Warn(ctx, "slow client detected", slog.F("flush_duration", d))
 		}
 
