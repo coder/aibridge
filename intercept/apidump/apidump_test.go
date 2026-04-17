@@ -162,7 +162,7 @@ func TestBridgedMiddleware_WritesErrorFile_WhenNextFails(t *testing.T) {
 	require.NoError(t, err)
 
 	upstreamErr := io.ErrUnexpectedEOF
-	resp, err := middleware(req, func(_ *http.Request) (*http.Response, error) {
+	resp, err := middleware(req, func(_ *http.Request) (*http.Response, error) { //nolint:bodyclose // resp is nil on error
 		return nil, upstreamErr
 	})
 	require.ErrorIs(t, err, upstreamErr)
