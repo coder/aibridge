@@ -22,6 +22,7 @@ import (
 	"github.com/tidwall/gjson"
 
 	"github.com/coder/aibridge/fixtures"
+	"github.com/coder/aibridge/intercept/eventstream"
 )
 
 // upstreamResponse defines a single response that mockUpstream will replay
@@ -222,6 +223,9 @@ func (ms *mockUpstream) writeSSE(w http.ResponseWriter, data []byte) {
 	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for scanner.Scan() {
 		_, err := fmt.Fprintf(w, "%s\n", scanner.Text())
+		if eventstream.IsConnError(err) {
+			return // client disconnected, stop writing
+		}
 		require.NoError(ms.t, err)
 		flusher.Flush()
 	}
