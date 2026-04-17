@@ -2,7 +2,7 @@
   "input": [
     {
       "role": "user",
-      "content": "What is the current weather in San Francisco?"
+      "content": "What is the current weather in Cape Town?"
     }
   ],
   "model": "gpt-5",
@@ -45,14 +45,14 @@
       "content": [
         {
           "type": "output_text",
-          "text": "Based on my search, the current weather in San Francisco is partly cloudy with a temperature of around 62°F (17°C).",
+          "text": "Based on my search, the current weather in Cape Town is partly cloudy with a temperature of around 22°C (72°F).",
           "annotations": [
             {
               "type": "url_citation",
               "start_index": 28,
               "end_index": 47,
-              "url": "https://weather.example.com/san-francisco",
-              "title": "San Francisco Weather"
+              "url": "https://weather.example.com/cape-town",
+              "title": "Cape Town Weather"
             }
           ]
         }
