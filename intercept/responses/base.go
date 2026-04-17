@@ -34,10 +34,6 @@ import (
 
 const (
 	requestTimeout = time.Second * 600
-
-	// computerCall is defined locally because the OpenAI Go SDK does
-	// not export a typed constant for the "computer_call" output item.
-	computerCall = "computer_call"
 )
 
 type responsesInterceptionBase struct {
@@ -227,7 +223,7 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 
 		// Agentic tools: the client sends a corresponding *_output
 		// item correlated by call_id.
-		case computerCall,
+		case "computer_call",
 			string(constant.ValueOf[constant.LocalShellCall]()),
 			string(constant.ValueOf[constant.ShellCall]()),
 			string(constant.ValueOf[constant.ApplyPatchCall]()):
