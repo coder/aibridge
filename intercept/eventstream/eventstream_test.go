@@ -58,7 +58,7 @@ func (f *clockAdvancingFlusher) Flush() {
 }
 
 // Hijack satisfies the FullResponseWriter lint rule.
-func (f *clockAdvancingFlusher) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+func (*clockAdvancingFlusher) Hijack() (net.Conn, *bufio.ReadWriter, error) {
 	return nil, nil, nil
 }
 
