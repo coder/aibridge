@@ -113,6 +113,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_456",
+					ItemID:         "",
 					ToolCallID:     "call_abc",
 					Tool:           "get_weather",
 					Args:           "",
@@ -160,6 +161,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_789",
+					ItemID:         "",
 					ToolCallID:     "call_1",
 					Tool:           "get_weather",
 					Args:           map[string]any{"location": "NYC"},
@@ -168,6 +170,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_789",
+					ItemID:         "",
 					ToolCallID:     "call_2",
 					Tool:           "bad_json_args",
 					Args:           `{"bad": args`,
@@ -176,6 +179,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_789",
+					ItemID:         "",
 					ToolCallID:     "call_3",
 					Tool:           "search",
 					Args:           `{\"query\": \"test\"}`,
@@ -184,6 +188,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_789",
+					ItemID:         "",
 					ToolCallID:     "call_4",
 					Tool:           "calculate",
 					Args:           map[string]any{"a": float64(1), "b": float64(2)},
@@ -206,7 +211,8 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_ws",
-					ToolCallID:     "ws_abc",
+					ItemID:         "ws_abc",
+					ToolCallID:     "",
 					Tool:           "web_search_call",
 					Injected:       false,
 				},
@@ -268,7 +274,7 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_all",
-					ToolCallID:     "ws_1",
+					ItemID:         "ws_1",
 					Tool:           "web_search_call",
 					Injected:       false,
 				},
@@ -303,28 +309,28 @@ func TestRecordToolUsage(t *testing.T) {
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_all",
-					ToolCallID:     "ci_1",
+					ItemID:         "ci_1",
 					Tool:           "code_interpreter_call",
 					Injected:       false,
 				},
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_all",
-					ToolCallID:     "mcp_1",
+					ItemID:         "mcp_1",
 					Tool:           "my_mcp_tool",
 					Injected:       false,
 				},
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_all",
-					ToolCallID:     "fs_1",
+					ItemID:         "fs_1",
 					Tool:           "file_search_call",
 					Injected:       false,
 				},
 				{
 					InterceptionID: id.String(),
 					MsgID:          "resp_all",
-					ToolCallID:     "ig_1",
+					ItemID:         "ig_1",
 					Tool:           "image_generation_call",
 					Injected:       false,
 				},

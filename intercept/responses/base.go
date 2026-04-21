@@ -207,6 +207,7 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 		var (
 			args     recorder.ToolArgs
 			toolName string
+			itemID   string
 			callID   string
 		)
 
@@ -214,11 +215,13 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 		case string(constant.ValueOf[constant.FunctionCall]()):
 			args = i.parseFunctionCallJSONArgs(ctx, item.Arguments)
 			toolName = item.Name
+			itemID = item.ID
 			callID = item.CallID
 
 		case string(constant.ValueOf[constant.CustomToolCall]()):
 			args = item.Input
 			toolName = item.Name
+			itemID = item.ID
 			callID = item.CallID
 
 		// Agentic tools: the client sends a corresponding *_output
@@ -231,6 +234,7 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 			if toolName == "" {
 				toolName = item.Type
 			}
+			itemID = item.ID
 			callID = item.CallID
 
 		// Hosted tools: executed server-side, these output items
@@ -246,7 +250,7 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 			if toolName == "" {
 				toolName = item.Type
 			}
-			callID = item.ID
+			itemID = item.ID
 
 		default:
 			continue
@@ -255,6 +259,7 @@ func (i *responsesInterceptionBase) recordNonInjectedToolUsage(ctx context.Conte
 		if err := i.recorder.RecordToolUsage(ctx, &recorder.ToolUsageRecord{
 			InterceptionID: i.ID().String(),
 			MsgID:          response.ID,
+			ItemID:         itemID,
 			ToolCallID:     callID,
 			Tool:           toolName,
 			Args:           args,
