@@ -1,5 +1,8 @@
 # aibridge
 
+> [!IMPORTANT]
+> **Maintenance mode.** This repository has moved to [coder/coder](https://github.com/coder/coder) (see [coder/coder#24190](https://github.com/coder/coder/pull/24190)). New issues and pull requests will not be accepted here — please use [coder/coder](https://github.com/coder/coder) instead.
+
 aibridge is an HTTP gateway that sits between AI clients and upstream AI providers (Anthropic, OpenAI). It intercepts requests to record token usage, prompts, and tool invocations per user. Optionally supports centralized [MCP](https://modelcontextprotocol.io/) tool injection with allowlist/denylist filtering.
 
 ## Architecture
