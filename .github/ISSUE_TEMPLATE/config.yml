@@ -1,0 +1,7 @@
+blank_issues_enabled: false
+contact_links:
+  - name: This repository is in maintenance mode
+    url: https://github.com/coder/coder/issues/new/choose
+    about: >
+      aibridge has moved to coder/coder (see coder/coder#24190).
+      Please open new issues against coder/coder instead.
