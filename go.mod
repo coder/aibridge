@@ -39,8 +39,9 @@ require (
 	go.opentelemetry.io/otel/trace v1.40.0
 )
 
+require github.com/aws/aws-sdk-go-v2 v1.30.3
+
 require (
-	github.com/aws/aws-sdk-go-v2 v1.30.3 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.3 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.11 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.15 // indirect
